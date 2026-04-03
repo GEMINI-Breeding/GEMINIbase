@@ -156,7 +156,7 @@ class Experiment(APIBase):
             instance = cls.model_validate(db_instance)
             return instance
         except Exception as e:
-            logger.info("Error creating experiment:", e)
+            logger.error(f"Error creating experiment: {e}")
             return None
         
     @classmethod
@@ -184,7 +184,7 @@ class Experiment(APIBase):
             instance = cls.model_validate(db_instance)
             return instance
         except Exception as e:
-            logger.info("Error getting experiment:", e)
+            logger.error(f"Error getting experiment: {e}")
             return None
         
     @classmethod
@@ -210,7 +210,7 @@ class Experiment(APIBase):
             instance = cls.model_validate(db_instance)
             return instance
         except Exception as e:
-            logger.info("Error getting experiment by ID:", e)
+            logger.error(f"Error getting experiment by ID: {e}")
             return None
         
     @classmethod
@@ -235,7 +235,7 @@ class Experiment(APIBase):
             experiments = [cls.model_validate(experiment) for experiment in experiments]
             return experiments
         except Exception as e:
-            logger.info("Error getting all experiments:", e)
+            logger.error(f"Error getting all experiments: {e}")
             return None
         
     @classmethod
@@ -279,7 +279,7 @@ class Experiment(APIBase):
             experiments = [cls.model_validate(experiment) for experiment in experiments]
             return experiments
         except Exception as e:
-            logger.info("Error searching experiments:", e)
+            logger.error(f"Error searching experiments: {e}")
             return None
         
     def update(
@@ -328,7 +328,7 @@ class Experiment(APIBase):
             self.refresh()
             return updated_experiment
         except Exception as e:
-            logger.info("Error updating experiment:", e)
+            logger.error(f"Error updating experiment: {e}")
             return None
         
     def delete(self) -> bool:
@@ -353,7 +353,7 @@ class Experiment(APIBase):
             ExperimentModel.delete(experiment)
             return True
         except Exception as e:
-            logger.info("Error deleting experiment:", e)
+            logger.error(f"Error deleting experiment: {e}")
             return False
         
     def refresh(self) -> Optional["Experiment"]:
@@ -381,7 +381,7 @@ class Experiment(APIBase):
                     setattr(self, key, value)
             return self
         except Exception as e:
-            logger.info("Error refreshing experiment:", e)
+            logger.error(f"Error refreshing experiment: {e}")
             return None
         
     def get_info(self) -> Optional[dict]:
@@ -409,7 +409,7 @@ class Experiment(APIBase):
                 return None
             return experiment_info
         except Exception as e:
-            logger.info("Error getting experiment info:", e)
+            logger.error(f"Error getting experiment info: {e}")
             return None
         
     def set_info(self, experiment_info: dict) -> Optional["Experiment"]:
@@ -441,7 +441,7 @@ class Experiment(APIBase):
             self.refresh()
             return updated_experiment
         except Exception as e:
-            logger.info("Error setting experiment info:", e)
+            logger.error(f"Error setting experiment info: {e}")
             return None
 
     # region Season
@@ -470,7 +470,7 @@ class Experiment(APIBase):
             seasons = [Season.model_validate(season) for season in experiment_seasons]
             return seasons
         except Exception as e:
-            logger.info("Error getting associated seasons:", e)
+            logger.error(f"Error getting associated seasons: {e}")
             return None
 
     def create_new_season(
@@ -507,11 +507,11 @@ class Experiment(APIBase):
                 experiment_name=self.experiment_name
             )
             if not new_season:
-                logger.info("Error creating new season.")
+                logger.error("Error creating new season.")
                 return None
             return new_season
         except Exception as e:
-            logger.info("Error creating new season:", e)
+            logger.error(f"Error creating new season: {e}")
             return None
 
     # endregion
@@ -540,7 +540,7 @@ class Experiment(APIBase):
             cultivars = [Cultivar.model_validate(cultivar) for cultivar in experiment_cultivars]
             return cultivars
         except Exception as e:
-            logger.info("Error getting associated cultivars:", e)
+            logger.error(f"Error getting associated cultivars: {e}")
             return None
 
     def create_new_cultivar(
@@ -574,11 +574,11 @@ class Experiment(APIBase):
                 experiment_name=self.experiment_name
             )
             if not new_cultivar:
-                logger.info("Error creating new cultivar.")
+                logger.error("Error creating new cultivar.")
                 return None
             return new_cultivar
         except Exception as e:
-            logger.info("Error creating new cultivar:", e)
+            logger.error(f"Error creating new cultivar: {e}")
             return None
 
     def associate_cultivar(
@@ -610,7 +610,7 @@ class Experiment(APIBase):
             cultivar.associate_experiment(experiment_name=self.experiment_name)
             return cultivar
         except Exception as e:
-            logger.info("Error associating cultivar:", e)
+            logger.error(f"Error associating cultivar: {e}")
             return None
 
     def unassociate_cultivar(
@@ -642,7 +642,7 @@ class Experiment(APIBase):
             cultivar.unassociate_experiment(experiment_name=self.experiment_name)
             return cultivar
         except Exception as e:
-            logger.info("Error unassociating cultivar:", e)
+            logger.error(f"Error unassociating cultivar: {e}")
             return None
 
     def belongs_to_cultivar(
@@ -674,7 +674,7 @@ class Experiment(APIBase):
             association_exists = cultivar.belongs_to_experiment(experiment_name=self.experiment_name)
             return association_exists
         except Exception as e:
-            logger.info("Error checking if belongs to cultivar:", e)
+            logger.error(f"Error checking if belongs to cultivar: {e}")
             return False
 
     # endregion
@@ -704,7 +704,7 @@ class Experiment(APIBase):
             procedures = [Procedure.model_validate(procedure) for procedure in experiment_procedures]
             return procedures
         except Exception as e:
-            logger.info("Error getting associated procedures:", e)
+            logger.error(f"Error getting associated procedures: {e}")
             return None
         
     def create_new_procedure(
@@ -735,11 +735,11 @@ class Experiment(APIBase):
                 experiment_name=self.experiment_name
             )
             if not new_procedure:
-                logger.info("Error creating new procedure.")
+                logger.error("Error creating new procedure.")
                 return None
             return new_procedure
         except Exception as e:
-            logger.info("Error creating new procedure:", e)
+            logger.error(f"Error creating new procedure: {e}")
             return None
         
     def associate_procedure(
@@ -769,7 +769,7 @@ class Experiment(APIBase):
             procedure.associate_experiment(experiment_name=self.experiment_name)
             return procedure
         except Exception as e:
-            logger.info("Error associating procedure:", e)
+            logger.error(f"Error associating procedure: {e}")
             return None
         
     def unassociate_procedure(
@@ -799,7 +799,7 @@ class Experiment(APIBase):
             procedure.unassociate_experiment(experiment_name=self.experiment_name)
             return procedure
         except Exception as e:
-            logger.info("Error unassociating procedure:", e)
+            logger.error(f"Error unassociating procedure: {e}")
             return None
         
     def belongs_to_procedure(
@@ -829,7 +829,7 @@ class Experiment(APIBase):
             association_exists = procedure.belongs_to_experiment(experiment_name=self.experiment_name)
             return association_exists
         except Exception as e:
-            logger.info("Error checking if belongs to procedure:", e)
+            logger.error(f"Error checking if belongs to procedure: {e}")
             return False
         
     # endregion
@@ -859,7 +859,7 @@ class Experiment(APIBase):
             scripts = [Script.model_validate(script) for script in experiment_scripts]
             return scripts
         except Exception as e:
-            logger.info("Error getting associated scripts:", e)
+            logger.error(f"Error getting associated scripts: {e}")
             return None
         
     def create_new_script(
@@ -896,11 +896,11 @@ class Experiment(APIBase):
                 experiment_name=self.experiment_name
             )
             if not new_script:
-                logger.info("Error creating new script.")
+                logger.error("Error creating new script.")
                 return None
             return new_script
         except Exception as e:
-            logger.info("Error creating new script:", e)
+            logger.error(f"Error creating new script: {e}")
             return None
         
     def associate_script(
@@ -930,7 +930,7 @@ class Experiment(APIBase):
             script.associate_experiment(experiment_name=self.experiment_name)
             return script
         except Exception as e:
-            logger.info("Error associating script:", e)
+            logger.error(f"Error associating script: {e}")
             return None
         
     def unassociate_script(
@@ -960,7 +960,7 @@ class Experiment(APIBase):
             script.unassociate_experiment(experiment_name=self.experiment_name)
             return script
         except Exception as e:
-            logger.info("Error unassociating script:", e)
+            logger.error(f"Error unassociating script: {e}")
             return None
         
     def belongs_to_script(
@@ -990,7 +990,7 @@ class Experiment(APIBase):
             association_exists = script.belongs_to_experiment(experiment_name=self.experiment_name)
             return association_exists
         except Exception as e:
-            logger.info("Error checking if belongs to script:", e)
+            logger.error(f"Error checking if belongs to script: {e}")
             return False
     # endregion
 
@@ -1019,7 +1019,7 @@ class Experiment(APIBase):
             models = [Model.model_validate(model) for model in experiment_models]
             return models
         except Exception as e:
-            logger.info("Error getting associated models:", e)
+            logger.error(f"Error getting associated models: {e}")
             return None
         
     def create_new_model(
@@ -1053,11 +1053,11 @@ class Experiment(APIBase):
                 experiment_name=self.experiment_name
             )
             if not new_model:
-                logger.info("Error creating new model.")
+                logger.error("Error creating new model.")
                 return None
             return new_model
         except Exception as e:
-            logger.info("Error creating new model:", e)
+            logger.error(f"Error creating new model: {e}")
             return None
         
     def associate_model(
@@ -1087,7 +1087,7 @@ class Experiment(APIBase):
             model.associate_experiment(experiment_name=self.experiment_name)
             return model
         except Exception as e:
-            logger.info("Error associating model:", e)
+            logger.error(f"Error associating model: {e}")
             return None
         
     def unassociate_model(
@@ -1117,7 +1117,7 @@ class Experiment(APIBase):
             model.unassociate_experiment(experiment_name=self.experiment_name)
             return model
         except Exception as e:
-            logger.info("Error unassociating model:", e)
+            logger.error(f"Error unassociating model: {e}")
             return None
         
     def belongs_to_model(
@@ -1147,7 +1147,7 @@ class Experiment(APIBase):
             association_exists = model.belongs_to_experiment(experiment_name=self.experiment_name)
             return association_exists
         except Exception as e:
-            logger.info("Error checking if belongs to model:", e)
+            logger.error(f"Error checking if belongs to model: {e}")
             return False
     # endregion
 
@@ -1176,7 +1176,7 @@ class Experiment(APIBase):
             sensors = [Sensor.model_validate(sensor) for sensor in experiment_sensors]
             return sensors
         except Exception as e:
-            logger.info("Error getting associated sensors:", e)
+            logger.error(f"Error getting associated sensors: {e}")
             return None
         
     def create_new_sensor(
@@ -1219,11 +1219,11 @@ class Experiment(APIBase):
                 sensor_platform_name=sensor_platform_name
             )
             if not new_sensor:
-                logger.info("Error creating new sensor.")
+                logger.error("Error creating new sensor.")
                 return None
             return new_sensor
         except Exception as e:
-            logger.info("Error creating new sensor:", e)
+            logger.error(f"Error creating new sensor: {e}")
             return None
         
     def associate_sensor(
@@ -1253,7 +1253,7 @@ class Experiment(APIBase):
             sensor.associate_experiment(experiment_name=self.experiment_name)
             return sensor
         except Exception as e:
-            logger.info("Error associating sensor:", e)
+            logger.error(f"Error associating sensor: {e}")
             return None
     
     def unassociate_sensor(
@@ -1283,7 +1283,7 @@ class Experiment(APIBase):
             sensor.unassociate_experiment(experiment_name=self.experiment_name)
             return sensor
         except Exception as e:
-            logger.info("Error unassociating sensor:", e)
+            logger.error(f"Error unassociating sensor: {e}")
             return None
         
     def belongs_to_sensor(
@@ -1313,7 +1313,7 @@ class Experiment(APIBase):
             association_exists = sensor.belongs_to_experiment(experiment_name=self.experiment_name)
             return association_exists
         except Exception as e:
-            logger.info("Error checking if belongs to sensor:", e)
+            logger.error(f"Error checking if belongs to sensor: {e}")
             return False
     # endregion
 
@@ -1342,7 +1342,7 @@ class Experiment(APIBase):
             sensor_platforms = [SensorPlatform.model_validate(sensor_platform) for sensor_platform in experiment_sensor_platforms]
             return sensor_platforms
         except Exception as e:
-            logger.info("Error getting associated sensor platforms:", e)
+            logger.error(f"Error getting associated sensor platforms: {e}")
             return None
         
     def create_new_sensor_platform(
@@ -1373,11 +1373,11 @@ class Experiment(APIBase):
                 experiment_name=self.experiment_name
             )
             if not new_sensor_platform:
-                logger.info("Error creating new sensor platform.")
+                logger.error("Error creating new sensor platform.")
                 return None
             return new_sensor_platform
         except Exception as e:
-            logger.info("Error creating new sensor platform:", e)
+            logger.error(f"Error creating new sensor platform: {e}")
             return None
         
     def associate_sensor_platform(
@@ -1407,7 +1407,7 @@ class Experiment(APIBase):
             sensor_platform.associate_experiment(experiment_name=self.experiment_name)
             return sensor_platform
         except Exception as e:
-            logger.info("Error associating sensor platform:", e)
+            logger.error(f"Error associating sensor platform: {e}")
             return None
         
     def unassociate_sensor_platform(
@@ -1437,7 +1437,7 @@ class Experiment(APIBase):
             sensor_platform.unassociate_experiment(experiment_name=self.experiment_name)
             return sensor_platform
         except Exception as e:
-            logger.info("Error unassociating sensor platform:", e)
+            logger.error(f"Error unassociating sensor platform: {e}")
             return None
         
     def belongs_to_sensor_platform(
@@ -1467,7 +1467,7 @@ class Experiment(APIBase):
             association_exists = sensor_platform.belongs_to_experiment(experiment_name=self.experiment_name)
             return association_exists
         except Exception as e:
-            logger.info("Error checking if belongs to sensor platform:", e)
+            logger.error(f"Error checking if belongs to sensor platform: {e}")
             return False
     # endregion
 
@@ -1496,7 +1496,7 @@ class Experiment(APIBase):
             sites = [Site.model_validate(site) for site in experiment_sites]
             return sites
         except Exception as e:
-            logger.info("Error getting associated sites:", e)
+            logger.error(f"Error getting associated sites: {e}")
             return None
         
     def create_new_site(
@@ -1536,11 +1536,11 @@ class Experiment(APIBase):
                 experiment_name=self.experiment_name
             )
             if not new_site:
-                logger.info("Error creating new site.")
+                logger.error("Error creating new site.")
                 return None
             return new_site
         except Exception as e:
-            logger.info("Error creating new site:", e)
+            logger.error(f"Error creating new site: {e}")
             return None
         
     def associate_site(
@@ -1570,7 +1570,7 @@ class Experiment(APIBase):
             site.associate_experiment(experiment_name=self.experiment_name)
             return site
         except Exception as e:
-            logger.info("Error associating site:", e)
+            logger.error(f"Error associating site: {e}")
             return None
         
     def unassociate_site(
@@ -1600,7 +1600,7 @@ class Experiment(APIBase):
             site.unassociate_experiment(experiment_name=self.experiment_name)
             return site
         except Exception as e:
-            logger.info("Error unassociating site:", e)
+            logger.error(f"Error unassociating site: {e}")
             return None
         
     def belongs_to_site(
@@ -1630,7 +1630,7 @@ class Experiment(APIBase):
             association_exists = site.belongs_to_experiment(experiment_name=self.experiment_name)
             return association_exists
         except Exception as e:
-            logger.info("Error checking if belongs to site:", e)
+            logger.error(f"Error checking if belongs to site: {e}")
             return False
     # endregion
 
@@ -1659,7 +1659,7 @@ class Experiment(APIBase):
             datasets = [Dataset.model_validate(dataset) for dataset in experiment_datasets]
             return datasets
         except Exception as e:
-            logger.info("Error getting associated datasets:", e)
+            logger.error(f"Error getting associated datasets: {e}")
             return None
         
     def create_new_dataset(
@@ -1697,11 +1697,11 @@ class Experiment(APIBase):
                 experiment_name=self.experiment_name
             )
             if not new_dataset:
-                logger.info("Error creating new dataset.")
+                logger.error("Error creating new dataset.")
                 return None
             return new_dataset
         except Exception as e:
-            logger.info("Error creating new dataset:", e)
+            logger.error(f"Error creating new dataset: {e}")
             return None
         
     def associate_dataset(
@@ -1731,7 +1731,7 @@ class Experiment(APIBase):
             dataset.associate_experiment(experiment_name=self.experiment_name)
             return dataset
         except Exception as e:
-            logger.info("Error associating dataset:", e)
+            logger.error(f"Error associating dataset: {e}")
             return None
         
     def unassociate_dataset(
@@ -1761,7 +1761,7 @@ class Experiment(APIBase):
             dataset.unassociate_experiment(experiment_name=self.experiment_name)
             return dataset
         except Exception as e:
-            logger.info("Error unassociating dataset:", e)
+            logger.error(f"Error unassociating dataset: {e}")
             return None
         
     def belongs_to_dataset(
@@ -1792,7 +1792,7 @@ class Experiment(APIBase):
             association_exists = dataset.belongs_to_experiment(experiment_name=self.experiment_name)
             return association_exists
         except Exception as e:
-            logger.info("Error checking if belongs to dataset:", e)
+            logger.error(f"Error checking if belongs to dataset: {e}")
             return False
         
     # endregion
@@ -1822,7 +1822,7 @@ class Experiment(APIBase):
             traits = [Trait.model_validate(trait) for trait in experiment_traits]
             return traits
         except Exception as e:
-            logger.info("Error getting associated traits:", e)
+            logger.error(f"Error getting associated traits: {e}")
             return None
         
     def create_new_trait(
@@ -1862,11 +1862,11 @@ class Experiment(APIBase):
                 experiment_name=self.experiment_name
             )
             if not new_trait:
-                logger.info("Error creating new trait.")
+                logger.error("Error creating new trait.")
                 return None
             return new_trait
         except Exception as e:
-            logger.info("Error creating new trait:", e)
+            logger.error(f"Error creating new trait: {e}")
             return None
         
     def associate_trait(
@@ -1896,7 +1896,7 @@ class Experiment(APIBase):
             trait.associate_experiment(experiment_name=self.experiment_name)
             return trait
         except Exception as e:
-            logger.info("Error associating trait:", e)
+            logger.error(f"Error associating trait: {e}")
             return None
         
     def unassociate_trait(
@@ -1926,7 +1926,7 @@ class Experiment(APIBase):
             trait.unassociate_experiment(experiment_name=self.experiment_name)
             return trait
         except Exception as e:
-            logger.info("Error unassociating trait:", e)
+            logger.error(f"Error unassociating trait: {e}")
             return None
         
     def belongs_to_trait(
@@ -1956,7 +1956,7 @@ class Experiment(APIBase):
             association_exists = trait.belongs_to_experiment(experiment_name=self.experiment_name)
             return association_exists
         except Exception as e:
-            logger.info("Error checking if belongs to trait:", e)
+            logger.error(f"Error checking if belongs to trait: {e}")
             return False
     # endregion
 
@@ -1987,7 +1987,7 @@ class Experiment(APIBase):
             plots = [Plot.model_validate(plot) for plot in plots]
             return plots
         except Exception as e:
-            logger.info("Error getting associated plots:", e)
+            logger.error(f"Error getting associated plots: {e}")
             return None
         
     def create_new_plot(
@@ -2030,11 +2030,11 @@ class Experiment(APIBase):
                 experiment_name=self.experiment_name
             )
             if not new_plot:
-                logger.info("Error creating new plot.")
+                logger.error("Error creating new plot.")
                 return None
             return new_plot
         except Exception as e:
-            logger.info("Error creating new plot:", e)
+            logger.error(f"Error creating new plot: {e}")
             return None
         
     def associate_plot(
@@ -2078,7 +2078,7 @@ class Experiment(APIBase):
             plot.associate_experiment(experiment_name=self.experiment_name)
             return plot
         except Exception as e:
-            logger.info("Error associating plot:", e)
+            logger.error(f"Error associating plot: {e}")
             return None
         
     def unassociate_plot(
@@ -2122,7 +2122,7 @@ class Experiment(APIBase):
             plot.unassociate_experiment()
             return plot
         except Exception as e:
-            logger.info("Error unassociating plot:", e)
+            logger.error(f"Error unassociating plot: {e}")
             return None
         
     def belongs_to_plot(
@@ -2166,7 +2166,7 @@ class Experiment(APIBase):
             association_exists = plot.belongs_to_experiment(experiment_name=self.experiment_name)
             return association_exists
         except Exception as e:
-            logger.info("Error checking if belongs to plot:", e)
+            logger.error(f"Error checking if belongs to plot: {e}")
             return False
     # endregion
 

@@ -50,7 +50,7 @@ Three-layer design:
 
 1. **`gemini/api/`** — Pydantic-based Python API with CRUD operations for each domain entity
 2. **`gemini/db/`** — SQLAlchemy ORM layer targeting PostgreSQL
-3. **`gemini/rest_api/`** — Litestar REST API with 18 controllers
+3. **`gemini/rest_api/`** — Litestar REST API with 19 controllers
 
 Supporting modules: storage (MinIO/S3/local), logging (Redis), CLI (Click), configuration (pydantic-settings).
 
