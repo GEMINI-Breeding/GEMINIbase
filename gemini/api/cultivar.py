@@ -35,6 +35,7 @@ from typing import Optional, List
 from uuid import UUID
 
 from pydantic import Field, AliasChoices
+import logging
 from gemini.api.types import ID
 from gemini.api.base import APIBase
 from gemini.db.models.cultivars import CultivarModel
@@ -49,6 +50,8 @@ if TYPE_CHECKING:
     from gemini.api.experiment import Experiment
     from gemini.api.plot import Plot
     from gemini.api.plant import Plant
+
+logger = logging.getLogger(__name__)
 
 class Cultivar(APIBase):
     """
@@ -105,7 +108,7 @@ class Cultivar(APIBase):
             )
             return exists
         except Exception as e:
-            print(f"Error checking the existence of cultivar: {e}")
+            logger.error(f"Error checking the existence of cultivar: {e}")
             return False
 
     @classmethod
@@ -113,7 +116,7 @@ class Cultivar(APIBase):
         cls,
         cultivar_population: str,
         cultivar_accession: str,
-        cultivar_info: dict = {},
+        cultivar_info: dict = None,
         experiment_name: str = None
     ) -> Optional["Cultivar"]:
         """
@@ -149,7 +152,7 @@ class Cultivar(APIBase):
                 cultivar.associate_experiment(experiment_name)
             return cultivar
         except Exception as e:
-            print(f"Error creating cultivar: {e}")
+            logger.error(f"Error creating cultivar: {e}")
             return None
         
     @classmethod
@@ -181,12 +184,12 @@ class Cultivar(APIBase):
                 experiment_name=experiment_name,
             )
             if not db_instance:
-                print(f"Cultivar with accession {cultivar_accession} and population {cultivar_population} not found.")
+                logger.debug(f"Cultivar with accession {cultivar_accession} and population {cultivar_population} not found.")
                 return None
             cultivar = cls.model_validate(db_instance)
             return cultivar
         except Exception as e:
-            print(f"Error getting cultivar: {e}")
+            logger.error(f"Error getting cultivar: {e}")
             return None
         
     @classmethod
@@ -208,16 +211,16 @@ class Cultivar(APIBase):
         try:
             db_instance = CultivarModel.get(id)
             if not db_instance:
-                print(f"Cultivar with ID {id} does not exist.")
+                logger.warning(f"Cultivar with ID {id} does not exist.")
                 return None
             cultivar = cls.model_validate(db_instance)
             return cultivar
         except Exception as e:
-            print(f"Error getting cultivar by ID: {e}")
+            logger.error(f"Error getting cultivar by ID: {e}")
             return None
         
     @classmethod
-    def get_all(cls) -> Optional[List["Cultivar"]]:
+    def get_all(cls, limit: int = None, offset: int = None) -> Optional[List["Cultivar"]]:
         """
         Get all cultivars.
 
@@ -233,14 +236,14 @@ class Cultivar(APIBase):
             Optional[List["Cultivar"]]: A list of all cultivars, or None if an error occurred.
         """
         try:
-            cultivars = CultivarModel.all()
+            cultivars = CultivarModel.all(limit=limit, offset=offset)
             if not cultivars or len(cultivars) == 0:
-                print("No cultivars found.")
+                logger.info("No cultivars found.")
                 return None
             cultivars = [cls.model_validate(cultivar) for cultivar in cultivars]
             return cultivars
         except Exception as e:
-            print(f"Error getting all cultivars: {e}")
+            logger.error(f"Error getting all cultivars: {e}")
             return None
         
     @classmethod
@@ -272,7 +275,7 @@ class Cultivar(APIBase):
         """
         try:
             if not any([experiment_name, cultivar_population, cultivar_accession, cultivar_info]):
-                print("At least one search parameter must be provided.")
+                logger.warning("At least one search parameter must be provided.")
                 return None
             cultivars = ExperimentCultivarsViewModel.search(
                 experiment_name=experiment_name,
@@ -281,12 +284,12 @@ class Cultivar(APIBase):
                 cultivar_info=cultivar_info,
             )
             if not cultivars or len(cultivars) == 0:
-                print("No cultivars found with the provided search parameters.")
+                logger.info("No cultivars found with the provided search parameters.")
                 return None
             cultivars = [cls.model_validate(cultivar) for cultivar in cultivars]
             return cultivars
         except Exception as e:
-            print(f"Error searching cultivars: {e}")
+            logger.error(f"Error searching cultivars: {e}")
             return None
         
     def update(
@@ -315,13 +318,13 @@ class Cultivar(APIBase):
         """
         try:
             if not any([cultivar_accession, cultivar_population, cultivar_info]):
-                print("At least one parameter must be provided for update.")
+                logger.warning("At least one parameter must be provided for update.")
                 return None
             
             current_id = self.id
             cultivar = CultivarModel.get(current_id)
             if not cultivar:
-                print(f"Cultivar with ID {current_id} does not exist.")
+                logger.warning(f"Cultivar with ID {current_id} does not exist.")
                 return None
             cultivar = CultivarModel.update(
                 cultivar,
@@ -333,7 +336,7 @@ class Cultivar(APIBase):
             self.refresh()
             return cultivar
         except Exception as e:
-            print(f"Error updating cultivar: {e}")
+            logger.error(f"Error updating cultivar: {e}")
             return None
         
     def delete(self) -> bool:
@@ -353,7 +356,7 @@ class Cultivar(APIBase):
             current_id = self.id
             cultivar = CultivarModel.get(current_id)
             if not cultivar:
-                print(f"Cultivar with ID {current_id} does not exist.")
+                logger.warning(f"Cultivar with ID {current_id} does not exist.")
                 return False
             CultivarModel.delete(cultivar)
             return True
@@ -378,7 +381,7 @@ class Cultivar(APIBase):
         try:
             db_instance = CultivarModel.get(self.id)
             if not db_instance:
-                print(f"Cultivar with ID {self.id} does not exist.")
+                logger.warning(f"Cultivar with ID {self.id} does not exist.")
                 return self
             instance = self.model_validate(db_instance)
             for key, value in instance.model_dump().items():
@@ -386,7 +389,7 @@ class Cultivar(APIBase):
                     setattr(self, key, value)
             return self
         except Exception as e:
-            print(f"Error refreshing cultivar: {e}")
+            logger.error(f"Error refreshing cultivar: {e}")
             return None
         
     def get_info(self) -> Optional[dict]:
@@ -406,15 +409,15 @@ class Cultivar(APIBase):
             current_id = self.id
             cultivar = CultivarModel.get(current_id)
             if not cultivar:
-                print(f"Cultivar with ID {current_id} does not exist.")
+                logger.warning(f"Cultivar with ID {current_id} does not exist.")
                 return None
             cultivar_info = cultivar.cultivar_info
             if not cultivar_info:
-                print("Cultivar info is empty.")
+                logger.info("Cultivar info is empty.")
                 return None
             return cultivar_info
         except Exception as e:
-            print(f"Error getting cultivar info: {e}")
+            logger.error(f"Error getting cultivar info: {e}")
             return None
         
     def set_info(self, cultivar_info: dict) -> Optional["Cultivar"]:
@@ -437,7 +440,7 @@ class Cultivar(APIBase):
             current_id = self.id
             cultivar = CultivarModel.get(current_id)
             if not cultivar:
-                print(f"Cultivar with ID {current_id} does not exist.")
+                logger.warning(f"Cultivar with ID {current_id} does not exist.")
                 return None
             cultivar = CultivarModel.update(
                 cultivar,
@@ -447,7 +450,7 @@ class Cultivar(APIBase):
             self.refresh()
             return cultivar
         except Exception as e:
-            print(f"Error setting cultivar info: {e}")
+            logger.error(f"Error setting cultivar info: {e}")
             return None
 
     def get_associated_experiments(self) -> Optional[List["Experiment"]]:
@@ -471,12 +474,12 @@ class Cultivar(APIBase):
             current_id = self.id
             experiment_cultivars = ExperimentCultivarsViewModel.search(cultivar_id=current_id)
             if not experiment_cultivars or len(experiment_cultivars) == 0:
-                print("No associated experiments found.")
+                logger.info("No associated experiments found.")
                 return None
             experiments = [Experiment.model_validate(experiment_cultivar) for experiment_cultivar in experiment_cultivars]
             return experiments
         except Exception as e:
-            print(f"Error getting associated experiments: {e}")
+            logger.error(f"Error getting associated experiments: {e}")
             return None
 
     def associate_experiment(self, experiment_name: str) -> Optional["Experiment"]:
@@ -500,26 +503,26 @@ class Cultivar(APIBase):
             from gemini.api.experiment import Experiment
             experiment = Experiment.get(experiment_name=experiment_name)
             if not experiment:
-                print(f"Experiment {experiment_name} does not exist.")
+                logger.warning(f"Experiment {experiment_name} does not exist.")
                 return None
             existing_association = ExperimentCultivarModel.get_by_parameters(
                 experiment_id=experiment.id,
                 cultivar_id=self.id
             )
             if existing_association:
-                print(f"Cultivar {self.cultivar_population} is already associated with experiment {experiment_name}.")
+                logger.info(f"Cultivar {self.cultivar_population} is already associated with experiment {experiment_name}.")
                 return experiment
             new_association = ExperimentCultivarModel.get_or_create(
                 experiment_id=experiment.id,
                 cultivar_id=self.id
             )
             if not new_association:
-                print(f"Failed to associate cultivar {self.cultivar_population} with experiment {experiment_name}.")
+                logger.info(f"Failed to associate cultivar {self.cultivar_population} with experiment {experiment_name}.")
                 return None
             self.refresh()
             return experiment
         except Exception as e:
-            print(f"Error associating cultivar with experiment: {e}")
+            logger.error(f"Error associating cultivar with experiment: {e}")
             return None
         
     def unassociate_experiment(self, experiment_name: str) -> Optional["Experiment"]:
@@ -543,23 +546,23 @@ class Cultivar(APIBase):
             from gemini.api.experiment import Experiment
             experiment = Experiment.get(experiment_name=experiment_name)
             if not experiment:
-                print(f"Experiment {experiment_name} does not exist.")
+                logger.warning(f"Experiment {experiment_name} does not exist.")
                 return None
             existing_association = ExperimentCultivarModel.get_by_parameters(
                 experiment_id=experiment.id,
                 cultivar_id=self.id
             )
             if not existing_association:
-                print(f"Cultivar {self.cultivar_population} is not associated with experiment {experiment_name}.")
+                logger.info(f"Cultivar {self.cultivar_population} is not associated with experiment {experiment_name}.")
                 return None
             is_deleted = ExperimentCultivarModel.delete(existing_association)
             if not is_deleted:
-                print(f"Failed to unassociate cultivar {self.cultivar_population} from experiment {experiment_name}.")
+                logger.info(f"Failed to unassociate cultivar {self.cultivar_population} from experiment {experiment_name}.")
                 return None
             self.refresh()
             return experiment
         except Exception as e:
-            print(f"Error unassociating cultivar from experiment: {e}")
+            logger.error(f"Error unassociating cultivar from experiment: {e}")
             return None
 
     def belongs_to_experiment(self, experiment_name: str) -> bool:
@@ -586,7 +589,7 @@ class Cultivar(APIBase):
             from gemini.api.experiment import Experiment
             experiment = Experiment.get(experiment_name=experiment_name)
             if not experiment:
-                print(f"Experiment {experiment_name} does not exist.")
+                logger.warning(f"Experiment {experiment_name} does not exist.")
                 return False
             association_exists = ExperimentCultivarModel.exists(
                 experiment_id=experiment.id,
@@ -594,7 +597,7 @@ class Cultivar(APIBase):
             )
             return association_exists
         except Exception as e:
-            print(f"Error checking if cultivar belongs to experiment: {e}")
+            logger.error(f"Error checking if cultivar belongs to experiment: {e}")
             return False
 
     def get_associated_plots(self) -> Optional[List["Plot"]]:
@@ -618,12 +621,12 @@ class Cultivar(APIBase):
             current_id = self.id
             plot_cultivars = PlotCultivarViewModel.search(cultivar_id=current_id)
             if not plot_cultivars or len(plot_cultivars) == 0:
-                print("No associated plots found.")
+                logger.info("No associated plots found.")
                 return None
             plots = [Plot.model_validate(plot_cultivar) for plot_cultivar in plot_cultivars]
             return plots
         except Exception as e:
-            print(f"Error getting associated plots: {e}")
+            logger.error(f"Error getting associated plots: {e}")
             return None
 
     def associate_plot(
@@ -666,26 +669,26 @@ class Cultivar(APIBase):
                 site_name=site_name
             )
             if not plot:
-                print(f"Plot {plot_number} does not exist.")
+                logger.warning(f"Plot {plot_number} does not exist.")
                 return None
             existing_association = PlotCultivarModel.get_by_parameters(
                 plot_id=plot.id,
                 cultivar_id=self.id
             )
             if existing_association:
-                print(f"Cultivar {self.cultivar_population} is already associated with plot {plot_number}.")
+                logger.info(f"Cultivar {self.cultivar_population} is already associated with plot {plot_number}.")
                 return plot
             new_association = PlotCultivarModel.get_or_create(
                 plot_id=plot.id,
                 cultivar_id=self.id
             )
             if not new_association:
-                print(f"Failed to associate cultivar {self.cultivar_population} with plot {plot_number}.")
+                logger.info(f"Failed to associate cultivar {self.cultivar_population} with plot {plot_number}.")
                 return None
             self.refresh()
             return plot
         except Exception as e:
-            print(f"Error associating cultivar with plot: {e}")
+            logger.error(f"Error associating cultivar with plot: {e}")
             return None
 
     def unassociate_plot(
@@ -728,23 +731,23 @@ class Cultivar(APIBase):
                 site_name=site_name
             )
             if not plot:
-                print(f"Plot {plot_number} does not exist.")
+                logger.warning(f"Plot {plot_number} does not exist.")
                 return None
             existing_association = PlotCultivarModel.get_by_parameters(
                 plot_id=plot.id,
                 cultivar_id=self.id
             )
             if not existing_association:
-                print(f"Cultivar {self.cultivar_population} is not associated with plot {plot_number}.")
+                logger.info(f"Cultivar {self.cultivar_population} is not associated with plot {plot_number}.")
                 return None
             is_deleted = PlotCultivarModel.delete(existing_association)
             if not is_deleted:
-                print(f"Failed to unassociate cultivar {self.cultivar_population} from plot {plot_number}.")
+                logger.info(f"Failed to unassociate cultivar {self.cultivar_population} from plot {plot_number}.")
                 return None
             self.refresh()
             return plot
         except Exception as e:
-            print(f"Error unassociating cultivar from plot: {e}")
+            logger.error(f"Error unassociating cultivar from plot: {e}")
             return None
 
     def belongs_to_plot(
@@ -787,7 +790,7 @@ class Cultivar(APIBase):
                 site_name=site_name
             )
             if not plot:
-                print(f"Plot {plot_number} does not exist.")
+                logger.warning(f"Plot {plot_number} does not exist.")
                 return False
             association_exists = PlotCultivarModel.exists(
                 plot_id=plot.id,
@@ -795,7 +798,7 @@ class Cultivar(APIBase):
             )
             return association_exists
         except Exception as e:
-            print(f"Error checking if cultivar belongs to plot: {e}")
+            logger.error(f"Error checking if cultivar belongs to plot: {e}")
             return False
         
     def get_associated_plants(self) -> Optional[List["Plant"]]:
@@ -820,12 +823,12 @@ class Cultivar(APIBase):
             current_id = self.id
             cultivar_plants = PlantViewModel.search(cultivar_id=current_id)
             if not cultivar_plants or len(cultivar_plants) == 0:
-                print("No associated plants found.")
+                logger.info("No associated plants found.")
                 return None
             plants = [Plant.model_validate(cultivar_plant) for cultivar_plant in cultivar_plants]
             return plants
         except Exception as e:
-            print(f"Error getting associated plants: {e}")
+            logger.error(f"Error getting associated plants: {e}")
             return None
 
 
@@ -872,7 +875,7 @@ class Cultivar(APIBase):
                 site_name=site_name
             )
             if not plant:
-                print(f"Plant {plant_number} does not exist.")
+                logger.warning(f"Plant {plant_number} does not exist.")
                 return False
             association_exists = PlantViewModel.exists(
                 plant_id=plant.id,
@@ -880,5 +883,5 @@ class Cultivar(APIBase):
             )
             return association_exists
         except Exception as e:
-            print(f"Error checking if cultivar belongs to plant: {e}")
+            logger.error(f"Error checking if cultivar belongs to plant: {e}")
             return False

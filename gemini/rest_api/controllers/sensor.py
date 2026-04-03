@@ -43,10 +43,10 @@ class SensorDatasetInput(BaseModel):
 class SensorController(Controller):
 
     # Get All Sensors
-    @get(path="/all")
-    async def get_all_sensors(self) -> List[SensorOutput]:
+    @get(path="/all", sync_to_thread=True)
+    def get_all_sensors(self, limit: int = 100, offset: int = 0) -> List[SensorOutput]:
         try:
-            sensors = Sensor.get_all()
+            sensors = Sensor.get_all(limit=limit, offset=offset)
             if sensors is None:
                 error = RESTAPIError(
                     error="No sensors found",
@@ -62,8 +62,8 @@ class SensorController(Controller):
             return Response(content=error, status_code=500)
 
     # Get Sensors
-    @get()
-    async def get_sensors(
+    @get(sync_to_thread=True)
+    def get_sensors(
         self,
         sensor_name: Optional[str] = None,
         sensor_type_id: Optional[int] = None,
@@ -78,9 +78,9 @@ class SensorController(Controller):
 
             sensors = Sensor.search(
                 sensor_name=sensor_name,
-                sensor_type=GEMINISensorType(sensor_type_id) if sensor_type_id else None,
-                sensor_data_type=GEMINIDataType(sensor_data_type_id) if sensor_data_type_id else None,
-                sensor_data_format=GEMINIDataFormat(sensor_data_format_id) if sensor_data_format_id else None,
+                sensor_type=GEMINISensorType(sensor_type_id) if sensor_type_id is not None else None,
+                sensor_data_type=GEMINIDataType(sensor_data_type_id) if sensor_data_type_id is not None else None,
+                sensor_data_format=GEMINIDataFormat(sensor_data_format_id) if sensor_data_format_id is not None else None,
                 sensor_info=sensor_info,
                 experiment_name=experiment_name
             )
@@ -99,8 +99,8 @@ class SensorController(Controller):
             return Response(content=error_message, status_code=500)
         
     # Get Sensor by ID
-    @get(path="/id/{sensor_id:str}")
-    async def get_sensor_by_id(
+    @get(path="/id/{sensor_id:str}", sync_to_thread=True)
+    def get_sensor_by_id(
         self, sensor_id: str
     ) -> SensorOutput:
         try:
@@ -120,17 +120,17 @@ class SensorController(Controller):
             return Response(content=error_message, status_code=500)
         
     # Create a new Sensor
-    @post()
-    async def create_sensor(
+    @post(sync_to_thread=True)
+    def create_sensor(
         self,
         data: Annotated[SensorInput, Body]
     ) -> SensorOutput:
         try:
             sensor = Sensor.create(
                 sensor_name=data.sensor_name,
-                sensor_type=GEMINISensorType(data.sensor_type_id) if data.sensor_type_id else None,
-                sensor_data_type=GEMINIDataType(data.sensor_data_type_id) if data.sensor_data_type_id else None,
-                sensor_data_format=GEMINIDataFormat(data.sensor_data_format_id) if data.sensor_data_format_id else None,
+                sensor_type=GEMINISensorType(data.sensor_type_id) if data.sensor_type_id is not None else None,
+                sensor_data_type=GEMINIDataType(data.sensor_data_type_id) if data.sensor_data_type_id is not None else None,
+                sensor_data_format=GEMINIDataFormat(data.sensor_data_format_id) if data.sensor_data_format_id is not None else None,
                 sensor_info=data.sensor_info,
                 experiment_name=data.experiment_name
             )
@@ -149,8 +149,8 @@ class SensorController(Controller):
             return Response(content=error_message, status_code=500)
         
     # Update Sensor
-    @patch(path="/id/{sensor_id:str}")
-    async def update_sensor(
+    @patch(path="/id/{sensor_id:str}", sync_to_thread=True)
+    def update_sensor(
         self,
         sensor_id: str,
         data: Annotated[SensorUpdate, Body]
@@ -165,9 +165,9 @@ class SensorController(Controller):
                 return Response(content=error, status_code=404)
             sensor = sensor.update(
                 sensor_name=data.sensor_name,
-                sensor_type=GEMINISensorType(data.sensor_type_id),
-                sensor_data_type=GEMINIDataType(data.sensor_data_type_id),
-                sensor_data_format=GEMINIDataFormat(data.sensor_data_format_id),
+                sensor_type=GEMINISensorType(data.sensor_type_id) if data.sensor_type_id is not None else None,
+                sensor_data_type=GEMINIDataType(data.sensor_data_type_id) if data.sensor_data_type_id is not None else None,
+                sensor_data_format=GEMINIDataFormat(data.sensor_data_format_id) if data.sensor_data_format_id is not None else None,
                 sensor_info=data.sensor_info,
             )
             return sensor
@@ -179,8 +179,8 @@ class SensorController(Controller):
             return Response(content=error_message, status_code=500)
         
     # Delete Sensor
-    @delete(path="/id/{sensor_id:str}")
-    async def delete_sensor(
+    @delete(path="/id/{sensor_id:str}", sync_to_thread=True)
+    def delete_sensor(
         self, sensor_id: str
     ) -> None:
         try:
@@ -206,8 +206,8 @@ class SensorController(Controller):
             return Response(content=error_message, status_code=500)
         
     # Get Sensor Experiments
-    @get(path="/id/{sensor_id:str}/experiments")
-    async def get_sensor_experiments(
+    @get(path="/id/{sensor_id:str}/experiments", sync_to_thread=True)
+    def get_sensor_experiments(
         self, sensor_id: str
     ) -> List[ExperimentOutput]:
         try:
@@ -234,8 +234,8 @@ class SensorController(Controller):
             return Response(content=error_message, status_code=500)
         
     # Get Sensor Platforms
-    @get(path="/id/{sensor_id:str}/sensor_platforms")
-    async def get_sensor_platforms(
+    @get(path="/id/{sensor_id:str}/sensor_platforms", sync_to_thread=True)
+    def get_sensor_platforms(
         self, sensor_id: str
     ) -> List[SensorPlatformOutput]:
         try:
@@ -262,8 +262,8 @@ class SensorController(Controller):
             return Response(content=error_message, status_code=500)
 
     # Get Sensor Datasets
-    @get(path="/id/{sensor_id:str}/datasets")
-    async def get_sensor_datasets(
+    @get(path="/id/{sensor_id:str}/datasets", sync_to_thread=True)
+    def get_sensor_datasets(
         self, sensor_id: str
     ) -> List[DatasetOutput]:
         try:
@@ -346,8 +346,8 @@ class SensorController(Controller):
             return Response(content=error_message, status_code=500)
 
     # Search Sensor Records
-    @get(path="/id/{sensor_id:str}/records")
-    async def search_sensor_records(
+    @get(path="/id/{sensor_id:str}/records", sync_to_thread=True)
+    def search_sensor_records(
         self,
         sensor_id: str,
         experiment_name: Optional[str] = None,
@@ -383,8 +383,8 @@ class SensorController(Controller):
             )
             return Response(content=error_message, status_code=500)
         
-    @get(path="/id/{sensor_id:str}/records/filter")
-    async def filter_sensor_records(
+    @get(path="/id/{sensor_id:str}/records/filter", sync_to_thread=True)
+    def filter_sensor_records(
         self,
         sensor_id: str,
         start_timestamp: Optional[str] = None,
@@ -420,8 +420,8 @@ class SensorController(Controller):
 
         
     # Get Sensor Record by ID
-    @get(path="/records/id/{record_id:str}")
-    async def get_sensor_record_by_id(
+    @get(path="/records/id/{record_id:str}", sync_to_thread=True)
+    def get_sensor_record_by_id(
         self, record_id: str
     ) -> SensorRecordOutput:
         try:
@@ -441,8 +441,8 @@ class SensorController(Controller):
             return Response(content=error_message, status_code=500)
         
     # Download Sensor Record File
-    @get(path="/records/id/{record_id:str}/download")
-    async def download_sensor_record_file(
+    @get(path="/records/id/{record_id:str}/download", sync_to_thread=True)
+    def download_sensor_record_file(
         self, record_id: str
     ) -> Redirect:
         try:
@@ -472,8 +472,8 @@ class SensorController(Controller):
             return Response(content=error_message, status_code=500)
         
     # Update Sensor Record
-    @patch(path="/records/id/{record_id:str}")
-    async def update_sensor_record(
+    @patch(path="/records/id/{record_id:str}", sync_to_thread=True)
+    def update_sensor_record(
         self,
         record_id: str,
         data: Annotated[SensorRecordUpdate, Body]
@@ -506,8 +506,8 @@ class SensorController(Controller):
         
 
     # Delete Sensor Record
-    @delete(path="/records/id/{record_id:str}")
-    async def delete_sensor_record(
+    @delete(path="/records/id/{record_id:str}", sync_to_thread=True)
+    def delete_sensor_record(
         self, record_id: str
     ) -> None:
         try:

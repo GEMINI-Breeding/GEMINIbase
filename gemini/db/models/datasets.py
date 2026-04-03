@@ -10,6 +10,7 @@ from sqlalchemy import (
     Integer,
     ForeignKey,
     TIMESTAMP,
+    DATE,
 )
 from sqlalchemy.orm import relationship
 from sqlalchemy.orm import Mapped
@@ -42,7 +43,7 @@ class DatasetModel(BaseModel):
     __tablename__ = "datasets"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=False), primary_key=True, default=uuid.uuid4)
-    collection_date: Mapped[date] = mapped_column(TIMESTAMP, default=datetime.now)
+    collection_date: Mapped[date] = mapped_column(DATE, default=date.today)
     dataset_name: Mapped[str] = mapped_column(String(255))
     dataset_info: Mapped[dict] = mapped_column(JSONB, default={})
     dataset_type_id: Mapped[int] = mapped_column(Integer, ForeignKey("gemini.dataset_types.id"), default=0)

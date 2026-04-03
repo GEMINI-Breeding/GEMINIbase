@@ -11,10 +11,10 @@ from typing import List, Annotated, Optional
 class SensorTypeController(Controller):
 
     # Get All Sensor Types
-    @get(path="/all")
-    async def get_all_sensor_types(self) -> List[SensorTypeOutput]:
+    @get(path="/all", sync_to_thread=True)
+    def get_all_sensor_types(self, limit: int = 100, offset: int = 0) -> List[SensorTypeOutput]:
         try:
-            sensor_types = SensorType.get_all()
+            sensor_types = SensorType.get_all(limit=limit, offset=offset)
             if sensor_types is None:
                 error = RESTAPIError(
                     error="No sensor types found",
@@ -31,8 +31,8 @@ class SensorTypeController(Controller):
             return Response(content=error_html, status_code=500)
 
     # Get all Sensor Types
-    @get()
-    async def get_sensor_types(
+    @get(sync_to_thread=True)
+    def get_sensor_types(
         self,
         sensor_type_name: Optional[str] = None,
         sensor_type_info: Optional[JSONB] = None
@@ -61,8 +61,8 @@ class SensorTypeController(Controller):
             return Response(content=error_message, status_code=500)
         
     # Get Sensor Type by ID
-    @get(path="/id/{sensor_type_id:int}")
-    async def get_sensor_type_by_id(
+    @get(path="/id/{sensor_type_id:int}", sync_to_thread=True)
+    def get_sensor_type_by_id(
             self, sensor_type_id: int
         ) -> SensorTypeOutput:
             try:
@@ -82,8 +82,8 @@ class SensorTypeController(Controller):
                 return Response(content=error_message, status_code=500)
             
     # Create a new Sensor Type
-    @post()
-    async def create_sensor_type(
+    @post(sync_to_thread=True)
+    def create_sensor_type(
         self,
         data: Annotated[SensorTypeInput, Body]
     ) -> SensorTypeOutput:
@@ -107,8 +107,8 @@ class SensorTypeController(Controller):
             return Response(content=error_message, status_code=500)
 
     # Update a Sensor Type
-    @patch(path="/id/{sensor_type_id:int}")
-    async def update_sensor_type(
+    @patch(path="/id/{sensor_type_id:int}", sync_to_thread=True)
+    def update_sensor_type(
         self,
         sensor_type_id: int,
         data: Annotated[SensorTypeUpdate, Body]
@@ -140,8 +140,8 @@ class SensorTypeController(Controller):
             return Response(content=error_message, status_code=500)
         
     # Delete a Sensor Type
-    @delete(path="/id/{sensor_type_id:int}")
-    async def delete_sensor_type(
+    @delete(path="/id/{sensor_type_id:int}", sync_to_thread=True)
+    def delete_sensor_type(
         self,
         sensor_type_id: int
     ) -> None:

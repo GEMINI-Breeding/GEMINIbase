@@ -1,71 +1,61 @@
-# GEMINI Framework
+# GEMINI Backend Database Framework
 
 ![GEMINI Logo](docs/assets/logo_large.png "GEMINI Project")
 
-This is the repository for GEMINI Framework back-end.
+Back-end data management framework for the [GEMINI Breeding project](https://projectgemini.ucdavis.edu/) (UC Davis). Manages field phenotyping data — sensor imagery, trait measurements, genomics, weather — across experiments, sites, seasons, plots, and cultivars.
 
-Many staple crops that are important for food, nutritional, and economic security in low- and middle-income countries have not experienced the same large gains in yield and quality over last decades as crops such as maize and soybean. Further, these crops are faced with increasing risk and uncertain growing conditions due to climate change. This project aims to develop a state-of-the-art breeding toolkit, building on the latest techniques in AI-enabled sensing, 3-D crop modeling, and molecular breeding, to create an inflection point in the productivity and quality curves of crops that are central in LMICs.
+## Requirements
 
-[More details about GEMINI Here](https://projectgemini.ucdavis.edu/)
+- **Python 3.12**
+- **Docker Desktop** ([download](https://www.docker.com/products/docker-desktop/))
 
-## System Requirements
+## Quick Start
 
-- Linux (Native, on Windows via WSL or on Mac via Parallels)
-- [Docker Engine](https://docs.docker.com/engine/install/)
-- Minimum 16 GB of RAM
-- Minimum 256 GB Storage
-- Python >= 3.11
-- [Poetry] (https://python-poetry.org/docs/)
+```bash
+git clone https://github.com/GEMINI-Breeding/gemini-framework.git
+cd gemini-framework
 
-# Getting Started & Installation
-
-## Installation Steps
-
-Install all the prerequisites above before continuing
-
-#### Step 1
-
-Clone the repository and enter the root folder
-
-```
-$ git clone https://github.com/GEMINI-Breeding/gemini-framework.git
-$ cd gemini-framework
+python3.12 -m venv .venv
+source .venv/bin/activate
+pip install -e ".[test]"
 ```
 
-#### Step 2
+### Run tests
 
-Run poetry installation command to install global `gemini` python module.
+```bash
+# Unit tests (no Docker needed)
+pytest tests/unit/ -v
 
-```
-$ poetry install
-```
-
-#### Step 3
-
-Setup the GEMINI Pipeline
-
-```
-$ gemini setup --default
+# Integration tests (requires Docker)
+docker compose -f tests/docker-compose.test.yaml up -d
+pytest tests/integration/ -v
+docker compose -f tests/docker-compose.test.yaml down -v
 ```
 
-#### Step 4
+See [Testing documentation](docs/testing.md) for details.
 
-Build the Docker containers that make up the GEMINI Pipeline
+### Run the full pipeline
 
-```
-$ gemini build
-```
+```bash
+gemini setup --default   # First-time setup
+gemini build             # Build Docker containers
+gemini start             # Start pipeline
 
-#### Step 5
-
-Start the GEMINI Pipeline
-
-```
-$ gemini start
+# REST API at http://localhost:7777
 ```
 
-## Next Steps
+## Architecture
 
-The REST API will be available on http://localhost:7777
+Three-layer design:
 
+1. **`gemini/api/`** — Pydantic-based Python API with CRUD operations for each domain entity
+2. **`gemini/db/`** — SQLAlchemy ORM layer targeting PostgreSQL
+3. **`gemini/rest_api/`** — Litestar REST API with 18 controllers
 
+Supporting modules: storage (MinIO/S3/local), logging (Redis), CLI (Click), configuration (pydantic-settings).
+
+## Documentation
+
+```bash
+mkdocs serve    # http://localhost:8000
+```

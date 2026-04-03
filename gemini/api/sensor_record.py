@@ -27,6 +27,7 @@ import os, mimetypes
 from tqdm import tqdm   
 from uuid import UUID
 
+import logging
 from gemini.api.types import ID
 from pydantic import Field, AliasChoices
 from gemini.api.base import APIBase, FileHandlerMixin
@@ -34,6 +35,8 @@ from gemini.db.models.columnar.sensor_records import SensorRecordModel
 from gemini.db.models.views.sensor_records_immv import SensorRecordsIMMVModel
 
 from datetime import date, datetime
+
+logger = logging.getLogger(__name__)
 
 class SensorRecord(APIBase, FileHandlerMixin):
     """
@@ -150,7 +153,7 @@ class SensorRecord(APIBase, FileHandlerMixin):
             )
             return exists
         except Exception as e:
-            print(f"Error checking existence of sensor record: {e}")
+            logger.error(f"Error checking existence of sensor record: {e}")
             return False
         
     @classmethod
@@ -160,7 +163,7 @@ class SensorRecord(APIBase, FileHandlerMixin):
         collection_date: date = None,
         dataset_name: str = None,
         sensor_name: str = None,
-        sensor_data: dict = {},
+        sensor_data: dict = None,
         experiment_name: str = None,
         site_name: str = None,
         season_name: str = None,
@@ -168,7 +171,7 @@ class SensorRecord(APIBase, FileHandlerMixin):
         plot_row_number: int = None,
         plot_column_number: int = None,
         record_file: str = None,
-        record_info: dict = {},
+        record_info: dict = None,
         insert_on_create: bool = True
     ) -> Optional["SensorRecord"]:
         """
@@ -245,16 +248,16 @@ class SensorRecord(APIBase, FileHandlerMixin):
             if insert_on_create:
                 insert_success, inserted_record_ids = cls.insert([sensor_record])
                 if not insert_success:
-                    print("Failed to insert SensorRecord.")
+                    logger.info("Failed to insert SensorRecord.")
                     return None
                 if not inserted_record_ids or len(inserted_record_ids) == 0:
-                    print("No new SensorRecord was inserted.")
+                    logger.info("No new SensorRecord was inserted.")
                     return None
                 inserted_record_id = inserted_record_ids[0]
                 sensor_record = cls.get_by_id(inserted_record_id)
             return sensor_record    
         except Exception as e:
-            print(f"Error creating sensor record: {e}")
+            logger.error(f"Error creating sensor record: {e}")
             return None
     
     @classmethod
@@ -277,12 +280,12 @@ class SensorRecord(APIBase, FileHandlerMixin):
                 record_to_insert = record.model_dump()
                 record_to_insert = {k: v for k, v in record_to_insert.items() if v is not None}
                 records_to_insert.append(record_to_insert)
-            print(f"Inserting {len(records_to_insert)} records.")
+            logger.info(f"Inserting {len(records_to_insert)} records.")
             inserted_record_ids = SensorRecordModel.insert_bulk('sensor_records_unique', records_to_insert)
-            print(f"Inserted {len(inserted_record_ids)} records.")
+            logger.info(f"Inserted {len(inserted_record_ids)} records.")
             return True, inserted_record_ids
         except Exception as e:
-            print(f"Error inserting records: {e}")
+            logger.error(f"Error inserting records: {e}")
             return False, []
         
     @classmethod
@@ -331,19 +334,19 @@ class SensorRecord(APIBase, FileHandlerMixin):
         """
         try:
             if not timestamp:
-                print("Timestamp is required to get a sensor record.")
+                logger.warning("Timestamp is required to get a sensor record.")
                 return None
             if not dataset_name:
-                print("Dataset name is required to get a sensor record.")
+                logger.warning("Dataset name is required to get a sensor record.")
                 return None
             if not sensor_name:
-                print("Sensor name is required to get a sensor record.")
+                logger.warning("Sensor name is required to get a sensor record.")
                 return None
             if not experiment_name and not site_name and not season_name:
-                print("At least one of experiment_name, site_name, or season_name is required to get a sensor record.")
+                logger.warning("At least one of experiment_name, site_name, or season_name is required to get a sensor record.")
                 return None
             if not all([plot_number, plot_row_number, plot_column_number]):
-                print("Plot number, plot row number, and plot column number are required if a plot is specified.")
+                logger.info("Plot number, plot row number, and plot column number are required if a plot is specified.")
                 return None
             sensor_record = SensorRecordsIMMVModel.get_by_parameters(
                 timestamp=timestamp,
@@ -357,12 +360,12 @@ class SensorRecord(APIBase, FileHandlerMixin):
                 plot_column_number=plot_column_number
             )
             if not sensor_record:
-                print("No sensor record found with the provided parameters.")
+                logger.info("No sensor record found with the provided parameters.")
                 return None
             sensor_record = cls.model_validate(sensor_record)
             return sensor_record
         except Exception as e:
-            print(f"Error getting sensor record: {e}")
+            logger.error(f"Error getting sensor record: {e}")
             return None
         
     @classmethod
@@ -383,12 +386,12 @@ class SensorRecord(APIBase, FileHandlerMixin):
         try:
             db_instance = SensorRecordModel.get(id)
             if not db_instance:
-                print(f"No sensor record found with ID: {id}")
+                logger.info(f"No sensor record found with ID: {id}")
                 return None
             record = cls.model_validate(db_instance)
             return record
         except Exception as e:
-            print(f"Error getting sensor record by ID: {e}")
+            logger.error(f"Error getting sensor record by ID: {e}")
             return None
         
     @classmethod
@@ -411,12 +414,12 @@ class SensorRecord(APIBase, FileHandlerMixin):
         try:
             records = SensorRecordModel.all(limit=limit)
             if not records or len(records) == 0:
-                print("No sensor records found.")
+                logger.info("No sensor records found.")
                 return None
             records = [cls.model_validate(record) for record in records]
             return records
         except Exception as e:
-            print(f"Error getting all sensor records: {e}")
+            logger.error(f"Error getting all sensor records: {e}")
             return None
         
     @classmethod
@@ -471,7 +474,7 @@ class SensorRecord(APIBase, FileHandlerMixin):
         """
         try:
             if not any([sensor_name, dataset_name, experiment_name, site_name, season_name, plot_number, plot_row_number, plot_column_number]):
-                print("At least one search parameter must be provided.")
+                logger.warning("At least one search parameter must be provided.")
                 return
             records = SensorRecordsIMMVModel.stream(
                 sensor_name=sensor_name,
@@ -490,7 +493,7 @@ class SensorRecord(APIBase, FileHandlerMixin):
                 record = cls.model_validate(record)
                 yield record
         except Exception as e:
-            print(f"Error searching sensor records: {e}")
+            logger.error(f"Error searching sensor records: {e}")
             yield from []
 
     @classmethod
@@ -547,7 +550,7 @@ class SensorRecord(APIBase, FileHandlerMixin):
                 record = cls.model_validate(record)
                 yield record
         except Exception as e:
-            print(f"Error filtering sensor records: {e}")
+            logger.error(f"Error filtering sensor records: {e}")
             yield from []
     
 
@@ -576,12 +579,12 @@ class SensorRecord(APIBase, FileHandlerMixin):
         """
         try:
             if not any([sensor_data, record_info]):
-                print("At least one update parameter must be provided.")
+                logger.warning("At least one update parameter must be provided.")
                 return None
             current_id = self.id
             sensor_record = SensorRecordModel.get(current_id)
             if not sensor_record:
-                print(f"No sensor record found with ID: {current_id}")
+                logger.info(f"No sensor record found with ID: {current_id}")
                 return None
             sensor_record = SensorRecordModel.update(
                 sensor_record,
@@ -592,7 +595,7 @@ class SensorRecord(APIBase, FileHandlerMixin):
             self.refresh()
             return sensor_record
         except Exception as e:
-            print(f"Error updating sensor record: {e}")
+            logger.error(f"Error updating sensor record: {e}")
             return None
         
     def delete(self) -> bool:
@@ -612,12 +615,12 @@ class SensorRecord(APIBase, FileHandlerMixin):
             current_id = self.id
             sensor_record = SensorRecordModel.get(current_id)
             if not sensor_record:
-                print(f"No sensor record found with ID: {current_id}")
+                logger.info(f"No sensor record found with ID: {current_id}")
                 return False
             SensorRecordModel.delete(sensor_record)
             return True
         except Exception as e:
-            print(f"Error deleting sensor record: {e}")
+            logger.error(f"Error deleting sensor record: {e}")
             return False
         
     def refresh(self) -> Optional["SensorRecord"]:
@@ -636,7 +639,7 @@ class SensorRecord(APIBase, FileHandlerMixin):
         try:
             db_instance = SensorRecordModel.get(self.id)
             if not db_instance:
-                print(f"SensorRecord with id {self.id} not found.")
+                logger.debug(f"SensorRecord with id {self.id} not found.")
                 return None
             instance = self.model_validate(db_instance)
             for key, value in instance.model_dump().items():
@@ -644,7 +647,7 @@ class SensorRecord(APIBase, FileHandlerMixin):
                     setattr(self, key, value)
             return self
         except Exception as e:
-            print(f"Error refreshing SensorRecord: {e}")
+            logger.error(f"Error refreshing SensorRecord: {e}")
             return None
         
     def get_info(self) -> Optional[dict]:
@@ -664,15 +667,15 @@ class SensorRecord(APIBase, FileHandlerMixin):
             current_id = self.id
             sensor_record = SensorRecordModel.get(current_id)
             if not sensor_record:
-                print(f"No sensor record found with ID: {current_id}")
+                logger.info(f"No sensor record found with ID: {current_id}")
                 return None
             record_info = sensor_record.record_info
             if not record_info:
-                print("No record info available for this sensor record.")
+                logger.info("No record info available for this sensor record.")
                 return None
             return record_info
         except Exception as e:
-            print(f"Error getting sensor record info: {e}")
+            logger.error(f"Error getting sensor record info: {e}")
             return None
             
 
@@ -697,7 +700,7 @@ class SensorRecord(APIBase, FileHandlerMixin):
             current_id = self.id
             sensor_record = SensorRecordModel.get(current_id)
             if not sensor_record:
-                print(f"No sensor record found with ID: {current_id}")
+                logger.info(f"No sensor record found with ID: {current_id}")
                 return None
             SensorRecordModel.update(
                 sensor_record,
@@ -707,7 +710,7 @@ class SensorRecord(APIBase, FileHandlerMixin):
             self.refresh()
             return sensor_record
         except Exception as e:
-            print(f"Error setting sensor record info: {e}")
+            logger.error(f"Error setting sensor record info: {e}")
             return None
     
     @classmethod
@@ -741,10 +744,10 @@ class SensorRecord(APIBase, FileHandlerMixin):
         try:
             original_file_path = record.record_file
             if not original_file_path:
-                print(f"record_file is required to create file URI.")
+                logger.warning(f"record_file is required to create file URI.")
                 return None
             if not os.path.exists(original_file_path):
-                print(f"File {original_file_path} does not exist.")
+                logger.warning(f"File {original_file_path} does not exist.")
                 return None
             collection_date = record.collection_date.strftime("%Y-%m-%d")
             sensor_name = record.sensor_name
@@ -757,7 +760,7 @@ class SensorRecord(APIBase, FileHandlerMixin):
             file_key = f"sensor_data/{experiment_name}/{sensor_name}/{dataset_name}/{collection_date}/{site_name}/{season_name}/{file_timestamp}{file_extension}"
             return file_key
         except Exception as e:
-            print(f"Error creating file URI: {e}")
+            logger.error(f"Error creating file URI: {e}")
             return None
 
 
@@ -792,11 +795,11 @@ class SensorRecord(APIBase, FileHandlerMixin):
         try:
             file = record.record_file
             if not file:
-                print(f"record_file is required to process SensorRecord.")
+                logger.warning(f"record_file is required to process SensorRecord.")
                 return record
             file_key = cls.create_file_uri(record)
             if not file_key:
-                print(f"Failed to create file URI for SensorRecord: {record}")
+                logger.info(f"Failed to create file URI for SensorRecord: {record}")
                 return record
             content_type, _ = mimetypes.guess_type(file)
             # Generate Metadata for upload
@@ -819,5 +822,5 @@ class SensorRecord(APIBase, FileHandlerMixin):
             record.record_file = file_key
             return record
         except Exception as e:
-            print(f"Error processing SensorRecord: {e}")
+            logger.error(f"Error processing SensorRecord: {e}")
             return record

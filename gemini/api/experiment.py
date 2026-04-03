@@ -24,6 +24,7 @@ from typing import Optional, List, TYPE_CHECKING
 from uuid import UUID
 
 from pydantic import Field, AliasChoices
+import logging
 from gemini.api.types import ID
 
 from gemini.api.base import APIBase
@@ -65,6 +66,8 @@ if TYPE_CHECKING:
     from gemini.api.trait import Trait
     from gemini.api.plot import Plot
 
+
+logger = logging.getLogger(__name__)
 
 class Experiment(APIBase):
     """
@@ -116,14 +119,14 @@ class Experiment(APIBase):
             exists = ExperimentModel.exists(experiment_name=experiment_name)
             return exists
         except Exception as e:
-            print(f"Error checking existence of experiment: {e}")
+            logger.error(f"Error checking existence of experiment: {e}")
             return False
         
     @classmethod
     def create(
         cls,
         experiment_name: str,
-        experiment_info: dict = {},
+        experiment_info: dict = None,
         experiment_start_date: date = date.today(),
         experiment_end_date: date = date.today(),
     ) -> Optional["Experiment"]:
@@ -153,7 +156,7 @@ class Experiment(APIBase):
             instance = cls.model_validate(db_instance)
             return instance
         except Exception as e:
-            print("Error creating experiment:", e)
+            logger.info("Error creating experiment:", e)
             return None
         
     @classmethod
@@ -176,12 +179,12 @@ class Experiment(APIBase):
                 experiment_name=experiment_name,
             )
             if not db_instance:
-                print(f"Experiment with name {experiment_name} not found.")
+                logger.debug(f"Experiment with name {experiment_name} not found.")
                 return None
             instance = cls.model_validate(db_instance)
             return instance
         except Exception as e:
-            print("Error getting experiment:", e)
+            logger.info("Error getting experiment:", e)
             return None
         
     @classmethod
@@ -202,16 +205,16 @@ class Experiment(APIBase):
         try:
             db_instance = ExperimentModel.get(id)
             if not db_instance:
-                print(f"Experiment with ID {id} does not exist.")
+                logger.warning(f"Experiment with ID {id} does not exist.")
                 return None
             instance = cls.model_validate(db_instance)
             return instance
         except Exception as e:
-            print("Error getting experiment by ID:", e)
+            logger.info("Error getting experiment by ID:", e)
             return None
         
     @classmethod
-    def get_all(cls) -> Optional[List["Experiment"]]:
+    def get_all(cls, limit: int = None, offset: int = None) -> Optional[List["Experiment"]]:
         """
         Retrieve all experiments.
 
@@ -225,14 +228,14 @@ class Experiment(APIBase):
             Optional[List["Experiment"]]: A list of all experiments, or None if an error occurred.
         """
         try:
-            experiments = ExperimentModel.all()
+            experiments = ExperimentModel.all(limit=limit, offset=offset)
             if not experiments or len(experiments) == 0:
-                print("No experiments found.")
+                logger.info("No experiments found.")
                 return None
             experiments = [cls.model_validate(experiment) for experiment in experiments]
             return experiments
         except Exception as e:
-            print("Error getting all experiments:", e)
+            logger.info("Error getting all experiments:", e)
             return None
         
     @classmethod
@@ -262,7 +265,7 @@ class Experiment(APIBase):
         """
         try:
             if not any([experiment_name, experiment_info, experiment_start_date, experiment_end_date]):
-                print("At least one parameter must be provided for search.")
+                logger.warning("At least one parameter must be provided for search.")
                 return None
             experiments = ExperimentModel.search(
                 experiment_name=experiment_name,
@@ -271,12 +274,12 @@ class Experiment(APIBase):
                 experiment_end_date=experiment_end_date
             )
             if not experiments or len(experiments) == 0:
-                print("No experiments found with the provided search parameters.")
+                logger.info("No experiments found with the provided search parameters.")
                 return None
             experiments = [cls.model_validate(experiment) for experiment in experiments]
             return experiments
         except Exception as e:
-            print("Error searching experiments:", e)
+            logger.info("Error searching experiments:", e)
             return None
         
     def update(
@@ -305,13 +308,13 @@ class Experiment(APIBase):
         """
         try:
             if not any([experiment_name, experiment_info, experiment_start_date, experiment_end_date]):
-                print("At least one parameter must be provided for update.")
+                logger.warning("At least one parameter must be provided for update.")
                 return None
 
             current_id = self.id
             experiment = ExperimentModel.get(current_id)
             if not experiment:
-                print(f"Experiment with ID {current_id} does not exist.")
+                logger.warning(f"Experiment with ID {current_id} does not exist.")
                 return None
             
             updated_experiment = ExperimentModel.update(
@@ -325,7 +328,7 @@ class Experiment(APIBase):
             self.refresh()
             return updated_experiment
         except Exception as e:
-            print("Error updating experiment:", e)
+            logger.info("Error updating experiment:", e)
             return None
         
     def delete(self) -> bool:
@@ -345,12 +348,12 @@ class Experiment(APIBase):
             current_id = self.id
             experiment = ExperimentModel.get(current_id)
             if not experiment:
-                print(f"Experiment with ID {current_id} does not exist.")
+                logger.warning(f"Experiment with ID {current_id} does not exist.")
                 return False
             ExperimentModel.delete(experiment)
             return True
         except Exception as e:
-            print("Error deleting experiment:", e)
+            logger.info("Error deleting experiment:", e)
             return False
         
     def refresh(self) -> Optional["Experiment"]:
@@ -370,7 +373,7 @@ class Experiment(APIBase):
         try:
             db_instance = ExperimentModel.get(self.id)
             if not db_instance:
-                print(f"Experiment with ID {self.id} does not exist.")
+                logger.warning(f"Experiment with ID {self.id} does not exist.")
                 return self
             instance = self.model_validate(db_instance)
             for key, value in instance.model_dump().items():
@@ -378,7 +381,7 @@ class Experiment(APIBase):
                     setattr(self, key, value)
             return self
         except Exception as e:
-            print("Error refreshing experiment:", e)
+            logger.info("Error refreshing experiment:", e)
             return None
         
     def get_info(self) -> Optional[dict]:
@@ -398,15 +401,15 @@ class Experiment(APIBase):
             current_id = self.id
             experiment = ExperimentModel.get(current_id)
             if not experiment:
-                print(f"Experiment with ID {current_id} does not exist.")
+                logger.warning(f"Experiment with ID {current_id} does not exist.")
                 return None
             experiment_info = experiment.experiment_info
             if not experiment_info:
-                print("Experiment info is empty.")
+                logger.info("Experiment info is empty.")
                 return None
             return experiment_info
         except Exception as e:
-            print("Error getting experiment info:", e)
+            logger.info("Error getting experiment info:", e)
             return None
         
     def set_info(self, experiment_info: dict) -> Optional["Experiment"]:
@@ -428,7 +431,7 @@ class Experiment(APIBase):
             current_id = self.id
             experiment = ExperimentModel.get(current_id)
             if not experiment:
-                print(f"Experiment with ID {current_id} does not exist.")
+                logger.warning(f"Experiment with ID {current_id} does not exist.")
                 return None
             updated_experiment = ExperimentModel.update(
                 experiment,
@@ -438,7 +441,7 @@ class Experiment(APIBase):
             self.refresh()
             return updated_experiment
         except Exception as e:
-            print("Error setting experiment info:", e)
+            logger.info("Error setting experiment info:", e)
             return None
 
     # region Season
@@ -462,18 +465,18 @@ class Experiment(APIBase):
             from gemini.api.season import Season
             experiment_seasons = ExperimentSeasonsViewModel.search(experiment_id=self.id)
             if not experiment_seasons or len(experiment_seasons) == 0:
-                print("No seasons found for this experiment.")
+                logger.info("No seasons found for this experiment.")
                 return None
             seasons = [Season.model_validate(season) for season in experiment_seasons]
             return seasons
         except Exception as e:
-            print("Error getting associated seasons:", e)
+            logger.info("Error getting associated seasons:", e)
             return None
 
     def create_new_season(
         self,
         season_name: str,
-        season_info: dict = {},
+        season_info: dict = None,
         season_start_date: date = date.today(),
         season_end_date: date = date.today(),
     ) -> Optional["Season"]:
@@ -504,11 +507,11 @@ class Experiment(APIBase):
                 experiment_name=self.experiment_name
             )
             if not new_season:
-                print("Error creating new season.")
+                logger.info("Error creating new season.")
                 return None
             return new_season
         except Exception as e:
-            print("Error creating new season:", e)
+            logger.info("Error creating new season:", e)
             return None
 
     # endregion
@@ -532,19 +535,19 @@ class Experiment(APIBase):
             from gemini.api.cultivar import Cultivar
             experiment_cultivars = ExperimentCultivarsViewModel.search(experiment_id=self.id)
             if not experiment_cultivars or len(experiment_cultivars) == 0:
-                print("No cultivars found for this experiment.")
+                logger.info("No cultivars found for this experiment.")
                 return None
             cultivars = [Cultivar.model_validate(cultivar) for cultivar in experiment_cultivars]
             return cultivars
         except Exception as e:
-            print("Error getting associated cultivars:", e)
+            logger.info("Error getting associated cultivars:", e)
             return None
 
     def create_new_cultivar(
         self,
         cultivar_population: str,
         cultivar_accession: str,
-        cultivar_info: dict = {},
+        cultivar_info: dict = None,
     ) -> Optional["Cultivar"]:
         """
         Create and associate a new cultivar with this experiment.
@@ -571,11 +574,11 @@ class Experiment(APIBase):
                 experiment_name=self.experiment_name
             )
             if not new_cultivar:
-                print("Error creating new cultivar.")
+                logger.info("Error creating new cultivar.")
                 return None
             return new_cultivar
         except Exception as e:
-            print("Error creating new cultivar:", e)
+            logger.info("Error creating new cultivar:", e)
             return None
 
     def associate_cultivar(
@@ -602,12 +605,12 @@ class Experiment(APIBase):
             from gemini.api.cultivar import Cultivar
             cultivar = Cultivar.get(cultivar_population=cultivar_population, cultivar_accession=cultivar_accession)
             if not cultivar:
-                print("Cultivar not found.")
+                logger.debug("Cultivar not found.")
                 return None
             cultivar.associate_experiment(experiment_name=self.experiment_name)
             return cultivar
         except Exception as e:
-            print("Error associating cultivar:", e)
+            logger.info("Error associating cultivar:", e)
             return None
 
     def unassociate_cultivar(
@@ -634,12 +637,12 @@ class Experiment(APIBase):
             from gemini.api.cultivar import Cultivar
             cultivar = Cultivar.get(cultivar_population=cultivar_population, cultivar_accession=cultivar_accession)
             if not cultivar:
-                print("Cultivar not found.")
+                logger.debug("Cultivar not found.")
                 return None
             cultivar.unassociate_experiment(experiment_name=self.experiment_name)
             return cultivar
         except Exception as e:
-            print("Error unassociating cultivar:", e)
+            logger.info("Error unassociating cultivar:", e)
             return None
 
     def belongs_to_cultivar(
@@ -666,12 +669,12 @@ class Experiment(APIBase):
             from gemini.api.cultivar import Cultivar
             cultivar = Cultivar.get(cultivar_population=cultivar_population, cultivar_accession=cultivar_accession)
             if not cultivar:
-                print("Cultivar not found.")
+                logger.debug("Cultivar not found.")
                 return False
             association_exists = cultivar.belongs_to_experiment(experiment_name=self.experiment_name)
             return association_exists
         except Exception as e:
-            print("Error checking if belongs to cultivar:", e)
+            logger.info("Error checking if belongs to cultivar:", e)
             return False
 
     # endregion
@@ -696,18 +699,18 @@ class Experiment(APIBase):
             from gemini.api.procedure import Procedure
             experiment_procedures = ExperimentProceduresViewModel.search(experiment_id=self.id)
             if not experiment_procedures or len(experiment_procedures) == 0:
-                print("No procedures found for this experiment.")
+                logger.info("No procedures found for this experiment.")
                 return None
             procedures = [Procedure.model_validate(procedure) for procedure in experiment_procedures]
             return procedures
         except Exception as e:
-            print("Error getting associated procedures:", e)
+            logger.info("Error getting associated procedures:", e)
             return None
         
     def create_new_procedure(
         self,
         procedure_name: str,
-        procedure_info: dict = {}
+        procedure_info: dict = None
     ) -> Optional["Procedure"]:
         """
         Create and associate a new procedure with this experiment.
@@ -732,11 +735,11 @@ class Experiment(APIBase):
                 experiment_name=self.experiment_name
             )
             if not new_procedure:
-                print("Error creating new procedure.")
+                logger.info("Error creating new procedure.")
                 return None
             return new_procedure
         except Exception as e:
-            print("Error creating new procedure:", e)
+            logger.info("Error creating new procedure:", e)
             return None
         
     def associate_procedure(
@@ -761,12 +764,12 @@ class Experiment(APIBase):
             from gemini.api.procedure import Procedure
             procedure = Procedure.get(procedure_name=procedure_name)
             if not procedure:
-                print("Procedure not found.")
+                logger.debug("Procedure not found.")
                 return None
             procedure.associate_experiment(experiment_name=self.experiment_name)
             return procedure
         except Exception as e:
-            print("Error associating procedure:", e)
+            logger.info("Error associating procedure:", e)
             return None
         
     def unassociate_procedure(
@@ -791,12 +794,12 @@ class Experiment(APIBase):
             from gemini.api.procedure import Procedure
             procedure = Procedure.get(procedure_name=procedure_name)
             if not procedure:
-                print("Procedure not found.")
+                logger.debug("Procedure not found.")
                 return None
             procedure.unassociate_experiment(experiment_name=self.experiment_name)
             return procedure
         except Exception as e:
-            print("Error unassociating procedure:", e)
+            logger.info("Error unassociating procedure:", e)
             return None
         
     def belongs_to_procedure(
@@ -821,12 +824,12 @@ class Experiment(APIBase):
             from gemini.api.procedure import Procedure
             procedure = Procedure.get(procedure_name=procedure_name)
             if not procedure:
-                print("Procedure not found.")
+                logger.debug("Procedure not found.")
                 return False
             association_exists = procedure.belongs_to_experiment(experiment_name=self.experiment_name)
             return association_exists
         except Exception as e:
-            print("Error checking if belongs to procedure:", e)
+            logger.info("Error checking if belongs to procedure:", e)
             return False
         
     # endregion
@@ -851,12 +854,12 @@ class Experiment(APIBase):
             from gemini.api.script import Script
             experiment_scripts = ExperimentScriptsViewModel.search(experiment_id=self.id)
             if not experiment_scripts or len(experiment_scripts) == 0:
-                print("No scripts found for this experiment.")
+                logger.info("No scripts found for this experiment.")
                 return None
             scripts = [Script.model_validate(script) for script in experiment_scripts]
             return scripts
         except Exception as e:
-            print("Error getting associated scripts:", e)
+            logger.info("Error getting associated scripts:", e)
             return None
         
     def create_new_script(
@@ -864,7 +867,7 @@ class Experiment(APIBase):
         script_name: str,
         script_extension: str = None,
         script_url: str = None,
-        script_info: dict = {}
+        script_info: dict = None
     ) -> Optional["Script"]:
         """
         Create and associate a new script with this experiment.
@@ -893,11 +896,11 @@ class Experiment(APIBase):
                 experiment_name=self.experiment_name
             )
             if not new_script:
-                print("Error creating new script.")
+                logger.info("Error creating new script.")
                 return None
             return new_script
         except Exception as e:
-            print("Error creating new script:", e)
+            logger.info("Error creating new script:", e)
             return None
         
     def associate_script(
@@ -922,12 +925,12 @@ class Experiment(APIBase):
             from gemini.api.script import Script
             script = Script.get(script_name=script_name)
             if not script:
-                print("Script not found.")
+                logger.debug("Script not found.")
                 return None
             script.associate_experiment(experiment_name=self.experiment_name)
             return script
         except Exception as e:
-            print("Error associating script:", e)
+            logger.info("Error associating script:", e)
             return None
         
     def unassociate_script(
@@ -952,12 +955,12 @@ class Experiment(APIBase):
             from gemini.api.script import Script
             script = Script.get(script_name=script_name)
             if not script:
-                print("Script not found.")
+                logger.debug("Script not found.")
                 return None
             script.unassociate_experiment(experiment_name=self.experiment_name)
             return script
         except Exception as e:
-            print("Error unassociating script:", e)
+            logger.info("Error unassociating script:", e)
             return None
         
     def belongs_to_script(
@@ -982,12 +985,12 @@ class Experiment(APIBase):
             from gemini.api.script import Script
             script = Script.get(script_name=script_name)
             if not script:
-                print("Script not found.")
+                logger.debug("Script not found.")
                 return False
             association_exists = script.belongs_to_experiment(experiment_name=self.experiment_name)
             return association_exists
         except Exception as e:
-            print("Error checking if belongs to script:", e)
+            logger.info("Error checking if belongs to script:", e)
             return False
     # endregion
 
@@ -1011,19 +1014,19 @@ class Experiment(APIBase):
             from gemini.api.model import Model
             experiment_models = ExperimentModelsViewModel.search(experiment_id=self.id)
             if not experiment_models or len(experiment_models) == 0:
-                print("No models found for this experiment.")
+                logger.info("No models found for this experiment.")
                 return None
             models = [Model.model_validate(model) for model in experiment_models]
             return models
         except Exception as e:
-            print("Error getting associated models:", e)
+            logger.info("Error getting associated models:", e)
             return None
         
     def create_new_model(
         self,
         model_name: str,
         model_url: str = None,
-        model_info: dict = {}
+        model_info: dict = None
     ) -> Optional["Model"]:
         """
         Create and associate a new model with this experiment.
@@ -1050,11 +1053,11 @@ class Experiment(APIBase):
                 experiment_name=self.experiment_name
             )
             if not new_model:
-                print("Error creating new model.")
+                logger.info("Error creating new model.")
                 return None
             return new_model
         except Exception as e:
-            print("Error creating new model:", e)
+            logger.info("Error creating new model:", e)
             return None
         
     def associate_model(
@@ -1079,12 +1082,12 @@ class Experiment(APIBase):
             from gemini.api.model import Model
             model = Model.get(model_name=model_name)
             if not model:
-                print("Model not found.")
+                logger.debug("Model not found.")
                 return None
             model.associate_experiment(experiment_name=self.experiment_name)
             return model
         except Exception as e:
-            print("Error associating model:", e)
+            logger.info("Error associating model:", e)
             return None
         
     def unassociate_model(
@@ -1109,12 +1112,12 @@ class Experiment(APIBase):
             from gemini.api.model import Model
             model = Model.get(model_name=model_name)
             if not model:
-                print("Model not found.")
+                logger.debug("Model not found.")
                 return None
             model.unassociate_experiment(experiment_name=self.experiment_name)
             return model
         except Exception as e:
-            print("Error unassociating model:", e)
+            logger.info("Error unassociating model:", e)
             return None
         
     def belongs_to_model(
@@ -1139,12 +1142,12 @@ class Experiment(APIBase):
             from gemini.api.model import Model
             model = Model.get(model_name=model_name)
             if not model:
-                print("Model not found.")
+                logger.debug("Model not found.")
                 return False
             association_exists = model.belongs_to_experiment(experiment_name=self.experiment_name)
             return association_exists
         except Exception as e:
-            print("Error checking if belongs to model:", e)
+            logger.info("Error checking if belongs to model:", e)
             return False
     # endregion
 
@@ -1168,12 +1171,12 @@ class Experiment(APIBase):
             from gemini.api.sensor import Sensor
             experiment_sensors = ExperimentSensorsViewModel.search(experiment_id=self.id)
             if not experiment_sensors or len(experiment_sensors) == 0:
-                print("No sensors found for this experiment.")
+                logger.info("No sensors found for this experiment.")
                 return None
             sensors = [Sensor.model_validate(sensor) for sensor in experiment_sensors]
             return sensors
         except Exception as e:
-            print("Error getting associated sensors:", e)
+            logger.info("Error getting associated sensors:", e)
             return None
         
     def create_new_sensor(
@@ -1182,7 +1185,7 @@ class Experiment(APIBase):
         sensor_type: GEMINISensorType = GEMINISensorType.Default,
         sensor_data_type: GEMINIDataType = GEMINIDataType.Default,
         sensor_data_format: GEMINIDataFormat = GEMINIDataFormat.Default,
-        sensor_info: dict = {},
+        sensor_info: dict = None,
         sensor_platform_name: str = None
     ) -> Optional["Sensor"]:
         """
@@ -1216,11 +1219,11 @@ class Experiment(APIBase):
                 sensor_platform_name=sensor_platform_name
             )
             if not new_sensor:
-                print("Error creating new sensor.")
+                logger.info("Error creating new sensor.")
                 return None
             return new_sensor
         except Exception as e:
-            print("Error creating new sensor:", e)
+            logger.info("Error creating new sensor:", e)
             return None
         
     def associate_sensor(
@@ -1245,12 +1248,12 @@ class Experiment(APIBase):
             from gemini.api.sensor import Sensor
             sensor = Sensor.get(sensor_name=sensor_name)
             if not sensor:
-                print("Sensor not found.")
+                logger.debug("Sensor not found.")
                 return None
             sensor.associate_experiment(experiment_name=self.experiment_name)
             return sensor
         except Exception as e:
-            print("Error associating sensor:", e)
+            logger.info("Error associating sensor:", e)
             return None
     
     def unassociate_sensor(
@@ -1275,12 +1278,12 @@ class Experiment(APIBase):
             from gemini.api.sensor import Sensor
             sensor = Sensor.get(sensor_name=sensor_name)
             if not sensor:
-                print("Sensor not found.")
+                logger.debug("Sensor not found.")
                 return None
             sensor.unassociate_experiment(experiment_name=self.experiment_name)
             return sensor
         except Exception as e:
-            print("Error unassociating sensor:", e)
+            logger.info("Error unassociating sensor:", e)
             return None
         
     def belongs_to_sensor(
@@ -1305,12 +1308,12 @@ class Experiment(APIBase):
             from gemini.api.sensor import Sensor
             sensor = Sensor.get(sensor_name=sensor_name)
             if not sensor:
-                print("Sensor not found.")
+                logger.debug("Sensor not found.")
                 return False
             association_exists = sensor.belongs_to_experiment(experiment_name=self.experiment_name)
             return association_exists
         except Exception as e:
-            print("Error checking if belongs to sensor:", e)
+            logger.info("Error checking if belongs to sensor:", e)
             return False
     # endregion
 
@@ -1334,18 +1337,18 @@ class Experiment(APIBase):
             from gemini.api.sensor_platform import SensorPlatform
             experiment_sensor_platforms = ExperimentSensorPlatformsViewModel.search(experiment_id=self.id)
             if not experiment_sensor_platforms or len(experiment_sensor_platforms) == 0:
-                print("No sensor platforms found for this experiment.")
+                logger.info("No sensor platforms found for this experiment.")
                 return None
             sensor_platforms = [SensorPlatform.model_validate(sensor_platform) for sensor_platform in experiment_sensor_platforms]
             return sensor_platforms
         except Exception as e:
-            print("Error getting associated sensor platforms:", e)
+            logger.info("Error getting associated sensor platforms:", e)
             return None
         
     def create_new_sensor_platform(
         self,
         sensor_platform_name: str,
-        sensor_platform_info: dict = {}
+        sensor_platform_info: dict = None
     ) -> Optional["SensorPlatform"]:
         """
         Create and associate a new sensor platform with this experiment.
@@ -1370,11 +1373,11 @@ class Experiment(APIBase):
                 experiment_name=self.experiment_name
             )
             if not new_sensor_platform:
-                print("Error creating new sensor platform.")
+                logger.info("Error creating new sensor platform.")
                 return None
             return new_sensor_platform
         except Exception as e:
-            print("Error creating new sensor platform:", e)
+            logger.info("Error creating new sensor platform:", e)
             return None
         
     def associate_sensor_platform(
@@ -1399,12 +1402,12 @@ class Experiment(APIBase):
             from gemini.api.sensor_platform import SensorPlatform
             sensor_platform = SensorPlatform.get(sensor_platform_name=sensor_platform_name)
             if not sensor_platform:
-                print("Sensor platform not found.")
+                logger.debug("Sensor platform not found.")
                 return None
             sensor_platform.associate_experiment(experiment_name=self.experiment_name)
             return sensor_platform
         except Exception as e:
-            print("Error associating sensor platform:", e)
+            logger.info("Error associating sensor platform:", e)
             return None
         
     def unassociate_sensor_platform(
@@ -1429,12 +1432,12 @@ class Experiment(APIBase):
             from gemini.api.sensor_platform import SensorPlatform
             sensor_platform = SensorPlatform.get(sensor_platform_name=sensor_platform_name)
             if not sensor_platform:
-                print("Sensor platform not found.")
+                logger.debug("Sensor platform not found.")
                 return None
             sensor_platform.unassociate_experiment(experiment_name=self.experiment_name)
             return sensor_platform
         except Exception as e:
-            print("Error unassociating sensor platform:", e)
+            logger.info("Error unassociating sensor platform:", e)
             return None
         
     def belongs_to_sensor_platform(
@@ -1459,12 +1462,12 @@ class Experiment(APIBase):
             from gemini.api.sensor_platform import SensorPlatform
             sensor_platform = SensorPlatform.get(sensor_platform_name=sensor_platform_name)
             if not sensor_platform:
-                print("Sensor platform not found.")
+                logger.debug("Sensor platform not found.")
                 return False
             association_exists = sensor_platform.belongs_to_experiment(experiment_name=self.experiment_name)
             return association_exists
         except Exception as e:
-            print("Error checking if belongs to sensor platform:", e)
+            logger.info("Error checking if belongs to sensor platform:", e)
             return False
     # endregion
 
@@ -1488,12 +1491,12 @@ class Experiment(APIBase):
             from gemini.api.site import Site
             experiment_sites = ExperimentSitesViewModel.search(experiment_id=self.id)
             if not experiment_sites or len(experiment_sites) == 0:
-                print("No sites found for this experiment.")
+                logger.info("No sites found for this experiment.")
                 return None
             sites = [Site.model_validate(site) for site in experiment_sites]
             return sites
         except Exception as e:
-            print("Error getting associated sites:", e)
+            logger.info("Error getting associated sites:", e)
             return None
         
     def create_new_site(
@@ -1502,7 +1505,7 @@ class Experiment(APIBase):
         site_city: str = None,
         site_state: str = None,
         site_country: str = None,
-        site_info: dict = {}
+        site_info: dict = None
     ) -> Optional["Site"]:
         """
         Create and associate a new site with this experiment.
@@ -1533,11 +1536,11 @@ class Experiment(APIBase):
                 experiment_name=self.experiment_name
             )
             if not new_site:
-                print("Error creating new site.")
+                logger.info("Error creating new site.")
                 return None
             return new_site
         except Exception as e:
-            print("Error creating new site:", e)
+            logger.info("Error creating new site:", e)
             return None
         
     def associate_site(
@@ -1562,12 +1565,12 @@ class Experiment(APIBase):
             from gemini.api.site import Site
             site = Site.get(site_name=site_name)
             if not site:
-                print("Site not found.")
+                logger.debug("Site not found.")
                 return None
             site.associate_experiment(experiment_name=self.experiment_name)
             return site
         except Exception as e:
-            print("Error associating site:", e)
+            logger.info("Error associating site:", e)
             return None
         
     def unassociate_site(
@@ -1592,12 +1595,12 @@ class Experiment(APIBase):
             from gemini.api.site import Site
             site = Site.get(site_name=site_name)
             if not site:
-                print("Site not found.")
+                logger.debug("Site not found.")
                 return None
             site.unassociate_experiment(experiment_name=self.experiment_name)
             return site
         except Exception as e:
-            print("Error unassociating site:", e)
+            logger.info("Error unassociating site:", e)
             return None
         
     def belongs_to_site(
@@ -1622,12 +1625,12 @@ class Experiment(APIBase):
             from gemini.api.site import Site
             site = Site.get(site_name=site_name)
             if not site:
-                print("Site not found.")
+                logger.debug("Site not found.")
                 return False
             association_exists = site.belongs_to_experiment(experiment_name=self.experiment_name)
             return association_exists
         except Exception as e:
-            print("Error checking if belongs to site:", e)
+            logger.info("Error checking if belongs to site:", e)
             return False
     # endregion
 
@@ -1651,18 +1654,18 @@ class Experiment(APIBase):
             from gemini.api.dataset import Dataset
             experiment_datasets = ExperimentDatasetsViewModel.search(experiment_id=self.id)
             if not experiment_datasets or len(experiment_datasets) == 0:
-                print("No datasets found for this experiment.")
+                logger.info("No datasets found for this experiment.")
                 return None
             datasets = [Dataset.model_validate(dataset) for dataset in experiment_datasets]
             return datasets
         except Exception as e:
-            print("Error getting associated datasets:", e)
+            logger.info("Error getting associated datasets:", e)
             return None
         
     def create_new_dataset(
         self,
         dataset_name: str,
-        dataset_info: dict = {},
+        dataset_info: dict = None,
         dataset_type: GEMINIDatasetType = GEMINIDatasetType.Default,
         collection_date: date = date.today()
     ) -> Optional["Dataset"]:
@@ -1694,11 +1697,11 @@ class Experiment(APIBase):
                 experiment_name=self.experiment_name
             )
             if not new_dataset:
-                print("Error creating new dataset.")
+                logger.info("Error creating new dataset.")
                 return None
             return new_dataset
         except Exception as e:
-            print("Error creating new dataset:", e)
+            logger.info("Error creating new dataset:", e)
             return None
         
     def associate_dataset(
@@ -1723,12 +1726,12 @@ class Experiment(APIBase):
             from gemini.api.dataset import Dataset
             dataset = Dataset.get(dataset_name=dataset_name)
             if not dataset:
-                print("Dataset not found.")
+                logger.debug("Dataset not found.")
                 return None
             dataset.associate_experiment(experiment_name=self.experiment_name)
             return dataset
         except Exception as e:
-            print("Error associating dataset:", e)
+            logger.info("Error associating dataset:", e)
             return None
         
     def unassociate_dataset(
@@ -1753,12 +1756,12 @@ class Experiment(APIBase):
             from gemini.api.dataset import Dataset
             dataset = Dataset.get(dataset_name=dataset_name)
             if not dataset:
-                print("Dataset not found.")
+                logger.debug("Dataset not found.")
                 return None
             dataset.unassociate_experiment(experiment_name=self.experiment_name)
             return dataset
         except Exception as e:
-            print("Error unassociating dataset:", e)
+            logger.info("Error unassociating dataset:", e)
             return None
         
     def belongs_to_dataset(
@@ -1784,12 +1787,12 @@ class Experiment(APIBase):
             from gemini.api.dataset import Dataset
             dataset = Dataset.get(dataset_name=dataset_name)
             if not dataset:
-                print("Dataset not found.")
+                logger.debug("Dataset not found.")
                 return False
             association_exists = dataset.belongs_to_experiment(experiment_name=self.experiment_name)
             return association_exists
         except Exception as e:
-            print("Error checking if belongs to dataset:", e)
+            logger.info("Error checking if belongs to dataset:", e)
             return False
         
     # endregion
@@ -1814,21 +1817,21 @@ class Experiment(APIBase):
             from gemini.api.trait import Trait
             experiment_traits = ExperimentTraitsViewModel.search(experiment_id=self.id)
             if not experiment_traits or len(experiment_traits) == 0:
-                print("No traits found for this experiment.")
+                logger.info("No traits found for this experiment.")
                 return None
             traits = [Trait.model_validate(trait) for trait in experiment_traits]
             return traits
         except Exception as e:
-            print("Error getting associated traits:", e)
+            logger.info("Error getting associated traits:", e)
             return None
         
     def create_new_trait(
         self,
         trait_name: str,
         trait_units: str = None,
-        trait_metrics: dict = {},
+        trait_metrics: dict = None,
         trait_level: GEMINITraitLevel = GEMINITraitLevel.Default,
-        trait_info: dict = {},
+        trait_info: dict = None,
     ) -> Optional["Trait"]:
         """
         Create and associate a new trait with this experiment.
@@ -1859,11 +1862,11 @@ class Experiment(APIBase):
                 experiment_name=self.experiment_name
             )
             if not new_trait:
-                print("Error creating new trait.")
+                logger.info("Error creating new trait.")
                 return None
             return new_trait
         except Exception as e:
-            print("Error creating new trait:", e)
+            logger.info("Error creating new trait:", e)
             return None
         
     def associate_trait(
@@ -1888,12 +1891,12 @@ class Experiment(APIBase):
             from gemini.api.trait import Trait
             trait = Trait.get(trait_name=trait_name)
             if not trait:
-                print("Trait not found.")
+                logger.debug("Trait not found.")
                 return None
             trait.associate_experiment(experiment_name=self.experiment_name)
             return trait
         except Exception as e:
-            print("Error associating trait:", e)
+            logger.info("Error associating trait:", e)
             return None
         
     def unassociate_trait(
@@ -1918,12 +1921,12 @@ class Experiment(APIBase):
             from gemini.api.trait import Trait
             trait = Trait.get(trait_name=trait_name)
             if not trait:
-                print("Trait not found.")
+                logger.debug("Trait not found.")
                 return None
             trait.unassociate_experiment(experiment_name=self.experiment_name)
             return trait
         except Exception as e:
-            print("Error unassociating trait:", e)
+            logger.info("Error unassociating trait:", e)
             return None
         
     def belongs_to_trait(
@@ -1948,12 +1951,12 @@ class Experiment(APIBase):
             from gemini.api.trait import Trait
             trait = Trait.get(trait_name=trait_name)
             if not trait:
-                print("Trait not found.")
+                logger.debug("Trait not found.")
                 return False
             association_exists = trait.belongs_to_experiment(experiment_name=self.experiment_name)
             return association_exists
         except Exception as e:
-            print("Error checking if belongs to trait:", e)
+            logger.info("Error checking if belongs to trait:", e)
             return False
     # endregion
 
@@ -1979,12 +1982,12 @@ class Experiment(APIBase):
             from gemini.api.plot import Plot
             plots = PlotViewModel.search(experiment_id=self.id)
             if not plots or len(plots) == 0:
-                print("No plots found for this experiment.")
+                logger.info("No plots found for this experiment.")
                 return None
             plots = [Plot.model_validate(plot) for plot in plots]
             return plots
         except Exception as e:
-            print("Error getting associated plots:", e)
+            logger.info("Error getting associated plots:", e)
             return None
         
     def create_new_plot(
@@ -1994,7 +1997,7 @@ class Experiment(APIBase):
         plot_column_number: int,
         season_name: str = None,
         site_name: str = None,
-        plot_info: dict = {}
+        plot_info: dict = None
     ) -> Optional["Plot"]:
         """
         Create and associate a new plot with this experiment.
@@ -2027,11 +2030,11 @@ class Experiment(APIBase):
                 experiment_name=self.experiment_name
             )
             if not new_plot:
-                print("Error creating new plot.")
+                logger.info("Error creating new plot.")
                 return None
             return new_plot
         except Exception as e:
-            print("Error creating new plot:", e)
+            logger.info("Error creating new plot:", e)
             return None
         
     def associate_plot(
@@ -2070,12 +2073,12 @@ class Experiment(APIBase):
                 site_name=site_name
             )
             if not plot:
-                print("Plot not found.")
+                logger.debug("Plot not found.")
                 return None
             plot.associate_experiment(experiment_name=self.experiment_name)
             return plot
         except Exception as e:
-            print("Error associating plot:", e)
+            logger.info("Error associating plot:", e)
             return None
         
     def unassociate_plot(
@@ -2114,12 +2117,12 @@ class Experiment(APIBase):
                 site_name=site_name
             )
             if not plot:
-                print("Plot not found.")
+                logger.debug("Plot not found.")
                 return None
             plot.unassociate_experiment()
             return plot
         except Exception as e:
-            print("Error unassociating plot:", e)
+            logger.info("Error unassociating plot:", e)
             return None
         
     def belongs_to_plot(
@@ -2158,12 +2161,12 @@ class Experiment(APIBase):
                 site_name=site_name
             )
             if not plot:
-                print("Plot not found.")
+                logger.debug("Plot not found.")
                 return False
             association_exists = plot.belongs_to_experiment(experiment_name=self.experiment_name)
             return association_exists
         except Exception as e:
-            print("Error checking if belongs to plot:", e)
+            logger.info("Error checking if belongs to plot:", e)
             return False
     # endregion
 

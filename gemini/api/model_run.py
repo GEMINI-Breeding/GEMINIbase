@@ -24,6 +24,7 @@ from typing import Optional, List, TYPE_CHECKING
 from uuid import UUID
 
 from pydantic import Field, AliasChoices
+import logging
 from gemini.api.types import ID
 from gemini.api.base import APIBase
 from gemini.db.models.model_runs import ModelRunModel
@@ -32,6 +33,8 @@ from gemini.db.models.views.run_views import ModelRunsViewModel
 
 if TYPE_CHECKING:
     from gemini.api.model import Model
+
+logger = logging.getLogger(__name__)
 
 class ModelRun(APIBase):
     """
@@ -84,13 +87,13 @@ class ModelRun(APIBase):
             )
             return exists
         except Exception as e:
-            print(f"Error checking existence of model run: {e}")
+            logger.error(f"Error checking existence of model run: {e}")
             return False
         
     @classmethod
     def create(
         cls,
-        model_run_info: dict = {},
+        model_run_info: dict = None,
         model_name: str = None
     ) -> Optional["ModelRun"]:
         """
@@ -116,7 +119,7 @@ class ModelRun(APIBase):
                 model_run.associate_model(model_name=model_name)
             return model_run
         except Exception as e:
-            print(f"Error creating model run: {e}")
+            logger.error(f"Error creating model run: {e}")
             return None
         
     @classmethod
@@ -141,12 +144,12 @@ class ModelRun(APIBase):
                 model_name=model_name
             )
             if not db_instance:
-                print(f"Model run with info {model_run_info} and model name {model_name} not found.")
+                logger.debug(f"Model run with info {model_run_info} and model name {model_name} not found.")
                 return None
             instance = cls.model_validate(db_instance)
             return instance
         except Exception as e:
-            print(f"Error getting model run: {e}")
+            logger.error(f"Error getting model run: {e}")
             return None
         
     @classmethod
@@ -167,16 +170,16 @@ class ModelRun(APIBase):
         try:
             db_instance = ModelRunModel.get(id)
             if not db_instance:
-                print(f"Model run with id {id} not found.")
+                logger.debug(f"Model run with id {id} not found.")
                 return None
             instance = cls.model_validate(db_instance)
             return instance
         except Exception as e:
-            print(f"Error getting model run by id: {e}")
+            logger.error(f"Error getting model run by id: {e}")
             return None
         
     @classmethod
-    def get_all(cls) -> Optional[List["ModelRun"]]:
+    def get_all(cls, limit: int = None, offset: int = None) -> Optional[List["ModelRun"]]:
         """
         Retrieve all model runs.
 
@@ -189,14 +192,14 @@ class ModelRun(APIBase):
             Optional[List["ModelRun"]]: List of all model runs, or None if not found.
         """
         try:
-            model_runs = ModelRunModel.all()
+            model_runs = ModelRunModel.all(limit=limit, offset=offset)
             if not model_runs or len(model_runs) == 0:
-                print("No model runs found.")
+                logger.info("No model runs found.")
                 return None
             model_runs = [cls.model_validate(model_run) for model_run in model_runs]
             return model_runs
         except Exception as e:
-            print(f"Error getting all model runs: {e}")
+            logger.error(f"Error getting all model runs: {e}")
             return None
         
     @classmethod
@@ -221,19 +224,19 @@ class ModelRun(APIBase):
         """
         try:
             if not any([model_name, model_run_info]):
-                print("At least one of model_name or model_run_info must be provided.")
+                logger.warning("At least one of model_name or model_run_info must be provided.")
                 return None
             model_runs = ModelRunsViewModel.search(
                 model_run_info=model_run_info,
                 model_name=model_name
             )
             if not model_runs or len(model_runs) == 0:
-                print("No model runs found for the given search criteria.")
+                logger.info("No model runs found for the given search criteria.")
                 return None
             model_runs = [cls.model_validate(model_run) for model_run in model_runs]
             return model_runs
         except Exception as e:
-            print(f"Error searching model runs: {e}")
+            logger.error(f"Error searching model runs: {e}")
             return None
         
     def update(self, model_run_info: dict = None) -> Optional["ModelRun"]:
@@ -253,12 +256,12 @@ class ModelRun(APIBase):
         """
         try:
             if not model_run_info:
-                print("Model run info cannot be empty.")
+                logger.info("Model run info cannot be empty.")
                 return None
             current_id = self.id
             model_run = ModelRunModel.get(current_id)
             if not model_run:
-                print(f"Model run with id {current_id} does not exist.")
+                logger.warning(f"Model run with id {current_id} does not exist.")
                 return None
             model_run = ModelRunModel.update(
                 model_run,
@@ -268,7 +271,7 @@ class ModelRun(APIBase):
             self.refresh()
             return instance
         except Exception as e:
-            print(f"Error updating model run: {e}")
+            logger.error(f"Error updating model run: {e}")
             return None
         
     def delete(self) -> bool:
@@ -288,12 +291,12 @@ class ModelRun(APIBase):
             current_id = self.id
             model_run = ModelRunModel.get(current_id)
             if not model_run:
-                print(f"Model run with id {current_id} does not exist.")
+                logger.warning(f"Model run with id {current_id} does not exist.")
                 return False
             ModelRunModel.delete(model_run)
             return True
         except Exception as e:
-            print(f"Error deleting model run: {e}")
+            logger.error(f"Error deleting model run: {e}")
             return False
         
     def refresh(self) -> Optional["ModelRun"]:
@@ -313,7 +316,7 @@ class ModelRun(APIBase):
         try:
             db_instance = ModelRunModel.get(self.id)
             if not db_instance:
-                print(f"Model run with id {self.id} not found.")
+                logger.debug(f"Model run with id {self.id} not found.")
                 return self
             instance = self.model_validate(db_instance)
             for key, value in instance.model_dump().items():
@@ -321,7 +324,7 @@ class ModelRun(APIBase):
                     setattr(self, key, value)
             return self
         except Exception as e:
-            print(f"Error refreshing model run: {e}")
+            logger.error(f"Error refreshing model run: {e}")
             return None
         
     def get_info(self) -> Optional[dict]:
@@ -341,15 +344,15 @@ class ModelRun(APIBase):
             current_id = self.id
             model_run = ModelRunModel.get(current_id)
             if not model_run:
-                print(f"Model run with id {current_id} does not exist.")
+                logger.warning(f"Model run with id {current_id} does not exist.")
                 return None
             model_run_info = model_run.model_run_info
             if not model_run_info:
-                print("ModelRun info is empty.")
+                logger.info("ModelRun info is empty.")
                 return None
             return model_run_info
         except Exception as e:
-            print(f"Error getting model run info: {e}")
+            logger.error(f"Error getting model run info: {e}")
             return None
 
     def set_info(self, model_run_info: dict) -> Optional["ModelRun"]:
@@ -371,7 +374,7 @@ class ModelRun(APIBase):
             current_id = self.id
             model_run = ModelRunModel.get(current_id)
             if not model_run:
-                print(f"Model run with id {current_id} does not exist.")
+                logger.warning(f"Model run with id {current_id} does not exist.")
                 return None
             model_run = ModelRunModel.update(
                 model_run,
@@ -381,7 +384,7 @@ class ModelRun(APIBase):
             self.refresh()
             return instance
         except Exception as e:
-            print(f"Error setting model run info: {e}")
+            logger.error(f"Error setting model run info: {e}")
             return None
 
     def get_associated_model(self) -> Optional["Model"]:
@@ -400,15 +403,15 @@ class ModelRun(APIBase):
         try:
             from gemini.api.model import Model
             if self.model_id is None:
-                print("Model run does not have an associated model.")
+                logger.info("Model run does not have an associated model.")
                 return None
             model = Model.get_by_id(self.model_id)
             if not model:
-                print(f"Model with id {self.model_id} does not exist.")
+                logger.warning(f"Model with id {self.model_id} does not exist.")
                 return None
             return model
         except Exception as e:
-            print(f"Error getting model for model run: {e}")
+            logger.error(f"Error getting model for model run: {e}")
             return None
 
     def associate_model(self, model_name: str) -> Optional["Model"]:
@@ -430,19 +433,19 @@ class ModelRun(APIBase):
             from gemini.api.model import Model
             model = Model.get(model_name=model_name)
             if not model:
-                print(f"Model with name {model_name} does not exist.")
+                logger.warning(f"Model with name {model_name} does not exist.")
                 return None
             existing_association = ModelRunModel.get_by_parameters(
                 model_id=model.id,
                 id=self.id
             )
             if existing_association:
-                print(f"Model run with id {self.id} is already associated with model {model_name}.")
+                logger.info(f"Model run with id {self.id} is already associated with model {model_name}.")
                 return None
             # Assign the model to the model run
             db_model_run = ModelRunModel.get(self.id)
             if not db_model_run:
-                print(f"Model run with id {self.id} does not exist.")
+                logger.warning(f"Model run with id {self.id} does not exist.")
                 return None
             db_model_run = ModelRunModel.update_parameter(
                 db_model_run,
@@ -452,7 +455,7 @@ class ModelRun(APIBase):
             self.refresh()
             return model
         except Exception as e:
-            print(f"Error assigning model to model run: {e}")
+            logger.error(f"Error assigning model to model run: {e}")
             return None
 
     def belongs_to_model(self, model_name: str) -> bool:
@@ -474,7 +477,7 @@ class ModelRun(APIBase):
             from gemini.api.model import Model
             model = Model.get(model_name=model_name)
             if not model:
-                print(f"Model with name {model_name} does not exist.")
+                logger.warning(f"Model with name {model_name} does not exist.")
                 return False
             association_exists = ModelRunModel.exists(
                 id=self.id,
@@ -482,7 +485,7 @@ class ModelRun(APIBase):
             )
             return association_exists
         except Exception as e:
-            print(f"Error checking if model run belongs to model: {e}")
+            logger.error(f"Error checking if model run belongs to model: {e}")
             return False
 
     def unassociate_model(self) -> Optional["Model"]:
@@ -502,7 +505,7 @@ class ModelRun(APIBase):
             from gemini.api.model import Model
             model_run = ModelRunModel.get(self.id)
             if not model_run:
-                print(f"Model run with id {self.id} does not exist.")
+                logger.warning(f"Model run with id {self.id} does not exist.")
                 return None
             model = Model.get_by_id(model_run.model_id)
             model_run = ModelRunModel.update_parameter(
@@ -513,5 +516,5 @@ class ModelRun(APIBase):
             self.refresh()
             return model
         except Exception as e:
-            print(f"Error unassigning model from model run: {e}")
+            logger.error(f"Error unassigning model from model run: {e}")
             return None

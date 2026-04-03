@@ -19,10 +19,10 @@ from typing import List, Annotated, Optional
 class DataTypeController(Controller):
     
     # Get All Data Types
-    @get(path="/all")
-    async def get_all_data_types(self) -> List[DataTypeOutput]:
+    @get(path="/all", sync_to_thread=True)
+    def get_all_data_types(self, limit: int = 100, offset: int = 0) -> List[DataTypeOutput]:
         try:
-            data_types = DataType.get_all()
+            data_types = DataType.get_all(limit=limit, offset=offset)
             if data_types is None:
                 error = RESTAPIError(
                     error="No data types found",
@@ -38,8 +38,8 @@ class DataTypeController(Controller):
             return Response(content=error, status_code=500)
 
     # Get Data Types
-    @get()
-    async def get_data_types(
+    @get(sync_to_thread=True)
+    def get_data_types(
         self,
         data_type_name: Optional[str] = None,
         data_type_info: Optional[JSONB] = None
@@ -66,8 +66,8 @@ class DataTypeController(Controller):
             return Response(content=error, status_code=500)
         
     # Get Data Type by ID
-    @get(path="/id/{data_type_id:int}")
-    async def get_data_type_by_id(
+    @get(path="/id/{data_type_id:int}", sync_to_thread=True)
+    def get_data_type_by_id(
         self, data_type_id: int
     ) -> DataTypeOutput:
         try:
@@ -87,8 +87,8 @@ class DataTypeController(Controller):
             return Response(content=error, status_code=500)
         
     # Create a new Data Type
-    @post()
-    async def create_data_type(
+    @post(sync_to_thread=True)
+    def create_data_type(
         self, data: Annotated[DataTypeInput, Body]
     ) -> DataTypeOutput:
         try:
@@ -112,8 +112,8 @@ class DataTypeController(Controller):
         
 
     # Update Data Type
-    @patch(path="/id/{data_type_id:int}")
-    async def update_data_type(
+    @patch(path="/id/{data_type_id:int}", sync_to_thread=True)
+    def update_data_type(
         cls, data_type_id: int, data: Annotated[DataTypeUpdate, Body]
     ) -> DataTypeOutput:
         try:
@@ -143,8 +143,8 @@ class DataTypeController(Controller):
             return Response(content=error, status_code=500)
         
     # Delete Data Type
-    @delete(path="/id/{data_type_id:int}")
-    async def delete_data_type(
+    @delete(path="/id/{data_type_id:int}", sync_to_thread=True)
+    def delete_data_type(
         cls, data_type_id: int
     ) -> None:
         try:
@@ -172,8 +172,8 @@ class DataTypeController(Controller):
         
 
     # Get associated Data Formats
-    @get(path="/id/{data_type_id:int}/data_formats")
-    async def get_associated_data_formats(
+    @get(path="/id/{data_type_id:int}/data_formats", sync_to_thread=True)
+    def get_associated_data_formats(
         cls, data_type_id: int
     ) -> List[DataFormatOutput]:
         try:

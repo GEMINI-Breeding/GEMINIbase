@@ -21,10 +21,10 @@ class DataFormatController(Controller):
 
 
     # Get All Data Formats
-    @get(path="/all")
-    async def get_all_data_formats(self) -> List[DataFormatOutput]:
+    @get(path="/all", sync_to_thread=True)
+    def get_all_data_formats(self, limit: int = 100, offset: int = 0) -> List[DataFormatOutput]:
         try:
-            data_formats = DataFormat.get_all()
+            data_formats = DataFormat.get_all(limit=limit, offset=offset)
             if data_formats is None:
                 error = RESTAPIError(
                     error="No data formats found",
@@ -40,8 +40,8 @@ class DataFormatController(Controller):
             return Response(content=error, status_code=500)
 
     # Get Data Formats
-    @get()
-    async def get_data_formats(
+    @get(sync_to_thread=True)
+    def get_data_formats(
         cls,
         data_format_name: Optional[str] = None,
         data_format_mime_type: Optional[str] = None,
@@ -71,8 +71,8 @@ class DataFormatController(Controller):
             return Response(content=error, status_code=500)
 
     # Get Data Format by ID
-    @get(path="/id/{data_format_id:int}")
-    async def get_data_format_by_id(
+    @get(path="/id/{data_format_id:int}", sync_to_thread=True)
+    def get_data_format_by_id(
         cls, data_format_id: int
     ) -> DataFormatOutput:
         try:
@@ -93,8 +93,8 @@ class DataFormatController(Controller):
 
         
     # Create a new Data Format
-    @post()
-    async def create_data_format(
+    @post(sync_to_thread=True)
+    def create_data_format(
         cls, data: Annotated[DataFormatInput, Body]
     ) -> DataFormatOutput:
         try:
@@ -118,8 +118,8 @@ class DataFormatController(Controller):
             return Response(content=error, status_code=500)
         
     # Update Data Format
-    @patch(path="/id/{data_format_id:int}")
-    async def update_data_format(
+    @patch(path="/id/{data_format_id:int}", sync_to_thread=True)
+    def update_data_format(
         cls, data_format_id: int, data: Annotated[DataFormatUpdate, Body]
     ) -> DataFormatOutput:
         try:
@@ -151,8 +151,8 @@ class DataFormatController(Controller):
             return Response(content=error, status_code=500)
         
     # Delete Data Format
-    @delete(path="/id/{data_format_id:int}")
-    async def delete_data_format(
+    @delete(path="/id/{data_format_id:int}", sync_to_thread=True)
+    def delete_data_format(
         cls, data_format_id: int
     ) -> None:
         try:
@@ -180,8 +180,8 @@ class DataFormatController(Controller):
 
 
     # Get Associated Data Types
-    @get(path="/id/{data_format_id:int}/data_types")
-    async def get_associated_data_types(
+    @get(path="/id/{data_format_id:int}/data_types", sync_to_thread=True)
+    def get_associated_data_types(
         cls, data_format_id: int
     ) -> List[DataTypeOutput]:
         try:

@@ -547,59 +547,31 @@ class TestMaterializedViewBaseModel:
         FakeMaterializedView.refresh()
         mock_session.execute.assert_called_once()
 
-    def test_all_calls_refresh_then_super(self, mock_db_engine):
+    def test_all_does_not_auto_refresh(self, mock_db_engine):
+        """Read operations should NOT auto-refresh. IMMV views are kept
+        up-to-date by pg_ivm; auto-refresh caused exclusive-lock contention."""
         _, mock_session = mock_db_engine
         mock_session.execute.return_value.scalars.return_value.all.return_value = []
 
         with patch.object(FakeMaterializedView, "refresh") as mock_refresh:
             FakeMaterializedView.all()
-            mock_refresh.assert_called_once()
+            mock_refresh.assert_not_called()
 
-    def test_get_calls_refresh(self, mock_db_engine):
+    def test_get_does_not_auto_refresh(self, mock_db_engine):
         _, mock_session = mock_db_engine
         mock_session.execute.return_value.scalar_one_or_none.return_value = None
 
-        with patch.object(FakeMaterializedView, "refresh") as mock_refresh, \
-             patch.object(BaseModel, "get", return_value=None):
-            # MaterializedViewBaseModel.get() calls refresh then super().get()
-            FakeMaterializedView.get()
-            mock_refresh.assert_called_once()
-
-    def test_get_by_parameters_calls_refresh(self, mock_db_engine):
-        _, mock_session = mock_db_engine
-        mock_session.execute.return_value.scalars.return_value.first.return_value = None
-
         with patch.object(FakeMaterializedView, "refresh") as mock_refresh:
-            FakeMaterializedView.get_by_parameters(name="x")
-            mock_refresh.assert_called_once()
+            FakeMaterializedView.get(id=1)
+            mock_refresh.assert_not_called()
 
-    def test_search_calls_refresh(self, mock_db_engine):
+    def test_search_does_not_auto_refresh(self, mock_db_engine):
         _, mock_session = mock_db_engine
         mock_session.execute.return_value.scalars.return_value.all.return_value = []
 
         with patch.object(FakeMaterializedView, "refresh") as mock_refresh:
             FakeMaterializedView.search(name="x")
-            mock_refresh.assert_called_once()
-
-    def test_paginate_calls_refresh(self, mock_db_engine):
-        _, mock_session = mock_db_engine
-        mock_query = MagicMock()
-        mock_query.count.return_value = 0
-        mock_query.limit.return_value = mock_query
-        mock_query.all.return_value = []
-        mock_session.query.return_value = mock_query
-
-        with patch.object(FakeMaterializedView, "refresh") as mock_refresh:
-            FakeMaterializedView.paginate(order_by="name", page_number=0, page_limit=10)
-            mock_refresh.assert_called_once()
-
-    def test_stream_calls_refresh(self, mock_db_engine):
-        _, mock_session = mock_db_engine
-        mock_session.execute.return_value.scalars.return_value.partitions.return_value = []
-
-        with patch.object(FakeMaterializedView, "refresh") as mock_refresh:
-            list(FakeMaterializedView.stream())
-            mock_refresh.assert_called_once()
+            mock_refresh.assert_not_called()
 
 
 # ===========================================================================

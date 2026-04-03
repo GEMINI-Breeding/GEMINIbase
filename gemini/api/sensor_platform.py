@@ -24,6 +24,7 @@ from typing import List, Optional, TYPE_CHECKING
 from uuid import UUID
 
 from pydantic import Field, AliasChoices
+import logging
 from gemini.api.types import ID
 from gemini.api.base import APIBase
 from gemini.api.sensor import Sensor, GEMINIDataFormat, GEMINIDataType, GEMINISensorType
@@ -35,6 +36,8 @@ from gemini.db.models.views.sensor_platform_sensors_view import SensorPlatformSe
 if TYPE_CHECKING:
     from gemini.api.experiment import Experiment
     from gemini.api.sensor import Sensor
+
+logger = logging.getLogger(__name__)
 
 class SensorPlatform(APIBase):
     """
@@ -82,14 +85,14 @@ class SensorPlatform(APIBase):
             exists = SensorPlatformModel.exists(sensor_platform_name=sensor_platform_name)
             return exists
         except Exception as e:
-            print(f"Error checking existence of SensorPlatform: {e}")
+            logger.error(f"Error checking existence of SensorPlatform: {e}")
             return False
     
     @classmethod
     def create(
         cls,
         sensor_platform_name: str,
-        sensor_platform_info: dict = {},
+        sensor_platform_info: dict = None,
         experiment_name: str = None
     ) -> Optional["SensorPlatform"]:
         """
@@ -116,7 +119,7 @@ class SensorPlatform(APIBase):
                 sensor_platform.associate_experiment(experiment_name=experiment_name)
             return sensor_platform
         except Exception as e:
-            print(f"Error creating SensorPlatform: {e}")
+            logger.error(f"Error creating SensorPlatform: {e}")
             return None
         
     @classmethod
@@ -144,12 +147,12 @@ class SensorPlatform(APIBase):
                 experiment_name=experiment_name
             )
             if not db_instance:
-                print(f"SensorPlatform with name {sensor_platform_name} not found.")
+                logger.debug(f"SensorPlatform with name {sensor_platform_name} not found.")
                 return None
             sensor_platform = cls.model_validate(db_instance)
             return sensor_platform
         except Exception as e:
-            print(f"Error retrieving SensorPlatform: {e}")
+            logger.error(f"Error retrieving SensorPlatform: {e}")
             return None
         
     @classmethod
@@ -169,16 +172,16 @@ class SensorPlatform(APIBase):
         try:
             db_instance = SensorPlatformModel.get(id)
             if not db_instance:
-                print(f"SensorPlatform with ID {id} not found.")
+                logger.debug(f"SensorPlatform with ID {id} not found.")
                 return None
             sensor_platform = cls.model_validate(db_instance)
             return sensor_platform
         except Exception as e:
-            print(f"Error retrieving SensorPlatform by ID: {e}")
+            logger.error(f"Error retrieving SensorPlatform by ID: {e}")
             return None
         
     @classmethod
-    def get_all(cls) -> Optional[List["SensorPlatform"]]:
+    def get_all(cls, limit: int = None, offset: int = None) -> Optional[List["SensorPlatform"]]:
         """
         Retrieve all sensor platforms.
 
@@ -190,14 +193,14 @@ class SensorPlatform(APIBase):
             Optional[List[SensorPlatform]]: List of all sensor platforms, or None if not found.
         """
         try:
-            sensor_platforms = SensorPlatformModel.all()
+            sensor_platforms = SensorPlatformModel.all(limit=limit, offset=offset)
             if not sensor_platforms or len(sensor_platforms) == 0:
-                print("No SensorPlatforms found.")
+                logger.info("No SensorPlatforms found.")
                 return None
             sensor_platforms = [cls.model_validate(sp) for sp in sensor_platforms]
             return sensor_platforms
         except Exception as e:
-            print(f"Error retrieving all SensorPlatforms: {e}")
+            logger.error(f"Error retrieving all SensorPlatforms: {e}")
             return None
         
     @classmethod
@@ -224,7 +227,7 @@ class SensorPlatform(APIBase):
         """
         try:
             if not any([sensor_platform_name, sensor_platform_info, experiment_name]):
-                print("At least one search parameter must be provided.")
+                logger.warning("At least one search parameter must be provided.")
                 return None
             instances = ExperimentSensorPlatformsViewModel.search(
                 sensor_platform_name=sensor_platform_name,
@@ -232,12 +235,12 @@ class SensorPlatform(APIBase):
                 experiment_name=experiment_name
             )
             if not instances or len(instances) == 0:
-                print("No SensorPlatforms found matching the search criteria.")
+                logger.info("No SensorPlatforms found matching the search criteria.")
                 return None
             sensor_platforms = [cls.model_validate(instance) for instance in instances]
             return sensor_platforms
         except Exception as e:
-            print(f"Error searching SensorPlatforms: {e}")
+            logger.error(f"Error searching SensorPlatforms: {e}")
             return None
         
     def update(
@@ -261,12 +264,12 @@ class SensorPlatform(APIBase):
         """
         try:
             if not any([sensor_platform_name, sensor_platform_info]):
-                print("At least one update parameter must be provided.")
+                logger.warning("At least one update parameter must be provided.")
                 return None
             current_id = self.id
             platform = SensorPlatformModel.get(current_id)
             if not platform:
-                print(f"SensorPlatform with ID {current_id} not found.")
+                logger.debug(f"SensorPlatform with ID {current_id} not found.")
                 return None
             platform = SensorPlatformModel.update(
                 platform, 
@@ -277,7 +280,7 @@ class SensorPlatform(APIBase):
             self.refresh()
             return platform
         except Exception as e:
-            print(f"Error updating SensorPlatform: {e}")
+            logger.error(f"Error updating SensorPlatform: {e}")
             return None
         
     def delete(self) -> bool:
@@ -296,12 +299,12 @@ class SensorPlatform(APIBase):
             current_id = self.id
             platform = SensorPlatformModel.get(current_id)
             if not platform:
-                print(f"SensorPlatform with ID {current_id} not found.")
+                logger.debug(f"SensorPlatform with ID {current_id} not found.")
                 return False
             SensorPlatformModel.delete(platform)
             return True
         except Exception as e:
-            print(f"Error deleting SensorPlatform: {e}")
+            logger.error(f"Error deleting SensorPlatform: {e}")
             return False
         
     def refresh(self) -> Optional["SensorPlatform"]:
@@ -319,7 +322,7 @@ class SensorPlatform(APIBase):
         try:
             db_instance = SensorPlatformModel.get(self.id)
             if not db_instance:
-                print(f"SensorPlatform with ID {self.id} not found.")
+                logger.debug(f"SensorPlatform with ID {self.id} not found.")
                 return self
             instance = self.model_validate(db_instance)
             for key, value in instance.model_dump().items():
@@ -327,7 +330,7 @@ class SensorPlatform(APIBase):
                     setattr(self, key, value)
             return self
         except Exception as e:
-            print(f"Error refreshing SensorPlatform: {e}")
+            logger.error(f"Error refreshing SensorPlatform: {e}")
             return None
         
     def get_info(self) -> Optional[dict]:
@@ -346,15 +349,15 @@ class SensorPlatform(APIBase):
             current_id = self.id
             sensor_platform = SensorPlatformModel.get(current_id)
             if not sensor_platform:
-                print(f"SensorPlatform with ID {current_id} not found.")
+                logger.debug(f"SensorPlatform with ID {current_id} not found.")
                 return None
             sensor_platform_info = sensor_platform.sensor_platform_info
             if not sensor_platform_info:
-                print("SensorPlatform info is empty.")
+                logger.info("SensorPlatform info is empty.")
                 return None
             return sensor_platform_info
         except Exception as e:
-            print(f"Error retrieving SensorPlatform info: {e}")
+            logger.error(f"Error retrieving SensorPlatform info: {e}")
             return None
         
     def set_info(self, sensor_platform_info: dict) -> Optional["SensorPlatform"]:
@@ -376,7 +379,7 @@ class SensorPlatform(APIBase):
             current_id = self.id
             sensor_platform = SensorPlatformModel.get(current_id)
             if not sensor_platform:
-                print(f"SensorPlatform with ID {current_id} not found.")
+                logger.debug(f"SensorPlatform with ID {current_id} not found.")
                 return None
             sensor_platform = SensorPlatformModel.update(
                 sensor_platform,
@@ -386,7 +389,7 @@ class SensorPlatform(APIBase):
             self.refresh()
             return self
         except Exception as e:
-            print(f"Error setting SensorPlatform info: {e}")
+            logger.error(f"Error setting SensorPlatform info: {e}")
             return None
             
     def get_associated_sensors(self) -> Optional[List["Sensor"]]:
@@ -410,12 +413,12 @@ class SensorPlatform(APIBase):
                 sensor_platform_id=self.id
             )
             if not sensor_platform_sensors or len(sensor_platform_sensors) == 0:
-                print(f"No sensors found for SensorPlatform {self.sensor_platform_name}.")
+                logger.info(f"No sensors found for SensorPlatform {self.sensor_platform_name}.")
                 return None
             sensors = [Sensor.model_validate(sensor) for sensor in sensor_platform_sensors]
             return sensors
         except Exception as e:
-            print(f"Error retrieving sensors for SensorPlatform: {e}")
+            logger.error(f"Error retrieving sensors for SensorPlatform: {e}")
             return None
 
     def create_new_sensor(
@@ -424,7 +427,7 @@ class SensorPlatform(APIBase):
         sensor_type: GEMINISensorType = GEMINISensorType.Default,
         sensor_data_type: GEMINIDataType = GEMINIDataType.Default,
         sensor_data_format: GEMINIDataFormat = GEMINIDataFormat.Default,
-        sensor_info: dict = {},
+        sensor_info: dict = None,
         experiment_name: str = None
     ) -> Optional["Sensor"]:
         """
@@ -458,11 +461,11 @@ class SensorPlatform(APIBase):
                 sensor_platform_name=self.sensor_platform_name
             )
             if not new_sensor:
-                print(f"Failed to create sensor {sensor_name}.")
+                logger.info(f"Failed to create sensor {sensor_name}.")
                 return None
             return new_sensor
         except Exception as e:
-            print(f"Error creating new sensor for SensorPlatform: {e}")
+            logger.error(f"Error creating new sensor for SensorPlatform: {e}")
             return None
 
     def associate_sensor(self, sensor_name: str) -> Optional["Sensor"]:
@@ -484,14 +487,14 @@ class SensorPlatform(APIBase):
             from gemini.api.sensor import Sensor
             sensor = Sensor.get(sensor_name=sensor_name)
             if not sensor:
-                print(f"Sensor {sensor_name} not found.")
+                logger.debug(f"Sensor {sensor_name} not found.")
                 return None
             existing_association = SensorPlatformSensorModel.exists(
                 sensor_platform_id=self.id,
                 sensor_id=sensor.id
             )
             if existing_association:
-                print(f"Sensor {sensor_name} is already associated with SensorPlatform {self.sensor_platform_name}.")
+                logger.info(f"Sensor {sensor_name} is already associated with SensorPlatform {self.sensor_platform_name}.")
                 return None
             new_association = SensorPlatformSensorModel.create(
                 sensor_platform_id=self.id,
@@ -500,7 +503,7 @@ class SensorPlatform(APIBase):
             self.refresh()
             return sensor
         except Exception as e:
-            print(f"Error associating sensor {sensor_name} with SensorPlatform: {e}")
+            logger.error(f"Error associating sensor {sensor_name} with SensorPlatform: {e}")
             return None
 
     def unassociate_sensor(self, sensor_name: str) -> Optional["Sensor"]:
@@ -522,23 +525,23 @@ class SensorPlatform(APIBase):
             from gemini.api.sensor import Sensor
             sensor = Sensor.get(sensor_name=sensor_name)
             if not sensor:
-                print(f"Sensor {self.sensor_platform_name} not found.")
+                logger.debug(f"Sensor {self.sensor_platform_name} not found.")
                 return None
             existing_association = SensorPlatformSensorModel.get_by_parameters(
                 sensor_platform_id=self.id,
                 sensor_id=sensor.id
             )
             if not existing_association:
-                print(f"Sensor {self.sensor_platform_name} is not associated with SensorPlatform {self.sensor_platform_name}.")
+                logger.info(f"Sensor {self.sensor_platform_name} is not associated with SensorPlatform {self.sensor_platform_name}.")
                 return None
             is_deleted = SensorPlatformSensorModel.delete(existing_association)
             if not is_deleted:
-                print(f"Failed to unassociate sensor {self.sensor_platform_name} from SensorPlatform {self.sensor_platform_name}.")
+                logger.info(f"Failed to unassociate sensor {self.sensor_platform_name} from SensorPlatform {self.sensor_platform_name}.")
                 return None
             self.refresh()
             return sensor
         except Exception as e:
-            print(f"Error unassociating sensor {self.sensor_platform_name} from SensorPlatform: {e}")
+            logger.error(f"Error unassociating sensor {self.sensor_platform_name} from SensorPlatform: {e}")
             return None
 
     def belongs_to_sensor(self, sensor_name: str) -> bool:
@@ -560,7 +563,7 @@ class SensorPlatform(APIBase):
             from gemini.api.sensor import Sensor
             sensor = Sensor.get(sensor_name=sensor_name)
             if not sensor:
-                print(f"Sensor {sensor_name} not found.")
+                logger.debug(f"Sensor {sensor_name} not found.")
                 return False
             association_exists = SensorPlatformSensorModel.exists(
                 sensor_platform_id=self.id,
@@ -568,7 +571,7 @@ class SensorPlatform(APIBase):
             )
             return association_exists
         except Exception as e:
-            print(f"Error checking if SensorPlatform belongs to sensor {sensor_name}: {e}")
+            logger.error(f"Error checking if SensorPlatform belongs to sensor {sensor_name}: {e}")
             return False
 
     def get_associated_experiments(self) -> Optional[List["Experiment"]]:
@@ -592,12 +595,12 @@ class SensorPlatform(APIBase):
                 sensor_platform_id=self.id
             )
             if not experiment_sensor_platforms or len(experiment_sensor_platforms) == 0:
-                print(f"No experiments found for SensorPlatform {self.sensor_platform_name}.")
+                logger.info(f"No experiments found for SensorPlatform {self.sensor_platform_name}.")
                 return None
             experiments = [Experiment.model_validate(exp) for exp in experiment_sensor_platforms]
             return experiments
         except Exception as e:
-            print(f"Error retrieving associated experiments for SensorPlatform: {e}")
+            logger.error(f"Error retrieving associated experiments for SensorPlatform: {e}")
             return None
 
     def associate_experiment(self, experiment_name: str) -> Optional["Experiment"]:
@@ -619,26 +622,26 @@ class SensorPlatform(APIBase):
             from gemini.api.experiment import Experiment
             experiment = Experiment.get(experiment_name=experiment_name)
             if not experiment:
-                print(f"Experiment {experiment_name} not found.")
+                logger.debug(f"Experiment {experiment_name} not found.")
                 return None
             existing_association = ExperimentSensorPlatformModel.exists(
                 sensor_platform_id=self.id,
                 experiment_id=experiment.id
             )
             if existing_association:
-                print(f"Experiment {experiment_name} is already associated with SensorPlatform {self.sensor_platform_name}.")
+                logger.info(f"Experiment {experiment_name} is already associated with SensorPlatform {self.sensor_platform_name}.")
                 return None
             new_association = ExperimentSensorPlatformModel.create(
                 sensor_platform_id=self.id,
                 experiment_id=experiment.id
             )
             if not new_association:
-                print(f"Failed to associate Experiment {experiment_name} with SensorPlatform {self.sensor_platform_name}.")
+                logger.info(f"Failed to associate Experiment {experiment_name} with SensorPlatform {self.sensor_platform_name}.")
                 return None
             self.refresh()
             return experiment
         except Exception as e:
-            print(f"Error associating Experiment {experiment_name} with SensorPlatform: {e}")
+            logger.error(f"Error associating Experiment {experiment_name} with SensorPlatform: {e}")
             return None
 
     def unassociate_experiment(self, experiment_name: str) -> Optional["Experiment"]:
@@ -660,23 +663,23 @@ class SensorPlatform(APIBase):
             from gemini.api.experiment import Experiment
             experiment = Experiment.get(experiment_name=experiment_name)
             if not experiment:
-                print(f"Experiment {experiment_name} not found.")
+                logger.debug(f"Experiment {experiment_name} not found.")
                 return None
             existing_association = ExperimentSensorPlatformModel.get_by_parameters(
                 sensor_platform_id=self.id,
                 experiment_id=experiment.id
             )
             if not existing_association:
-                print(f"Experiment {experiment_name} is not associated with SensorPlatform {self.sensor_platform_name}.")
+                logger.info(f"Experiment {experiment_name} is not associated with SensorPlatform {self.sensor_platform_name}.")
                 return None
             is_deleted = ExperimentSensorPlatformModel.delete(existing_association)
             if not is_deleted:
-                print(f"Failed to unassociate Experiment {experiment_name} from SensorPlatform {self.sensor_platform_name}.")
+                logger.info(f"Failed to unassociate Experiment {experiment_name} from SensorPlatform {self.sensor_platform_name}.")
                 return None
             self.refresh()
             return experiment
         except Exception as e:
-            print(f"Error unassociating Experiment {experiment_name} from SensorPlatform: {e}")
+            logger.error(f"Error unassociating Experiment {experiment_name} from SensorPlatform: {e}")
             return None
 
     def belongs_to_experiment(self, experiment_name: str) -> bool:
@@ -698,7 +701,7 @@ class SensorPlatform(APIBase):
             from gemini.api.experiment import Experiment
             experiment = Experiment.get(experiment_name=experiment_name)
             if not experiment:
-                print(f"Experiment {self.sensor_platform_name} not found.")
+                logger.debug(f"Experiment {self.sensor_platform_name} not found.")
                 return False
             association_exists = ExperimentSensorPlatformModel.exists(
                 sensor_platform_id=self.id,
@@ -706,6 +709,6 @@ class SensorPlatform(APIBase):
             )
             return association_exists
         except Exception as e:
-            print(f"Error checking if SensorPlatform belongs to experiment {self.sensor_platform_name}: {e}")
+            logger.error(f"Error checking if SensorPlatform belongs to experiment {self.sensor_platform_name}: {e}")
             return False
 

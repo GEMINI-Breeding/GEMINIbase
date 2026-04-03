@@ -38,7 +38,7 @@ class SeasonModel(BaseModel):
     experiment_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey('gemini.experiments.id'))
     season_name: Mapped[str] = mapped_column(String(255), nullable=False)
     season_info: Mapped[dict] = mapped_column(JSONB, default={})
-    season_start_date: Mapped[date] = mapped_column(DATE, nullable=False, default=datetime.now)
+    season_start_date: Mapped[date] = mapped_column(DATE, nullable=False, default=date.today)
     season_end_date: Mapped[date] = mapped_column(DATE)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP, default=datetime.now)
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP, default=datetime.now, onupdate=datetime.now)

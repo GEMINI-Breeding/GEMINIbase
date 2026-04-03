@@ -42,10 +42,10 @@ class PlotPlantInput(BaseModel):
 class PlotController(Controller):
 
     # Get All Plots
-    @get(path="/all")
-    async def get_all_plots(self) -> List[PlotOutput]:
+    @get(path="/all", sync_to_thread=True)
+    def get_all_plots(self, limit: int = 100, offset: int = 0) -> List[PlotOutput]:
         try:
-            plots = Plot.get_all()
+            plots = Plot.get_all(limit=limit, offset=offset)
             if plots is None:
                 error = RESTAPIError(
                     error="No plots found",
@@ -61,8 +61,8 @@ class PlotController(Controller):
             return Response(content=error, status_code=500)
 
     # Get Plots
-    @get()
-    async def get_plots(
+    @get(sync_to_thread=True)
+    def get_plots(
         self,
         plot_number: Optional[int] = None,
         plot_row_number: Optional[int] = None,
@@ -97,8 +97,8 @@ class PlotController(Controller):
             return Response(content=error, status_code=500)
         
     # Get Plot by ID
-    @get(path="/id/{plot_id:str}")
-    async def get_plot_by_id(
+    @get(path="/id/{plot_id:str}", sync_to_thread=True)
+    def get_plot_by_id(
         self, plot_id: str
     ) -> PlotOutput:
         try:
@@ -118,8 +118,8 @@ class PlotController(Controller):
             return Response(content=error, status_code=500)
 
     # Create a new Plot
-    @post()
-    async def create_plot(
+    @post(sync_to_thread=True)
+    def create_plot(
         self,
         data: Annotated[PlotInput, Body]
     ) -> PlotOutput:
@@ -150,8 +150,8 @@ class PlotController(Controller):
             return Response(content=error, status_code=500)
         
     # Update Plot
-    @patch(path="/id/{plot_id:str}")
-    async def update_plot(
+    @patch(path="/id/{plot_id:str}", sync_to_thread=True)
+    def update_plot(
         self,
         plot_id: str,
         data: Annotated[PlotUpdate, Body]
@@ -186,8 +186,8 @@ class PlotController(Controller):
             return Response(content=error, status_code=500)
         
     # Delete Plot
-    @delete(path="/id/{plot_id:str}")
-    async def delete_plot(
+    @delete(path="/id/{plot_id:str}", sync_to_thread=True)
+    def delete_plot(
         self, plot_id: str
     ) -> None:
         try:
@@ -215,8 +215,8 @@ class PlotController(Controller):
         
         
     # Get Plot Cultivars
-    @get(path="/id/{plot_id:str}/cultivars")
-    async def get_plot_cultivars(
+    @get(path="/id/{plot_id:str}/cultivars", sync_to_thread=True)
+    def get_plot_cultivars(
         self, plot_id: str
     ) -> List[CultivarOutput]:
         try:
@@ -243,8 +243,8 @@ class PlotController(Controller):
             return Response(content=error, status_code=500)
         
     # Get Plot Experiment
-    @get(path="/id/{plot_id:str}/experiment")
-    async def get_plot_experiment(
+    @get(path="/id/{plot_id:str}/experiment", sync_to_thread=True)
+    def get_plot_experiment(
         self, plot_id: str
     ) -> ExperimentOutput:
         try:
@@ -271,8 +271,8 @@ class PlotController(Controller):
             return Response(content=error, status_code=500)
         
     # Get Plot Season
-    @get(path="/id/{plot_id:str}/season")
-    async def get_plot_season(
+    @get(path="/id/{plot_id:str}/season", sync_to_thread=True)
+    def get_plot_season(
         self, plot_id: str
     ) -> SeasonOutput:
         try:
@@ -299,8 +299,8 @@ class PlotController(Controller):
             return Response(content=error, status_code=500)
         
     # Get Plot Site
-    @get(path="/id/{plot_id:str}/site")
-    async def get_plot_site(
+    @get(path="/id/{plot_id:str}/site", sync_to_thread=True)
+    def get_plot_site(
         self, plot_id: str
     ) -> SiteOutput:
         try:

@@ -55,10 +55,10 @@ class ScriptDatasetInput(BaseModel):
 class ScriptController(Controller):
 
     # Get All Scripts
-    @get(path="/all")
-    async def get_all_scripts(self) -> List[ScriptOutput]:
+    @get(path="/all", sync_to_thread=True)
+    def get_all_scripts(self, limit: int = 100, offset: int = 0) -> List[ScriptOutput]:
         try:
-            scripts = Script.get_all()
+            scripts = Script.get_all(limit=limit, offset=offset)
             if scripts is None:
                 error = RESTAPIError(
                     error="No scripts found",
@@ -74,8 +74,8 @@ class ScriptController(Controller):
             return Response(content=error, status_code=500)
 
     # Get Scripts
-    @get()
-    async def get_scripts(
+    @get(sync_to_thread=True)
+    def get_scripts(
         self,
         script_name: Optional[str] = None,
         script_url: Optional[str] = None,
@@ -109,8 +109,8 @@ class ScriptController(Controller):
             return Response(content=error, status_code=500)
         
     # Get Script by ID
-    @get(path="/id/{script_id:str}")
-    async def get_script_by_id(
+    @get(path="/id/{script_id:str}", sync_to_thread=True)
+    def get_script_by_id(
         self, script_id: str
     ) -> ScriptOutput:
         try:
@@ -131,8 +131,8 @@ class ScriptController(Controller):
         
 
     # Create Script
-    @post()
-    async def create_script(
+    @post(sync_to_thread=True)
+    def create_script(
         self,
         data: Annotated[ScriptInput, Body]
     ) -> ScriptOutput:
@@ -159,8 +159,8 @@ class ScriptController(Controller):
             return Response(content=error, status_code=500)
         
     # Update Script
-    @patch(path="/id/{script_id:str}")
-    async def update_script(
+    @patch(path="/id/{script_id:str}", sync_to_thread=True)
+    def update_script(
         self,
         script_id: str,
         data: Annotated[ScriptUpdate, Body]
@@ -194,8 +194,8 @@ class ScriptController(Controller):
             return Response(content=error, status_code=500)
         
     # Delete Script
-    @delete(path="/id/{script_id:str}")
-    async def delete_script(
+    @delete(path="/id/{script_id:str}", sync_to_thread=True)
+    def delete_script(
         self,
         script_id: str
     ) -> None:
@@ -223,8 +223,8 @@ class ScriptController(Controller):
             return Response(content=error, status_code=500)
         
     # Get Associated Experiments
-    @get(path="/id/{script_id:str}/experiments")
-    async def get_script_experiments(
+    @get(path="/id/{script_id:str}/experiments", sync_to_thread=True)
+    def get_script_experiments(
         self, script_id: str
     ) -> List[ExperimentOutput]:
         try:
@@ -252,8 +252,8 @@ class ScriptController(Controller):
 
         
     # Get Script Runs
-    @get(path="/id/{script_id:str}/runs")
-    async def get_script_runs(
+    @get(path="/id/{script_id:str}/runs", sync_to_thread=True)
+    def get_script_runs(
         self, script_id: str
     ) -> List[ScriptRunOutput]:
         try:
@@ -280,8 +280,8 @@ class ScriptController(Controller):
             return Response(content=error, status_code=500)
         
     # Get Script Datasets
-    @get(path="/id/{script_id:str}/datasets")
-    async def get_script_datasets(
+    @get(path="/id/{script_id:str}/datasets", sync_to_thread=True)
+    def get_script_datasets(
         self, script_id: str
     ) -> List[DatasetOutput]:
         try:
@@ -308,8 +308,8 @@ class ScriptController(Controller):
             return Response(content=error, status_code=500)
         
     # Create Script Run
-    @post(path="/id/{script_id:str}/runs")
-    async def create_script_run(
+    @post(path="/id/{script_id:str}/runs", sync_to_thread=True)
+    def create_script_run(
         self,
         script_id: str,
         data: Annotated[ScriptScriptRunInput, Body]
@@ -338,8 +338,8 @@ class ScriptController(Controller):
             return Response(content=error, status_code=500)
         
     # Create Script Dataset
-    @post(path="/id/{script_id:str}/datasets")
-    async def create_script_dataset(
+    @post(path="/id/{script_id:str}/datasets", sync_to_thread=True)
+    def create_script_dataset(
         self,
         script_id: str,
         data: Annotated[ScriptDatasetInput, Body]
@@ -427,8 +427,8 @@ class ScriptController(Controller):
             return Response(content=error, status_code=500) 
 
     # Search Script Records
-    @get(path="/id/{script_id:str}/records")
-    async def search_script_records(
+    @get(path="/id/{script_id:str}/records", sync_to_thread=True)
+    def search_script_records(
         self,
         script_id: str,
         experiment_name: Optional[str] = None,
@@ -459,8 +459,8 @@ class ScriptController(Controller):
             return Response(content=error, status_code=500)
         
         
-    @get(path="/id/{script_id:str}/records/filter")
-    async def filter_script_records(
+    @get(path="/id/{script_id:str}/records/filter", sync_to_thread=True)
+    def filter_script_records(
         self,
         script_id: str,
         start_timestamp: Optional[str] = None,
@@ -496,8 +496,8 @@ class ScriptController(Controller):
 
         
     # Get Script Record by ID
-    @get(path="/records/id/{record_id:str}")
-    async def get_script_record_by_id(
+    @get(path="/records/id/{record_id:str}", sync_to_thread=True)
+    def get_script_record_by_id(
         self,
         record_id: str
     ) -> ScriptRecordOutput:
@@ -518,8 +518,8 @@ class ScriptController(Controller):
             return Response(content=error, status_code=500)
         
     # Get Script Record File
-    @get(path="/records/id/{record_id:str}/download")
-    async def download_script_record_file(
+    @get(path="/records/id/{record_id:str}/download", sync_to_thread=True)
+    def download_script_record_file(
         self,
         record_id: str
     ) -> Redirect:
@@ -550,8 +550,8 @@ class ScriptController(Controller):
             return Response(content=error, status_code=500)
         
     # Update Script Record
-    @patch(path="/records/id/{record_id:str}")
-    async def update_script_record(
+    @patch(path="/records/id/{record_id:str}", sync_to_thread=True)
+    def update_script_record(
         self,
         record_id: str,
         data: Annotated[ScriptRecordUpdate, Body]
@@ -584,8 +584,8 @@ class ScriptController(Controller):
         
 
     # Delete Script Record
-    @delete(path="/records/id/{record_id:str}")
-    async def delete_script_record(
+    @delete(path="/records/id/{record_id:str}", sync_to_thread=True)
+    def delete_script_record(
         self,
         record_id: str
     ) -> None:

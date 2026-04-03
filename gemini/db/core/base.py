@@ -1,3 +1,12 @@
+"""
+Base models for database interactions in GEMINI.
+
+This module defines the core SQLAlchemy models and utility methods for
+interacting with the GEMINI database, including base classes for
+standard tables, views, materialized views, and columnar tables.
+"""
+from __future__ import annotations
+
 from typing import Any, List, Optional, Dict
 from uuid import UUID
 
@@ -9,6 +18,7 @@ from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy_mixins.serialize import SerializeMixin
 from sqlalchemy.dialects.postgresql import insert as pg_insert, JSONB
 
+import logging
 from gemini.manager import GEMINIManager, GEMINIComponentType
 from gemini.db.core.engine import DatabaseEngine
 from gemini.db.config import DatabaseConfig
@@ -22,42 +32,7 @@ metadata_obj = MetaData(schema="gemini")
 db_engine = DatabaseEngine(db_config)
 
 
-class BaseModel(DeclarativeBase, SerializeMixin):
-
-    __abstract__ = True
-    metadata = metadata_obj
-
-
-"""
-Base models for database interactions in GEMINI.
-
-This module defines the core SQLAlchemy models and utility methods for
-interacting with the GEMINI database, including base classes for
-standard tables, views, materialized views, and columnar tables.
-"""
-
-from typing import Any
-
-from sqlalchemy import select, delete
-from sqlalchemy import TIMESTAMP, JSON, DATE
-from sqlalchemy import MetaData, text
-from sqlalchemy.schema import UniqueConstraint
-from sqlalchemy.orm import DeclarativeBase
-from sqlalchemy_mixins.serialize import SerializeMixin
-from sqlalchemy.dialects.postgresql import insert as pg_insert, JSONB
-
-from gemini.manager import GEMINIManager, GEMINIComponentType
-from gemini.db.core.engine import DatabaseEngine
-from gemini.db.config import DatabaseConfig
-
-
-db_config_settings = GEMINIManager().get_component_settings(GEMINIComponentType.DB)
-db_config = DatabaseConfig(
-    database_url=f"postgresql://{db_config_settings['GEMINI_DB_USER']}:{db_config_settings['GEMINI_DB_PASSWORD']}@{db_config_settings['GEMINI_DB_HOSTNAME']}:{db_config_settings['GEMINI_DB_PORT']}/{db_config_settings['GEMINI_DB_NAME']}"
-)
-metadata_obj = MetaData(schema="gemini")
-db_engine = DatabaseEngine(db_config)
-
+logger = logging.getLogger(__name__)
 
 class BaseModel(DeclarativeBase, SerializeMixin):
     """
@@ -123,6 +98,20 @@ class BaseModel(DeclarativeBase, SerializeMixin):
     
 
     @classmethod
+    def count(cls) -> int:
+        """
+        Returns the total number of instances of the model in the database.
+
+        Returns:
+            int: The total record count.
+        """
+        from sqlalchemy import func
+        query = select(func.count()).select_from(cls)
+        with db_engine.get_session() as session:
+            result = session.execute(query).scalar()
+        return result or 0
+
+    @classmethod
     def create(cls, **kwargs: Any) -> BaseModel:
         """
         Creates a new instance of the model and adds it to the database.
@@ -161,14 +150,22 @@ class BaseModel(DeclarativeBase, SerializeMixin):
 
 
     @classmethod
-    def all(cls) -> List[BaseModel]:
+    def all(cls, limit: int = None, offset: int = None) -> List[BaseModel]:
         """
         Retrieves all instances of the model from the database.
+
+        Args:
+            limit (int, optional): Maximum number of records to return.
+            offset (int, optional): Number of records to skip before returning.
 
         Returns:
             list: A list of all model instances.
         """
         query = select(cls)
+        if offset is not None:
+            query = query.offset(offset)
+        if limit is not None:
+            query = query.limit(limit)
         with db_engine.get_session() as session:
             result = session.execute(query).scalars().all()
         return result
@@ -267,6 +264,7 @@ class BaseModel(DeclarativeBase, SerializeMixin):
         else:
             # Update the existing instance with new values
             instance = cls.update(instance, **kwargs)
+        return instance
 
 
     @classmethod
@@ -308,7 +306,7 @@ class BaseModel(DeclarativeBase, SerializeMixin):
                 session.delete(instance)
             return True
         except Exception as e:
-            print(f"Error deleting instance: {e}")
+            logger.error(f"Error deleting instance: {e}")
             return False
     
     @classmethod
@@ -360,7 +358,11 @@ class BaseModel(DeclarativeBase, SerializeMixin):
         """
         with db_engine.get_session() as session:
             table = cls.__table__
-            stmt = pg_insert(table).on_conflict_do_update(constraint=constraint, set_={upsert_on: stmt.excluded[upsert_on]}).returning(table.c.id)
+            insert_stmt = pg_insert(table)
+            stmt = insert_stmt.on_conflict_do_update(
+                constraint=constraint,
+                set_={upsert_on: insert_stmt.excluded[upsert_on]}
+            ).returning(table.c.id)
             inserted_records = session.execute(stmt, data, execution_options={"populate_existing": True})
             inserted_ids = [record.id for record in inserted_records]
             return inserted_ids
@@ -563,6 +565,139 @@ class BaseModel(DeclarativeBase, SerializeMixin):
 
 
 
+    # ===================================================================
+    # Async CRUD methods
+    # ===================================================================
+
+    @classmethod
+    async def async_create(cls, **kwargs: Any) -> BaseModel:
+        """Async version of create()."""
+        kwargs = cls.validate_fields(**kwargs)
+        instance = cls(**kwargs)
+        async with db_engine.get_async_session() as session:
+            session.add(instance)
+        return instance
+
+    @classmethod
+    async def async_get(cls, id: Any) -> BaseModel | None:
+        """Async version of get()."""
+        query = select(cls).where(cls.id == id)
+        async with db_engine.get_async_session() as session:
+            result = await session.execute(query)
+            return result.scalar_one_or_none()
+
+    @classmethod
+    async def async_get_by_parameters(cls, **kwargs: Any) -> BaseModel | None:
+        """Async version of get_by_parameters()."""
+        query = select(cls)
+        kwargs = cls.validate_fields(**kwargs)
+        if kwargs == {}:
+            return None
+        for key, value in kwargs.items():
+            attribute = getattr(cls, key)
+            if isinstance(attribute.type, JSON):
+                query = query.where(attribute.contains(value))
+            elif isinstance(attribute.type, TIMESTAMP):
+                query = query.where(attribute == value)
+            else:
+                query = query.where(attribute == value)
+        async with db_engine.get_async_session() as session:
+            result = await session.execute(query)
+            return result.scalars().first()
+
+    @classmethod
+    async def async_all(cls, limit: int = None, offset: int = None) -> List[BaseModel]:
+        """Async version of all()."""
+        query = select(cls)
+        if offset is not None:
+            query = query.offset(offset)
+        if limit is not None:
+            query = query.limit(limit)
+        async with db_engine.get_async_session() as session:
+            result = await session.execute(query)
+            return result.scalars().all()
+
+    @classmethod
+    async def async_search(cls, **kwargs: Any) -> List[BaseModel]:
+        """Async version of search()."""
+        query = select(cls)
+        kwargs = cls.validate_fields(**kwargs)
+        for key, value in kwargs.items():
+            attribute = getattr(cls, key)
+            if isinstance(attribute.type, JSONB):
+                query = query.where(attribute.contains(value))
+            elif isinstance(attribute.type, TIMESTAMP):
+                query = query.where(attribute >= value)
+            elif isinstance(attribute.type, DATE):
+                query = query.where(attribute == value)
+            else:
+                query = query.where(attribute == value)
+        async with db_engine.get_async_session() as session:
+            result = await session.execute(query)
+            return result.scalars().all()
+
+    @classmethod
+    async def async_update(cls, instance, **kwargs: Any) -> BaseModel:
+        """Async version of update()."""
+        kwargs = cls.validate_fields(**kwargs)
+        for key, value in kwargs.items():
+            setattr(instance, key, value)
+        async with db_engine.get_async_session() as session:
+            session.add(instance)
+        return instance
+
+    @classmethod
+    async def async_delete(cls, instance: Any) -> bool:
+        """Async version of delete()."""
+        try:
+            async with db_engine.get_async_session() as session:
+                await session.delete(instance)
+            return True
+        except Exception as e:
+            logger.error(f"Error deleting instance: {e}")
+            return False
+
+    @classmethod
+    async def async_exists(cls, **kwargs: Any) -> bool:
+        """Async version of exists()."""
+        kwargs = cls.validate_fields(**kwargs)
+        if kwargs == {}:
+            return False
+        instance = await cls.async_get_by_parameters(**kwargs)
+        return instance is not None
+
+    @classmethod
+    async def async_get_or_create(cls, **kwargs: Any) -> Optional[BaseModel]:
+        """Async version of get_or_create()."""
+        unique_fields = cls.unique_fields()
+        kwargs = cls.validate_fields(**kwargs)
+        unique_kwargs = {key: value for key, value in kwargs.items() if key in unique_fields}
+        if unique_kwargs == {}:
+            return None
+        instance = await cls.async_get_by_parameters(**unique_kwargs)
+        if instance:
+            return instance
+        return await cls.async_create(**kwargs)
+
+    @classmethod
+    async def async_count(cls) -> int:
+        """Async version of count()."""
+        from sqlalchemy import func
+        query = select(func.count()).select_from(cls)
+        async with db_engine.get_async_session() as session:
+            result = await session.execute(query)
+            return result.scalar() or 0
+
+    @classmethod
+    async def async_insert_bulk(cls, constraint: Any, data) -> List[UUID]:
+        """Async version of insert_bulk()."""
+        async with db_engine.get_async_session() as session:
+            table = cls.__table__
+            stmt = pg_insert(table).on_conflict_do_nothing(constraint=constraint).returning(table.c.id)
+            inserted_records = await session.execute(stmt, data, execution_options={"populate_existing": True})
+            return [record.id for record in inserted_records]
+
+
 class ViewBaseModel(BaseModel):
     """
     Base class for database views.
@@ -575,75 +710,26 @@ class MaterializedViewBaseModel(BaseModel):
     """
     Base class for materialized database views.
 
-    Provides methods for refreshing the materialized view and
-    overrides standard retrieval methods to ensure data freshness.
+    Provides a method for explicitly refreshing the materialized view.
+    Read operations use the current state without auto-refreshing,
+    since IMMV (Incrementally Maintained Materialized Views) are kept
+    up-to-date automatically by pg_ivm. Call refresh() explicitly only
+    when using standard (non-IMMV) materialized views that need manual refresh.
     """
 
     __abstract__ = True
 
-
     @classmethod
     def refresh(cls) -> None:
         """
-        Refreshes the materialized view.
+        Explicitly refreshes the materialized view.
+
+        Only needed for standard materialized views. IMMV views maintained
+        by pg_ivm are updated automatically on base table changes.
         """
         with db_engine.get_session() as session:
             query = text(f"REFRESH MATERIALIZED VIEW {cls.__table__.name}")
             session.execute(query)
-        
-
-    @classmethod
-    def get(cls) -> Optional[BaseModel]:
-        """
-        Retrieves a single instance of the materialized view by its ID, refreshing it first.
-        """
-        cls.refresh()
-        return super().get()
-    
-
-    @classmethod
-    def all(cls) -> List[BaseModel]:
-        """
-        Retrieves all instances of the materialized view, refreshing it first.
-        """
-        cls.refresh()
-        return super().all()
-    
-
-    @classmethod
-    def get_by_parameters(cls, **kwargs) -> Optional[BaseModel]:
-        """
-        Retrieves a single instance of the materialized view based on provided parameters, refreshing it first.
-        """
-        cls.refresh()
-        return super().get_by_parameters(**kwargs)
-    
-
-    @classmethod
-    def search(cls, **kwargs) -> List[BaseModel]:
-        """
-        Searches for instances in the materialized view, refreshing it first.
-        """
-        cls.refresh()
-        return super().search(**kwargs)
-    
-
-    @classmethod
-    def paginate(cls, order_by: Any, page_number: int, page_limit: int, **kwargs) -> tuple[int, int, List[BaseModel]]:
-        """
-        Paginates through instances of the materialized view, refreshing it first.
-        """
-        cls.refresh()
-        return super().paginate(order_by, page_number, page_limit, **kwargs)
-    
-
-    @classmethod
-    def stream(cls, **kwargs) -> Any:
-        """
-        Streams instances of the materialized view, refreshing it first.
-        """
-        cls.refresh()
-        return super().stream(**kwargs)
     
 class ColumnarBaseModel(BaseModel):
     """
@@ -654,17 +740,22 @@ class ColumnarBaseModel(BaseModel):
     
 
     @classmethod
-    def all(cls, limit: int = 100) -> List[Any]:
+    def all(cls, limit: int = 100, offset: int = None) -> List[Any]:
         """
         Retrieves all instances of the columnar model with an optional limit.
 
         Args:
-            limit (int): The maximum number of records to retrieve.
+            limit (int): The maximum number of records to retrieve. Defaults to 100.
+            offset (int, optional): Number of records to skip before returning.
 
         Returns:
             list: A list of all columnar model instances.
         """
-        query = select(cls).limit(limit)
+        query = select(cls)
+        if offset is not None:
+            query = query.offset(offset)
+        if limit is not None:
+            query = query.limit(limit)
         with db_engine.get_session() as session:
             result = session.execute(query).scalars().all()
         return result

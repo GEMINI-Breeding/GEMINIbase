@@ -24,6 +24,7 @@ from typing import Optional, List, TYPE_CHECKING
 from uuid import UUID
 
 from pydantic import Field, AliasChoices
+import logging
 from gemini.api.types import ID
 from gemini.api.base import APIBase
 from gemini.db.models.script_runs import ScriptRunModel
@@ -31,6 +32,8 @@ from gemini.db.models.views.run_views import ScriptRunsViewModel
 
 if TYPE_CHECKING:
     from gemini.api.script import Script
+
+logger = logging.getLogger(__name__)
 
 class ScriptRun(APIBase):
     """
@@ -83,13 +86,13 @@ class ScriptRun(APIBase):
             )
             return exists
         except Exception as e:
-            print(f"Error checking existence of script run: {e}")
+            logger.error(f"Error checking existence of script run: {e}")
             return False
 
     @classmethod
     def create(
         cls,
-        script_run_info: dict = {},
+        script_run_info: dict = None,
         script_name: str = None
     ) -> Optional["ScriptRun"]:
         """
@@ -115,7 +118,7 @@ class ScriptRun(APIBase):
                 script_run.associate_script(script_name)
             return script_run
         except Exception as e:
-            print(f"Error creating script run: {e}")
+            logger.error(f"Error creating script run: {e}")
             return None
 
     @classmethod
@@ -140,12 +143,12 @@ class ScriptRun(APIBase):
                 script_name=script_name
             )
             if not db_instance:
-                print(f"Script run with info {script_run_info} and script name {script_name} not found.")
+                logger.debug(f"Script run with info {script_run_info} and script name {script_name} not found.")
                 return None
             instance = cls.model_validate(db_instance)
             return instance
         except Exception as e:
-            print(f"Error getting script run: {e}")
+            logger.error(f"Error getting script run: {e}")
             return None
 
     @classmethod
@@ -166,16 +169,16 @@ class ScriptRun(APIBase):
         try:
             db_instance = ScriptRunModel.get(id)
             if not db_instance:
-                print(f"Script run with id {id} not found.")
+                logger.debug(f"Script run with id {id} not found.")
                 return None
             instance = cls.model_validate(db_instance)
             return instance
         except Exception as e:
-            print(f"Error getting script run by id: {e}")
+            logger.error(f"Error getting script run by id: {e}")
             return None
 
     @classmethod
-    def get_all(cls) -> Optional[List["ScriptRun"]]:
+    def get_all(cls, limit: int = None, offset: int = None) -> Optional[List["ScriptRun"]]:
         """
         Retrieve all script runs.
 
@@ -190,14 +193,14 @@ class ScriptRun(APIBase):
             Optional[List[ScriptRun]]: List of all script runs, or None if not found.
         """
         try:
-            script_runs = ScriptRunModel.all()
+            script_runs = ScriptRunModel.all(limit=limit, offset=offset)
             if not script_runs or len(script_runs) == 0:
-                print("No script runs found.")
+                logger.info("No script runs found.")
                 return None
             script_runs = [cls.model_validate(script_run) for script_run in script_runs]
             return script_runs
         except Exception as e:
-            print(f"Error getting all script runs: {e}")
+            logger.error(f"Error getting all script runs: {e}")
             return None
 
     @classmethod
@@ -224,19 +227,19 @@ class ScriptRun(APIBase):
         """
         try:
             if not any([script_name, script_run_info]):
-                print("At least one of script_name or script_run_info must be provided.")
+                logger.warning("At least one of script_name or script_run_info must be provided.")
                 return None
             script_runs = ScriptRunsViewModel.search(
                 script_run_info=script_run_info,
                 script_name=script_name
             )
             if not script_runs or len(script_runs) == 0:
-                print("No script runs found for the given search criteria.")
+                logger.info("No script runs found for the given search criteria.")
                 return None
             script_runs = [cls.model_validate(script_run) for script_run in script_runs]
             return script_runs
         except Exception as e:
-            print(f"Error searching script runs: {e}")
+            logger.error(f"Error searching script runs: {e}")
             return None
 
     def update(self, script_run_info: dict = None) -> Optional["ScriptRun"]:
@@ -256,12 +259,12 @@ class ScriptRun(APIBase):
         """
         try:
             if not script_run_info:
-                print("Model run info cannot be empty.")
+                logger.info("Model run info cannot be empty.")
                 return None
             current_id = self.id
             script_run = ScriptRunModel.get(current_id)
             if not script_run:
-                print(f"Script run with id {current_id} does not exist.")
+                logger.warning(f"Script run with id {current_id} does not exist.")
                 return None
             script_run = ScriptRunModel.update(
                 script_run,
@@ -271,7 +274,7 @@ class ScriptRun(APIBase):
             self.refresh()
             return instance
         except Exception as e:
-            print(f"Error updating script run: {e}")
+            logger.error(f"Error updating script run: {e}")
             return None
 
     def delete(self) -> bool:
@@ -291,12 +294,12 @@ class ScriptRun(APIBase):
             current_id = self.id
             script_run = ScriptRunModel.get(current_id)
             if not script_run:
-                print(f"Script run with id {current_id} does not exist.")
+                logger.warning(f"Script run with id {current_id} does not exist.")
                 return False
             ScriptRunModel.delete(script_run)
             return True
         except Exception as e:
-            print(f"Error deleting script run: {e}")
+            logger.error(f"Error deleting script run: {e}")
             return False
 
     def refresh(self) -> Optional["ScriptRun"]:
@@ -315,7 +318,7 @@ class ScriptRun(APIBase):
         try:
             db_instance = ScriptRunModel.get(self.id)
             if not db_instance:
-                print(f"Script run with id {self.id} not found.")
+                logger.debug(f"Script run with id {self.id} not found.")
                 return self
             instance = self.model_validate(db_instance)
             for key, value in instance.model_dump().items():
@@ -323,7 +326,7 @@ class ScriptRun(APIBase):
                     setattr(self, key, value)
             return self
         except Exception as e:
-            print(f"Error refreshing script run: {e}")
+            logger.error(f"Error refreshing script run: {e}")
             return None
 
     def get_info(self) -> Optional[dict]:
@@ -343,15 +346,15 @@ class ScriptRun(APIBase):
             current_id = self.id
             script_run = ScriptRunModel.get(current_id)
             if not script_run:
-                print(f"Script run with id {current_id} does not exist.")
+                logger.warning(f"Script run with id {current_id} does not exist.")
                 return None
             script_run_info = script_run.script_run_info
             if not script_run_info:
-                print("ScriptRun info is empty.")
+                logger.info("ScriptRun info is empty.")
                 return {}
             return script_run_info
         except Exception as e:
-            print(f"Error getting script run info: {e}")
+            logger.error(f"Error getting script run info: {e}")
             return None
 
     def set_info(self, script_run_info: dict) -> Optional["ScriptRun"]:
@@ -373,7 +376,7 @@ class ScriptRun(APIBase):
             current_id = self.id
             script_run = ScriptRunModel.get(current_id)
             if not script_run:
-                print(f"Script run with id {current_id} does not exist.")
+                logger.warning(f"Script run with id {current_id} does not exist.")
                 return None
             script_run = ScriptRunModel.update(
                 script_run,
@@ -382,7 +385,7 @@ class ScriptRun(APIBase):
             self.script_run_info = script_run.script_run_info
             return self
         except Exception as e:
-            print(f"Error setting script run info: {e}")
+            logger.error(f"Error setting script run info: {e}")
             return None
         
     def get_associated_script(self) -> Optional["Script"]:
@@ -407,15 +410,15 @@ class ScriptRun(APIBase):
             )
             script_id = script_run_model.script_id
             if not script_id:
-                print(f"No script found for script run with id {self.id}.")
+                logger.info(f"No script found for script run with id {self.id}.")
                 return None
             script = Script.get_by_id(script_id)
             if not script:
-                print(f"Script with id {script_id} does not exist.")
+                logger.warning(f"Script with id {script_id} does not exist.")
                 return None
             return script
         except Exception as e:
-            print(f"Error getting script for script run: {e}")
+            logger.error(f"Error getting script for script run: {e}")
             return None
 
     def associate_script(self, script_name: str) -> Optional["Script"]:
@@ -437,14 +440,14 @@ class ScriptRun(APIBase):
             from gemini.api.script import Script
             script = Script.get(script_name=script_name)
             if not script:
-                print(f"Script with name {script_name} does not exist.")
+                logger.warning(f"Script with name {script_name} does not exist.")
                 return None
             existing_association = ScriptRunModel.get_by_parameters(
                 id=script.id,
                 script_run_id=self.id
             )
             if existing_association:
-                print(f"Script run with id {self.id} is already associated with script {script_name}.")
+                logger.info(f"Script run with id {self.id} is already associated with script {script_name}.")
                 return self
             db_script_run = ScriptRunModel.get(self.id)
             db_script_run = ScriptRunModel.update_parameter(
@@ -455,7 +458,7 @@ class ScriptRun(APIBase):
             self.refresh()
             return script
         except Exception as e:
-            print(f"Error assigning script to script run: {e}")
+            logger.error(f"Error assigning script to script run: {e}")
             return None
 
     def unassociate_script(self) -> Optional["Script"]:
@@ -475,7 +478,7 @@ class ScriptRun(APIBase):
             from gemini.api.script import Script
             script_run = ScriptRunModel.get(self.id)
             if not script_run:
-                print(f"Script run with id {self.id} does not exist.")
+                logger.warning(f"Script run with id {self.id} does not exist.")
                 return None
             script = Script.get_by_id(script_run.script_id)
             script_run = ScriptRunModel.update_parameter(
@@ -486,7 +489,7 @@ class ScriptRun(APIBase):
             self.refresh()
             return script
         except Exception as e:
-            print(f"Error unassigning script from script run: {e}")
+            logger.error(f"Error unassigning script from script run: {e}")
             return None
 
     def belongs_to_script(self, script_name: str) -> bool:
@@ -508,7 +511,7 @@ class ScriptRun(APIBase):
             from gemini.api.script import Script
             script = Script.get(script_name=script_name)
             if not script:
-                print(f"Script with name {script_name} does not exist.")
+                logger.warning(f"Script with name {script_name} does not exist.")
                 return False
             assignment_exists = ScriptRunModel.exists(
                 script_run_id=self.id,
@@ -516,6 +519,6 @@ class ScriptRun(APIBase):
             )
             return assignment_exists
         except Exception as e:
-            print(f"Error checking if script run belongs to script: {e}")
+            logger.error(f"Error checking if script run belongs to script: {e}")
             return False
 

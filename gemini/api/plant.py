@@ -24,6 +24,7 @@ from typing import List, Optional, TYPE_CHECKING
 from uuid import UUID
 
 from pydantic import Field, AliasChoices
+import logging
 from gemini.api.types import ID
 from gemini.api.base import APIBase
 from gemini.api.cultivar import Cultivar
@@ -33,6 +34,8 @@ from gemini.db.models.views.plant_view import PlantViewModel
 if TYPE_CHECKING:
     from gemini.api.plot import Plot
     from gemini.api.cultivar import Cultivar
+
+logger = logging.getLogger(__name__)
 
 class Plant(APIBase):
     """
@@ -112,7 +115,7 @@ class Plant(APIBase):
             )
             return exists
         except Exception as e:
-            print(f"Error checking existence of plant: {e}")
+            logger.error(f"Error checking existence of plant: {e}")
             return False
         
     @classmethod
@@ -173,7 +176,7 @@ class Plant(APIBase):
                 )
             return plant
         except Exception as e:
-            print(f"Error creating plant: {e}")
+            logger.error(f"Error creating plant: {e}")
             return None
         
     @classmethod
@@ -223,12 +226,12 @@ class Plant(APIBase):
                 plot_column_number=plot_column_number
             )
             if not db_instance:
-                print(f"Plant with number {plant_number} not found.")
+                logger.debug(f"Plant with number {plant_number} not found.")
                 return None
             plant = cls.model_validate(db_instance) if db_instance else None
             return plant
         except Exception as e:
-            print(f"Error getting plant: {e}")
+            logger.error(f"Error getting plant: {e}")
             return None
         
     @classmethod
@@ -249,16 +252,16 @@ class Plant(APIBase):
         try:
             db_instance = PlantModel.get(id)
             if not db_instance:
-                print(f"Plant with ID {id} does not exist.")
+                logger.warning(f"Plant with ID {id} does not exist.")
                 return None
             plant = cls.model_validate(db_instance) if db_instance else None
             return plant
         except Exception as e:
-            print(f"Error getting plant by ID: {e}")
+            logger.error(f"Error getting plant by ID: {e}")
             return None
         
     @classmethod
-    def get_all(cls) -> Optional[List["Plant"]]:
+    def get_all(cls, limit: int = None, offset: int = None) -> Optional[List["Plant"]]:
         """
         Retrieve all plants.
 
@@ -271,14 +274,14 @@ class Plant(APIBase):
             Optional[List[Plant]]: A list of all plants, or None if not found.
         """
         try:
-            plants = PlantModel.all()
+            plants = PlantModel.all(limit=limit, offset=offset)
             if not plants or len(plants) == 0:
-                print("No plants found.")
+                logger.info("No plants found.")
                 return None
             plants = [cls.model_validate(plant) for plant in plants]
             return plants
         except Exception as e:
-            print(f"Error getting all plants: {e}")
+            logger.error(f"Error getting all plants: {e}")
             return None
         
     @classmethod
@@ -317,7 +320,7 @@ class Plant(APIBase):
         """
         try:
             if not any([plant_number, cultivar_accession, cultivar_population, experiment_name, season_name, site_name, plot_number, plot_row_number, plot_column_number]):
-                print("At least one search parameter must be provided.")
+                logger.warning("At least one search parameter must be provided.")
                 return None
             plants = PlantViewModel.search(
                 plant_number=plant_number,
@@ -331,12 +334,12 @@ class Plant(APIBase):
                 plot_column_number=plot_column_number
             )
             if not plants or len(plants) == 0:
-                print("No plants found with the provided search parameters.")
+                logger.info("No plants found with the provided search parameters.")
                 return None
             plants = [cls.model_validate(plant) for plant in plants]
             return plants
         except Exception as e:
-            print(f"Error searching for plants: {e}")
+            logger.error(f"Error searching for plants: {e}")
             return None
         
     def update(
@@ -361,12 +364,12 @@ class Plant(APIBase):
         """
         try:
             if not plant_info and not plant_number:
-                print("At least one parameter must be provided for update.")
+                logger.warning("At least one parameter must be provided for update.")
                 return None
             current_id = self.id
             plant = PlantModel.get(current_id)
             if not plant:
-                print(f"Plant with ID {current_id} does not exist.")
+                logger.warning(f"Plant with ID {current_id} does not exist.")
                 return None
             plant = PlantModel.update(
                 plant,
@@ -377,7 +380,7 @@ class Plant(APIBase):
             self.refresh()  # Update the current instance
             return plant
         except Exception as e:
-            print(f"Error updating plant: {e}")
+            logger.error(f"Error updating plant: {e}")
             return None
         
     def delete(self) -> bool:
@@ -397,12 +400,12 @@ class Plant(APIBase):
             current_id = self.id
             plant = PlantModel.get(current_id)
             if not plant:
-                print(f"Plant with ID {current_id} does not exist.")
+                logger.warning(f"Plant with ID {current_id} does not exist.")
                 return False
             PlantModel.delete(plant)
             return True
         except Exception as e:
-            print(f"Error deleting plant: {e}")
+            logger.error(f"Error deleting plant: {e}")
             return False
 
     def refresh(self) -> Optional["Plant"]:
@@ -421,7 +424,7 @@ class Plant(APIBase):
         try:
             db_instance = PlantModel.get(self.id)
             if not db_instance:
-                print(f"Plant with ID {self.id} does not exist.")
+                logger.warning(f"Plant with ID {self.id} does not exist.")
                 return self
             instance = self.model_validate(db_instance)
             for key, value in instance.model_dump().items():
@@ -429,7 +432,7 @@ class Plant(APIBase):
                     setattr(self, key, value)
             return self
         except Exception as e:
-            print(f"Error refreshing plant: {e}")
+            logger.error(f"Error refreshing plant: {e}")
             return None
         
     def get_info(self) -> Optional[dict]:
@@ -449,15 +452,15 @@ class Plant(APIBase):
             current_id = self.id
             plant = PlantModel.get(current_id)
             if not plant:
-                print(f"Plant with ID {current_id} does not exist.")
+                logger.warning(f"Plant with ID {current_id} does not exist.")
                 return None
             plant_info = plant.plant_info
             if not plant_info:
-                print("Plant info is empty.")
+                logger.info("Plant info is empty.")
                 return None
             return plant_info
         except Exception as e:
-            print(f"Error getting plant info: {e}")
+            logger.error(f"Error getting plant info: {e}")
             return None
         
     def set_info(self, plant_info: dict) -> Optional["Plant"]:
@@ -479,7 +482,7 @@ class Plant(APIBase):
             current_id = self.id
             plant = PlantModel.get(current_id)
             if not plant:
-                print(f"Plant with ID {current_id} does not exist.")
+                logger.warning(f"Plant with ID {current_id} does not exist.")
                 return None
             plant = PlantModel.update(
                 plant,
@@ -489,7 +492,7 @@ class Plant(APIBase):
             self.refresh()  # Update the current instance
             return plant
         except Exception as e:
-            print(f"Error setting plant info: {e}")
+            logger.error(f"Error setting plant info: {e}")
             return None
     
     def get_associated_cultivar(self) -> Optional["Cultivar"]:
@@ -508,15 +511,15 @@ class Plant(APIBase):
         try:
             from gemini.api.cultivar import Cultivar
             if not self.cultivar_id:
-                print("No cultivar assigned to this plant.")
+                logger.info("No cultivar assigned to this plant.")
                 return None
             cultivar = Cultivar.get_by_id(self.cultivar_id)
             if not cultivar:
-                print(f"Cultivar with ID {self.cultivar_id} does not exist.")
+                logger.warning(f"Cultivar with ID {self.cultivar_id} does not exist.")
                 return None
             return cultivar
         except Exception as e:
-            print(f"Error getting cultivar: {e}")
+            logger.error(f"Error getting cultivar: {e}")
             return None
 
     def associate_cultivar(
@@ -546,14 +549,14 @@ class Plant(APIBase):
                 cultivar_population=cultivar_population
             )
             if not cultivar:
-                print(f"Cultivar with accession {cultivar_accession} and population {cultivar_population} not found.")
+                logger.debug(f"Cultivar with accession {cultivar_accession} and population {cultivar_population} not found.")
                 return None
             existing_association = PlantModel.exists(
                 id=self.id,
                 cultivar_id=cultivar.id
             )
             if existing_association:
-                print(f"Plant with ID {self.id} already has cultivar {cultivar.id} assigned.")
+                logger.info(f"Plant with ID {self.id} already has cultivar {cultivar.id} assigned.")
                 return None
             db_plant = PlantModel.get(self.id)
             db_plant = PlantModel.update_parameter(
@@ -561,11 +564,11 @@ class Plant(APIBase):
                 "cultivar_id",
                 cultivar.id
             )
-            print(f"Assigned cultivar {cultivar.id} to plant {self.id}.")
+            logger.info(f"Assigned cultivar {cultivar.id} to plant {self.id}.")
             self.refresh()
             return cultivar
         except Exception as e:
-            print(f"Error assigning cultivar: {e}")
+            logger.error(f"Error assigning cultivar: {e}")
             return None
 
     def belongs_to_cultivar(
@@ -595,7 +598,7 @@ class Plant(APIBase):
                 cultivar_population=cultivar_population
             )
             if not cultivar:
-                print("Cultivar not found.")
+                logger.debug("Cultivar not found.")
                 return False
             association_exists = PlantModel.exists(
                 id=self.id,
@@ -603,7 +606,7 @@ class Plant(APIBase):
             )
             return association_exists
         except Exception as e:
-            print(f"Error checking cultivar assignment: {e}")
+            logger.error(f"Error checking cultivar assignment: {e}")
             return False
 
     def unassociate_cultivar(self) -> Optional["Cultivar"]:
@@ -622,7 +625,7 @@ class Plant(APIBase):
         try:
             from gemini.api.cultivar import Cultivar
             if not self.cultivar_id:
-                print("No cultivar assigned to this plant.")
+                logger.info("No cultivar assigned to this plant.")
                 return False
             cultivar = Cultivar.get_by_id(self.cultivar_id)
             db_plant = PlantModel.get(self.id)
@@ -634,7 +637,7 @@ class Plant(APIBase):
             self.refresh()  # Update the current instance
             return cultivar
         except Exception as e:
-            print(f"Error unassigning cultivar: {e}")
+            logger.error(f"Error unassigning cultivar: {e}")
             return False
 
     def get_associated_plot(self) -> Optional["Plot"]:
@@ -653,15 +656,15 @@ class Plant(APIBase):
         try:
             from gemini.api.plot import Plot
             if not self.plot_id:
-                print("No plot assigned to this plant.")
+                logger.info("No plot assigned to this plant.")
                 return None
             plot = Plot.get_by_id(self.plot_id)
             if not plot:
-                print(f"Plot with ID {self.plot_id} does not exist.")
+                logger.warning(f"Plot with ID {self.plot_id} does not exist.")
                 return None
             return plot
         except Exception as e:
-            print(f"Error getting plot: {e}")
+            logger.error(f"Error getting plot: {e}")
             return None
 
     def associate_plot(
@@ -703,14 +706,14 @@ class Plant(APIBase):
                 site_name=site_name
             )
             if not plot:
-                print("Plot not found.")
+                logger.debug("Plot not found.")
                 return None
             existing_association = PlantModel.get_by_parameters(
                 id=self.id,
                 plot_id=plot.id
             )
             if existing_association:
-                print(f"Plant with ID {self.id} already has plot {plot.id} assigned.")
+                logger.info(f"Plant with ID {self.id} already has plot {plot.id} assigned.")
                 return None
             db_plant = PlantModel.get(self.id)
             db_plant = PlantModel.update_parameter(
@@ -721,7 +724,7 @@ class Plant(APIBase):
             self.refresh()  # Update the current instance
             return plot
         except Exception as e:
-            print(f"Error assigning plot: {e}")
+            logger.error(f"Error assigning plot: {e}")
             return None
             
 
@@ -764,7 +767,7 @@ class Plant(APIBase):
                 site_name=site_name
             )
             if not plot:
-                print("Plot not found.")
+                logger.debug("Plot not found.")
                 return False
             association_exists = PlantModel.exists(
                 id=self.id,
@@ -772,7 +775,7 @@ class Plant(APIBase):
             )
             return association_exists
         except Exception as e:
-            print(f"Error checking plot assignment: {e}")
+            logger.error(f"Error checking plot assignment: {e}")
             return False
 
     def unassociate_plot(self) -> Optional["Plot"]:
@@ -791,7 +794,7 @@ class Plant(APIBase):
         try:
             from gemini.api.plot import Plot
             if not self.plot_id:
-                print("No plot assigned to this plant.")
+                logger.info("No plot assigned to this plant.")
                 return None
             # Assuming we want to unassign the plot by setting plot_id to None
             plot = Plot.get_by_id(self.plot_id)
@@ -804,5 +807,5 @@ class Plant(APIBase):
             self.refresh()  # Update the current instance
             return plot
         except Exception as e:
-            print(f"Error unassigning plot: {e}")
+            logger.error(f"Error unassigning plot: {e}")
             return None

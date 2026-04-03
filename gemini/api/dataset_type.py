@@ -23,9 +23,12 @@ from typing import Optional, List
 from uuid import UUID
 
 from pydantic import Field, AliasChoices
+import logging
 from gemini.api.types import ID
 from gemini.api.base import APIBase
 from gemini.db.models.dataset_types import DatasetTypeModel
+
+logger = logging.getLogger(__name__)
 
 class DatasetType(APIBase):
     """
@@ -73,14 +76,14 @@ class DatasetType(APIBase):
             exists = DatasetTypeModel.exists(dataset_type_name=dataset_type_name)
             return exists
         except Exception as e:
-            print(f"Error checking existence of dataset type: {e}")
+            logger.error(f"Error checking existence of dataset type: {e}")
             return False
 
     @classmethod
     def create(
         cls,
         dataset_type_name: str,
-        dataset_type_info: dict = {},
+        dataset_type_info: dict = None,
     ) -> Optional["DatasetType"]:
         """
         Create a new dataset type. If a dataset type with same name already exists, it will return the existing one.
@@ -103,7 +106,7 @@ class DatasetType(APIBase):
             instance = cls.model_validate(db_instance)
             return instance
         except Exception as e:
-            print(f"Error creating dataset type: {e}")
+            logger.error(f"Error creating dataset type: {e}")
             return None
 
     @classmethod
@@ -123,12 +126,12 @@ class DatasetType(APIBase):
         try:
             db_instance = DatasetTypeModel.get_by_parameters(dataset_type_name=dataset_type_name)
             if not db_instance:
-                print(f"Dataset type with name {dataset_type_name} not found.")
+                logger.debug(f"Dataset type with name {dataset_type_name} not found.")
                 return None
             instance = cls.model_validate(db_instance)
             return instance
         except Exception as e:
-            print(f"Error getting dataset type: {e}")
+            logger.error(f"Error getting dataset type: {e}")
             return None
 
     @classmethod
@@ -148,16 +151,16 @@ class DatasetType(APIBase):
         try:
             db_instance = DatasetTypeModel.get(id)
             if not db_instance:
-                print(f"Dataset type with ID {id} does not exist.")
+                logger.warning(f"Dataset type with ID {id} does not exist.")
                 return None
             instance = cls.model_validate(db_instance)
             return instance
         except Exception as e:
-            print(f"Error getting dataset type by ID: {e}")
+            logger.error(f"Error getting dataset type by ID: {e}")
             return None
 
     @classmethod
-    def get_all(cls) -> Optional[List["DatasetType"]]:
+    def get_all(cls, limit: int = None, offset: int = None) -> Optional[List["DatasetType"]]:
         """
         Retrieve all dataset types.
 
@@ -170,14 +173,14 @@ class DatasetType(APIBase):
             Optional[List["DatasetType"]]: A list of all dataset types, or None if an error occurred.
         """
         try:
-            instances = DatasetTypeModel.all()
+            instances = DatasetTypeModel.all(limit=limit, offset=offset)
             if not instances or len(instances) == 0:
-                print("No dataset types found.")
+                logger.info("No dataset types found.")
                 return None
             instances = [cls.model_validate(instance) for instance in instances]
             return instances
         except Exception as e:
-            print(f"Error getting all dataset types: {e}")
+            logger.error(f"Error getting all dataset types: {e}")
             return None
 
     @classmethod
@@ -202,7 +205,7 @@ class DatasetType(APIBase):
         """
         try:
             if not any([dataset_type_name, dataset_type_info]):
-                print("At least one search parameter must be provided.")
+                logger.warning("At least one search parameter must be provided.")
                 return None
 
             instances = DatasetTypeModel.search(
@@ -210,12 +213,12 @@ class DatasetType(APIBase):
                 dataset_type_info=dataset_type_info
             )
             if not instances or len(instances) == 0:
-                print("No dataset types found with the provided search parameters.")
+                logger.info("No dataset types found with the provided search parameters.")
                 return None
             instances = [cls.model_validate(instance) for instance in instances]
             return instances
         except Exception as e:
-            print(f"Error searching dataset types: {e}")
+            logger.error(f"Error searching dataset types: {e}")
             return None
 
     def update(
@@ -240,13 +243,13 @@ class DatasetType(APIBase):
         """
         try:
             if not any([dataset_type_name, dataset_type_info]):
-                print("At least one parameter must be provided for update.")
+                logger.warning("At least one parameter must be provided for update.")
                 return None
 
             current_id = self.id
             dataset_type = DatasetTypeModel.get(current_id)
             if not dataset_type:
-                 print(f"Dataset type with ID {current_id} does not exist.")
+                 logger.warning(f"Dataset type with ID {current_id} does not exist.")
                  return None
 
             dataset_type = DatasetTypeModel.update(
@@ -258,7 +261,7 @@ class DatasetType(APIBase):
             self.refresh()
             return instance
         except Exception as e:
-            print(f"Error updating dataset type: {e}")
+            logger.error(f"Error updating dataset type: {e}")
             return None
 
     def delete(self) -> bool:
@@ -278,12 +281,12 @@ class DatasetType(APIBase):
             current_id = self.id
             dataset_type = DatasetTypeModel.get(current_id)
             if not dataset_type:
-                 print(f"Dataset type with ID {current_id} does not exist.")
+                 logger.warning(f"Dataset type with ID {current_id} does not exist.")
                  return False
             DatasetTypeModel.delete(dataset_type)
             return True
         except Exception as e:
-            print(f"Error deleting dataset type: {e}")
+            logger.error(f"Error deleting dataset type: {e}")
             return False
 
     def refresh(self) -> Optional["DatasetType"]:
@@ -303,7 +306,7 @@ class DatasetType(APIBase):
         try:
             db_instance = DatasetTypeModel.get(self.id)
             if not db_instance:
-                print(f"Dataset type with ID {self.id} does not exist.")
+                logger.warning(f"Dataset type with ID {self.id} does not exist.")
                 return self
             instance = self.model_validate(db_instance)
             for key, value in instance.model_dump().items():
@@ -311,7 +314,7 @@ class DatasetType(APIBase):
                     setattr(self, key, value)
             return self
         except Exception as e:
-            print(f"Error refreshing dataset type: {e}")
+            logger.error(f"Error refreshing dataset type: {e}")
             return None
 
     def get_info(self) -> Optional[dict]:
@@ -331,15 +334,15 @@ class DatasetType(APIBase):
             current_id = self.id
             dataset_type = DatasetTypeModel.get(current_id)
             if not dataset_type:
-                print(f"Dataset type with ID {current_id} does not exist.")
+                logger.warning(f"Dataset type with ID {current_id} does not exist.")
                 return None
             dataset_type_info = dataset_type.dataset_type_info
             if not dataset_type_info:
-                print("DatasetType info is empty.")
+                logger.info("DatasetType info is empty.")
                 return None
             return dataset_type_info
         except Exception as e:
-            print(f"Error getting dataset type info: {e}")
+            logger.error(f"Error getting dataset type info: {e}")
             return None
 
     def set_info(self, dataset_type_info: dict) -> Optional["DatasetType"]:
@@ -361,7 +364,7 @@ class DatasetType(APIBase):
             current_id = self.id
             dataset_type = DatasetTypeModel.get(current_id)
             if not dataset_type:
-                print(f"Dataset type with ID {current_id} does not exist.")
+                logger.warning(f"Dataset type with ID {current_id} does not exist.")
                 return None
             dataset_type = DatasetTypeModel.update(
                 dataset_type,
@@ -371,5 +374,5 @@ class DatasetType(APIBase):
             self.refresh()
             return instance
         except Exception as e:
-            print(f"Error setting dataset type info: {e}")
+            logger.error(f"Error setting dataset type info: {e}")
             return None

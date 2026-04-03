@@ -12,10 +12,10 @@ from typing import List, Annotated, Optional
 class SiteController(Controller):
 
     # Get All Sites
-    @get(path="/all")
-    async def get_all_sites(self) -> List[SiteOutput]:
+    @get(path="/all", sync_to_thread=True)
+    def get_all_sites(self, limit: int = 100, offset: int = 0) -> List[SiteOutput]:
         try:
-            sites = Site.get_all()
+            sites = Site.get_all(limit=limit, offset=offset)
             if sites is None:
                 error = RESTAPIError(
                     error="No sites found",
@@ -31,8 +31,8 @@ class SiteController(Controller):
             return Response(content=error, status_code=500)
 
     # Get Sites
-    @get()
-    async def get_sites(
+    @get(sync_to_thread=True)
+    def get_sites(
         self,
         site_name: Optional[str] = None,
         site_city: Optional[str] = None,
@@ -68,8 +68,8 @@ class SiteController(Controller):
             return Response(content=error_message, status_code=500)
         
     # Get Site by ID
-    @get(path="/id/{site_id:str}")
-    async def get_site_by_id(
+    @get(path="/id/{site_id:str}", sync_to_thread=True)
+    def get_site_by_id(
         self, site_id: str
     ) -> SiteOutput:
         try:
@@ -89,8 +89,8 @@ class SiteController(Controller):
             return Response(content=error_message, status_code=500)
         
     # Create Site
-    @post()
-    async def create_site(
+    @post(sync_to_thread=True)
+    def create_site(
         self,
         data: Annotated[SiteInput, Body]
     ) -> SiteOutput:
@@ -119,8 +119,8 @@ class SiteController(Controller):
 
 
     # Update Site
-    @patch(path="/id/{site_id:str}")
-    async def update_site(
+    @patch(path="/id/{site_id:str}", sync_to_thread=True)
+    def update_site(
         self,
         site_id: str,
         data: Annotated[SiteUpdate, Body]
@@ -149,8 +149,8 @@ class SiteController(Controller):
             return Response(content=error_message, status_code=500)
         
     # Delete Site
-    @delete(path="/id/{site_id:str}")
-    async def delete_site(
+    @delete(path="/id/{site_id:str}", sync_to_thread=True)
+    def delete_site(
         self, site_id: str
     ) -> None:
         try:
@@ -177,8 +177,8 @@ class SiteController(Controller):
         
 
     # Get Associated Experiments
-    @get(path="/id/{site_id:str}/experiments")
-    async def get_experiments_by_site_id(
+    @get(path="/id/{site_id:str}/experiments", sync_to_thread=True)
+    def get_experiments_by_site_id(
         self, site_id: str
     ) -> List[ExperimentOutput]:
         try:
@@ -205,8 +205,8 @@ class SiteController(Controller):
             return Response(content=error_message, status_code=500)
         
     # Get Associated Plots
-    @get(path="/id/{site_id:str}/plots")
-    async def get_plots_by_site_id(
+    @get(path="/id/{site_id:str}/plots", sync_to_thread=True)
+    def get_plots_by_site_id(
         self, site_id: str
     ) -> List[PlotOutput]:
         try:

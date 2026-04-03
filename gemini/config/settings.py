@@ -53,6 +53,8 @@ class GEMINISettings(BaseSettings):
     GEMINI_REST_API_IMAGE_NAME : str = "gemini-rest-api"
     GEMINI_REST_API_HOSTNAME : str = "gemini-rest-api"
     GEMINI_REST_API_PORT : int = 7777
+    GEMINI_API_KEY : str = ""
+    GEMINI_CORS_ORIGINS : str = "*"
 
     # Scheduler DB
     GEMINI_SCHEDULER_DB_CONTAINER_NAME : str = "gemini-scheduler-db"

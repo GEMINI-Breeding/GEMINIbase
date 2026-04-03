@@ -12,7 +12,7 @@ class ProcedureRecordsIMMVModel(BaseModel):
 
     id : Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
     timestamp : Mapped[datetime] = mapped_column(TIMESTAMP, default=datetime.now)
-    collection_date : Mapped[date] = mapped_column(DATE, default=datetime.now)
+    collection_date : Mapped[date] = mapped_column(DATE, default=date.today)
     dataset_id : Mapped[UUID] = mapped_column(UUID(as_uuid=True))
     dataset_name : Mapped[str] = mapped_column(String)
     procedure_id : Mapped[UUID] = mapped_column(UUID(as_uuid=True))

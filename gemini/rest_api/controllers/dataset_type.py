@@ -18,10 +18,10 @@ from typing import List, Annotated, Optional
 class DatasetTypeController(Controller):
 
     # Get All Dataset Types
-    @get(path="/all")
-    async def get_all_dataset_types(self) -> List[DatasetTypeOutput]:
+    @get(path="/all", sync_to_thread=True)
+    def get_all_dataset_types(self, limit: int = 100, offset: int = 0) -> List[DatasetTypeOutput]:
         try:
-            dataset_types = DatasetType.get_all()
+            dataset_types = DatasetType.get_all(limit=limit, offset=offset)
             if dataset_types is None:
                 error = RESTAPIError(
                     error="No dataset types found",
@@ -37,8 +37,8 @@ class DatasetTypeController(Controller):
             return Response(content=error, status_code=500)
 
     # Get Dataset Types
-    @get()
-    async def get_dataset_types(
+    @get(sync_to_thread=True)
+    def get_dataset_types(
         cls,
         dataset_type_name: Optional[str] = None,
         dataset_type_info: Optional[JSONB] = None
@@ -66,8 +66,8 @@ class DatasetTypeController(Controller):
             return Response(content=error, status_code=500)
         
     # Get Dataset Type by ID
-    @get(path="/id/{dataset_type_id:int}")
-    async def get_dataset_type_by_id(
+    @get(path="/id/{dataset_type_id:int}", sync_to_thread=True)
+    def get_dataset_type_by_id(
         cls, dataset_type_id: int
     ) -> DatasetTypeOutput:
         try:
@@ -87,8 +87,8 @@ class DatasetTypeController(Controller):
             return Response(content=error, status_code=500)
         
     # Create Dataset Type
-    @post()
-    async def create_dataset_type(
+    @post(sync_to_thread=True)
+    def create_dataset_type(
         cls, data: Annotated[DatasetTypeInput, Body]
     ) -> DatasetTypeOutput:
         try:
@@ -111,8 +111,8 @@ class DatasetTypeController(Controller):
             return Response(content=error, status_code=500)
         
     # Update Dataset Type
-    @patch(path="/id/{dataset_type_id:int}")
-    async def update_dataset_type(
+    @patch(path="/id/{dataset_type_id:int}", sync_to_thread=True)
+    def update_dataset_type(
         cls, dataset_type_id: int, data: Annotated[DatasetTypeUpdate, Body]
     ) -> DatasetTypeOutput:
         try:
@@ -142,8 +142,8 @@ class DatasetTypeController(Controller):
             return Response(content=error, status_code=500)
         
     # Delete Dataset Type
-    @delete(path="/id/{dataset_type_id:int}")
-    async def delete_dataset_type(
+    @delete(path="/id/{dataset_type_id:int}", sync_to_thread=True)
+    def delete_dataset_type(
         cls, dataset_type_id: int
     ) -> None:
         try:

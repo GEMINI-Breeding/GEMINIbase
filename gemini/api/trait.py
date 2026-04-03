@@ -25,6 +25,7 @@ from uuid import UUID
 from tqdm import tqdm
 
 from pydantic import Field, AliasChoices
+import logging
 from gemini.api.types import ID
 from gemini.api.base import APIBase
 from gemini.api.dataset import Dataset
@@ -39,6 +40,8 @@ from datetime import date, datetime
 if TYPE_CHECKING:
     from gemini.api.experiment import Experiment
     from gemini.api.dataset import Dataset
+
+logger = logging.getLogger(__name__)
 
 class Trait(APIBase):
     """
@@ -93,7 +96,7 @@ class Trait(APIBase):
             exists = TraitModel.exists(trait_name=trait_name)
             return exists
         except Exception as e:
-            print(f"Error checking existence of trait: {e}")
+            logger.error(f"Error checking existence of trait: {e}")
             return False
         
     @classmethod
@@ -102,8 +105,8 @@ class Trait(APIBase):
         trait_name: str,
         trait_units: str = None,
         trait_level: GEMINITraitLevel = GEMINITraitLevel.Plot,
-        trait_info: dict = {},
-        trait_metrics: dict = {},
+        trait_info: dict = None,
+        trait_metrics: dict = None,
         experiment_name: str = None
     ) -> Optional["Trait"]:
         """
@@ -137,7 +140,7 @@ class Trait(APIBase):
                 trait.associate_experiment(experiment_name)
             return trait
         except Exception as e:
-            print(f"Error creating trait: {e}")
+            logger.error(f"Error creating trait: {e}")
             return None
         
     @classmethod
@@ -165,12 +168,12 @@ class Trait(APIBase):
                 experiment_name=experiment_name   
             )
             if not trait:
-                print(f"Trait with name {trait_name} not found.")
+                logger.debug(f"Trait with name {trait_name} not found.")
                 return None
             trait = cls.model_validate(trait)
             return trait
         except Exception as e:
-            print(f"Error getting trait: {e}")
+            logger.error(f"Error getting trait: {e}")
             return None
     
     @classmethod
@@ -190,16 +193,16 @@ class Trait(APIBase):
         try:
             trait = TraitModel.get(id)
             if not trait:
-                print(f"Trait with ID {id} does not exist.")
+                logger.warning(f"Trait with ID {id} does not exist.")
                 return None
             trait = cls.model_validate(trait)
             return trait
         except Exception as e:
-            print(f"Error getting trait by ID: {e}")
+            logger.error(f"Error getting trait by ID: {e}")
             return None
 
     @classmethod
-    def get_all(cls) -> Optional[List["Trait"]]:
+    def get_all(cls, limit: int = None, offset: int = None) -> Optional[List["Trait"]]:
         """
         Retrieve all traits.
 
@@ -211,14 +214,14 @@ class Trait(APIBase):
             Optional[List[Trait]]: List of all traits, or None if not found.
         """
         try:
-            traits = TraitModel.all()
+            traits = TraitModel.all(limit=limit, offset=offset)
             if not traits or len(traits) == 0:
-                print("No traits found.")
+                logger.info("No traits found.")
                 return None
             traits = [cls.model_validate(trait) for trait in traits]
             return traits
         except Exception as e:
-            print(f"Error getting all traits: {e}")
+            logger.error(f"Error getting all traits: {e}")
             return None
         
     @classmethod
@@ -250,7 +253,7 @@ class Trait(APIBase):
         """
         try:
             if not any([experiment_name, trait_name, trait_units, trait_level, trait_info, trait_metrics]):
-                print("At least one search parameter must be provided.")
+                logger.warning("At least one search parameter must be provided.")
                 return None
             
             traits = ExperimentTraitsViewModel.search(
@@ -262,12 +265,12 @@ class Trait(APIBase):
                 trait_metrics=trait_metrics
             )
             if not traits or len(traits) == 0:
-                print("No traits found with the provided search parameters.")
+                logger.info("No traits found with the provided search parameters.")
                 return None
             traits = [cls.model_validate(trait) for trait in traits]
             return traits if traits else None
         except Exception as e:
-            print(f"Error searching traits: {e}")
+            logger.error(f"Error searching traits: {e}")
             return None
             
     def update(
@@ -298,13 +301,13 @@ class Trait(APIBase):
         """
         try:
             if not any([trait_units, trait_level, trait_info, trait_metrics, trait_name]):
-                print("At least one update parameter must be provided.")
+                logger.warning("At least one update parameter must be provided.")
                 return None
 
             current_id = self.id
             trait = TraitModel.get(current_id)
             if not trait:
-                print(f"Trait with ID {current_id} does not exist.")
+                logger.warning(f"Trait with ID {current_id} does not exist.")
                 return None
             
             trait = TraitModel.update(
@@ -319,7 +322,7 @@ class Trait(APIBase):
             self.refresh()
             return trait 
         except Exception as e:
-            print(f"Error updating trait: {e}")
+            logger.error(f"Error updating trait: {e}")
             return None
     
     def delete(self) -> bool:
@@ -339,12 +342,12 @@ class Trait(APIBase):
             current_id = self.id
             trait = TraitModel.get(current_id)
             if not trait:
-                print(f"Trait with ID {current_id} does not exist.")
+                logger.warning(f"Trait with ID {current_id} does not exist.")
                 return False
             TraitModel.delete(trait)
             return True
         except Exception as e:
-            print(f"Error deleting trait: {e}")
+            logger.error(f"Error deleting trait: {e}")
             return False
         
     def refresh(self) -> Optional["Trait"]:
@@ -363,7 +366,7 @@ class Trait(APIBase):
         try:
             db_instance = TraitModel.get(self.id)
             if not db_instance:
-                print(f"Trait with ID {self.id} does not exist.")
+                logger.warning(f"Trait with ID {self.id} does not exist.")
                 return self
             instance = self.model_validate(db_instance)
             for key, value in instance.model_dump().items():
@@ -371,7 +374,7 @@ class Trait(APIBase):
                     setattr(self, key, value)
             return self
         except Exception as e:
-            print(f"Error refreshing trait: {e}")
+            logger.error(f"Error refreshing trait: {e}")
             return None
         
     def get_info(self) -> Optional[dict]:
@@ -391,15 +394,15 @@ class Trait(APIBase):
             current_id = self.id
             trait = TraitModel.get(current_id)
             if not trait:
-                print(f"Trait with ID {current_id} does not exist.")
+                logger.warning(f"Trait with ID {current_id} does not exist.")
                 return None
             trait_info = trait.trait_info
             if not trait_info:
-                print("Trait info is empty.")
+                logger.info("Trait info is empty.")
                 return None
             return trait_info
         except Exception as e:
-            print(f"Error getting trait info: {e}")
+            logger.error(f"Error getting trait info: {e}")
             return None
         
     def set_info(self, trait_info: dict) -> Optional["Trait"]:
@@ -421,7 +424,7 @@ class Trait(APIBase):
             current_id = self.id
             trait = TraitModel.get(current_id)
             if not trait:
-                print(f"Trait with ID {current_id} does not exist.")
+                logger.warning(f"Trait with ID {current_id} does not exist.")
                 return None
             trait = TraitModel.update(
                 trait,
@@ -431,7 +434,7 @@ class Trait(APIBase):
             self.refresh()
             return self
         except Exception as e:
-            print(f"Error setting trait info: {e}")
+            logger.error(f"Error setting trait info: {e}")
             return None
         
     def get_associated_experiments(self) -> Optional[List["Experiment"]]:
@@ -453,12 +456,12 @@ class Trait(APIBase):
             from gemini.api.experiment import Experiment
             experiment_traits = ExperimentTraitsViewModel.search(trait_id=self.id)
             if not experiment_traits or len(experiment_traits) == 0:
-                print("No associated experiments found.")
+                logger.info("No associated experiments found.")
                 return None
             experiments = [Experiment.model_validate(experiment) for experiment in experiment_traits]
             return experiments
         except Exception as e:
-            print(f"Error getting associated experiments: {e}")
+            logger.error(f"Error getting associated experiments: {e}")
             return None
 
     def associate_experiment(self, experiment_name: str) -> Optional["Experiment"]:
@@ -480,26 +483,26 @@ class Trait(APIBase):
             from gemini.api.experiment import Experiment
             experiment = Experiment.get(experiment_name)
             if not experiment:
-                print(f"Experiment {experiment_name} does not exist.")
+                logger.warning(f"Experiment {experiment_name} does not exist.")
                 return None
             existing_association = ExperimentTraitModel.get_by_parameters(
                 experiment_id=experiment.id,
                 trait_id=self.id
             )
             if existing_association:
-                print(f"Trait {self.trait_name} is already associated with experiment {experiment_name}.")
+                logger.info(f"Trait {self.trait_name} is already associated with experiment {experiment_name}.")
                 return True
             new_association = ExperimentTraitModel.get_or_create(
                 experiment_id=experiment.id,
                 trait_id=self.id
             )
             if not new_association:
-                print(f"Failed to associate trait {self.trait_name} with experiment {experiment_name}.")
+                logger.info(f"Failed to associate trait {self.trait_name} with experiment {experiment_name}.")
                 return False
             self.refresh()
             return experiment
         except Exception as e:
-            print(f"Error associating experiment: {e}")
+            logger.error(f"Error associating experiment: {e}")
             return None
 
     def unassociate_experiment(self, experiment_name: str) -> Optional["Experiment"]:
@@ -521,23 +524,23 @@ class Trait(APIBase):
             from gemini.api.experiment import Experiment
             experiment = Experiment.get(experiment_name)
             if not experiment:
-                print(f"Experiment {experiment_name} does not exist.")
+                logger.warning(f"Experiment {experiment_name} does not exist.")
                 return None
             existing_association = ExperimentTraitModel.get_by_parameters(
                 experiment_id=experiment.id,
                 trait_id=self.id
             )
             if not existing_association:
-                print(f"Trait {self.trait_name} is not associated with experiment {experiment_name}.")
+                logger.info(f"Trait {self.trait_name} is not associated with experiment {experiment_name}.")
                 return None
             is_deleted = ExperimentTraitModel.delete(existing_association)
             if not is_deleted:
-                print(f"Failed to unassociate trait {self.trait_name} from experiment {experiment_name}.")
+                logger.info(f"Failed to unassociate trait {self.trait_name} from experiment {experiment_name}.")
                 return False
             self.refresh()
             return experiment
         except Exception as e:
-            print(f"Error unassociating experiment: {e}")
+            logger.error(f"Error unassociating experiment: {e}")
             return None
 
     def belongs_to_experiment(self, experiment_name: str) -> bool:
@@ -559,7 +562,7 @@ class Trait(APIBase):
             from gemini.api.experiment import Experiment
             experiment = Experiment.get(experiment_name)
             if not experiment:
-                print(f"Experiment {experiment_name} does not exist.")
+                logger.warning(f"Experiment {experiment_name} does not exist.")
                 return False
             association_exists = ExperimentTraitModel.exists(
                 experiment_id=experiment.id,
@@ -567,7 +570,7 @@ class Trait(APIBase):
             )
             return association_exists
         except Exception as e:
-            print(f"Error checking if trait belongs to experiment: {e}")
+            logger.error(f"Error checking if trait belongs to experiment: {e}")
             return
 
     def get_associated_datasets(self) -> Optional[List["Dataset"]]:
@@ -589,18 +592,18 @@ class Trait(APIBase):
             from gemini.api.dataset import Dataset
             datasets = TraitDatasetsViewModel.search(trait_id=self.id)
             if not datasets or len(datasets) == 0:
-                print("No associated datasets found.")
+                logger.info("No associated datasets found.")
                 return None
             datasets = [Dataset.model_validate(dataset) for dataset in datasets]
             return datasets
         except Exception as e:
-            print(f"Error getting associated datasets: {e}")
+            logger.error(f"Error getting associated datasets: {e}")
             return None
 
     def create_new_dataset(
         self,
         dataset_name: str,
-        dataset_info: dict = {},
+        dataset_info: dict = None,
         collection_date: date = None,
         experiment_name: str = None
     ) -> Optional["Dataset"]:
@@ -631,12 +634,12 @@ class Trait(APIBase):
                 experiment_name=experiment_name
             )
             if not dataset:
-                print(f"Failed to create dataset {dataset_name}.")
+                logger.info(f"Failed to create dataset {dataset_name}.")
                 return None
             dataset = self.associate_dataset(dataset_name)
             return dataset
         except Exception as e:
-            print(f"Error creating new dataset: {e}")
+            logger.error(f"Error creating new dataset: {e}")
             return None
 
     def associate_dataset(self, dataset_name: str) -> Optional["Dataset"]:
@@ -658,26 +661,26 @@ class Trait(APIBase):
             from gemini.api.dataset import Dataset
             dataset = Dataset.get(dataset_name)
             if not dataset:
-                print(f"Dataset {dataset_name} does not exist.")
+                logger.warning(f"Dataset {dataset_name} does not exist.")
                 return None
             existing_association = TraitDatasetModel.get_by_parameters(
                 trait_id=self.id,
                 dataset_id=dataset.id
             )
             if existing_association:
-                print(f"Trait {self.trait_name} is already associated with dataset {dataset_name}.")
+                logger.info(f"Trait {self.trait_name} is already associated with dataset {dataset_name}.")
                 return True
             new_association = TraitDatasetModel.get_or_create(
                 trait_id=self.id,
                 dataset_id=dataset.id
             )
             if not new_association:
-                print(f"Failed to associate trait {self.trait_name} with dataset {dataset_name}.")
+                logger.info(f"Failed to associate trait {self.trait_name} with dataset {dataset_name}.")
                 return False
             self.refresh()
             return dataset
         except Exception as e:
-            print(f"Error associating dataset: {e}")
+            logger.error(f"Error associating dataset: {e}")
             return None
 
     def insert_record(
@@ -692,7 +695,7 @@ class Trait(APIBase):
         plot_number: int = -1,
         plot_row_number: int = -1,
         plot_column_number: int = -1,
-        record_info: dict = {}
+        record_info: dict = None
     ) -> tuple[bool, List[str]]:
         """
         Insert a single trait record for this trait.
@@ -759,18 +762,18 @@ class Trait(APIBase):
             )
             success, inserted_record_ids = TraitRecord.insert([trait_record])
             if not success:
-                print(f"Failed to insert record for trait {trait_name}.")
+                logger.info(f"Failed to insert record for trait {trait_name}.")
                 return False, []
             return success, inserted_record_ids
         except Exception as e:
-            print(f"Error inserting record: {e}")
+            logger.error(f"Error inserting record: {e}")
             return False, []
         
     def insert_records(
         self,
         timestamps: List[datetime] = None,
         collection_date: date = None,
-        trait_values: List[float] = [],
+        trait_values: List[float] = None,
         dataset_name: str = None,
         experiment_name: str = None,
         season_name: str = None,
@@ -778,7 +781,7 @@ class Trait(APIBase):
         plot_numbers: List[int] = None,
         plot_row_numbers: List[int] = None,
         plot_column_numbers: List[int] = None,
-        record_info: List[dict] = []
+        record_info: List[dict] = None
     ) -> tuple[bool, List[str]]:
         """
         Insert multiple trait records for this trait.
@@ -851,7 +854,7 @@ class Trait(APIBase):
             success, inserted_record_ids = TraitRecord.insert(trait_records)
             return success, inserted_record_ids
         except Exception as e:
-            print(f"Error inserting records: {e}")
+            logger.error(f"Error inserting records: {e}")
             return False, []
         
     def search_records(
@@ -918,7 +921,7 @@ class Trait(APIBase):
             )
             return records
         except Exception as e:
-            print(f"Error searching records: {e}")
+            logger.error(f"Error searching records: {e}")
             return []
         
     def filter_records(
@@ -970,5 +973,5 @@ class Trait(APIBase):
             )
             return records
         except Exception as e:
-            print(f"Error filtering trait records: {e}")
+            logger.error(f"Error filtering trait records: {e}")
             return []

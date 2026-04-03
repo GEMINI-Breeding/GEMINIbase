@@ -24,6 +24,7 @@ from uuid import UUID
 import os, mimetypes
 from tqdm import tqdm
 
+import logging
 from gemini.api.types import ID
 from pydantic import Field, AliasChoices
 from gemini.api.base import APIBase, FileHandlerMixin
@@ -31,6 +32,8 @@ from gemini.db.models.columnar.dataset_records import DatasetRecordModel
 from gemini.db.models.views.dataset_records_immv import DatasetRecordsIMMVModel
 
 from datetime import date, datetime
+
+logger = logging.getLogger(__name__)
 
 class DatasetRecord(APIBase, FileHandlerMixin):
     """
@@ -118,7 +121,7 @@ class DatasetRecord(APIBase, FileHandlerMixin):
             )
             return exists
         except Exception as e:
-            print(f"Error checking existence: {e}")
+            logger.error(f"Error checking existence: {e}")
             return False
         
     @classmethod
@@ -127,12 +130,12 @@ class DatasetRecord(APIBase, FileHandlerMixin):
         timestamp: datetime = datetime.now(),
         collection_date: date = None,
         dataset_name: str = None,
-        dataset_data: dict = {},
+        dataset_data: dict = None,
         experiment_name: str = None,
         site_name: str = None,
         season_name: str = None,
         record_file: str = None,
-        record_info: dict = {},
+        record_info: dict = None,
         insert_on_create: bool = True
     ) -> Optional["DatasetRecord"]:
         """
@@ -193,16 +196,16 @@ class DatasetRecord(APIBase, FileHandlerMixin):
             if insert_on_create:
                 insert_success, inserted_record_ids = cls.insert([dataset_record])
                 if not insert_success:
-                    print(f"Failed to insert DatasetRecord: {dataset_record}")
+                    logger.info(f"Failed to insert DatasetRecord: {dataset_record}")
                     return None
                 if not inserted_record_ids or len(inserted_record_ids) == 0:
-                    print(f"No new DatasetRecord was inserted.")
+                    logger.info(f"No new DatasetRecord was inserted.")
                     return None
                 inserted_record_id = inserted_record_ids[0]
                 dataset_record = cls.get_by_id(inserted_record_id)
             return dataset_record
         except Exception as e:
-            print(f"Error creating DatasetRecord: {e}")
+            logger.error(f"Error creating DatasetRecord: {e}")
             return None
     
 
@@ -218,7 +221,7 @@ class DatasetRecord(APIBase, FileHandlerMixin):
         """
         try:
             if not records or len(records) == 0:
-                print(f"No records provided to insert.")
+                logger.info(f"No records provided to insert.")
                 return False, []
             records = cls.verify_records(records)
             records = [cls.process_record(record) for record in tqdm(records, desc="Processing Records for Dataset: " + records[0].dataset_name)]
@@ -227,12 +230,12 @@ class DatasetRecord(APIBase, FileHandlerMixin):
                 record_dict = record.model_dump()
                 record_dict = {k: v for k, v in record_dict.items() if v is not None}
                 records_to_insert.append(record_dict)
-            print(f"Inserting {len(records_to_insert)} records.")
+            logger.info(f"Inserting {len(records_to_insert)} records.")
             inserted_record_ids = DatasetRecordModel.insert_bulk('dataset_records_unique', records_to_insert)
-            print(f"Inserted {len(inserted_record_ids)} records.")
+            logger.info(f"Inserted {len(inserted_record_ids)} records.")
             return True, inserted_record_ids
         except Exception as e:
-            print(f"Error inserting records: {e}")
+            logger.error(f"Error inserting records: {e}")
             return False, []
 
     @classmethod
@@ -269,13 +272,13 @@ class DatasetRecord(APIBase, FileHandlerMixin):
         """
         try:
             if not timestamp:
-                print(f"Timestamp is required to get the DatasetRecord.")
+                logger.warning(f"Timestamp is required to get the DatasetRecord.")
                 return None
             if not dataset_name:
-                print(f"Dataset name is required to get the DatasetRecord.")
+                logger.warning(f"Dataset name is required to get the DatasetRecord.")
                 return None
             if not experiment_name and not season_name and not site_name:
-                print(f"At least one of experiment_name, season_name, or site_name is required to get the DatasetRecord.")
+                logger.warning(f"At least one of experiment_name, season_name, or site_name is required to get the DatasetRecord.")
                 return None
             dataset_record = DatasetRecordsIMMVModel.get_by_parameters(
                 timestamp=timestamp,
@@ -285,12 +288,12 @@ class DatasetRecord(APIBase, FileHandlerMixin):
                 site_name=site_name
             )
             if not dataset_record:
-                print(f"DatasetRecord not found.")
+                logger.debug(f"DatasetRecord not found.")
                 return None
             dataset_record = cls.model_validate(dataset_record)
             return dataset_record
         except Exception as e:
-            print(f"Error getting DatasetRecord: {e}")
+            logger.error(f"Error getting DatasetRecord: {e}")
             return None
         
     @classmethod
@@ -311,12 +314,12 @@ class DatasetRecord(APIBase, FileHandlerMixin):
         try:
             db_instance = DatasetRecordModel.get(id)
             if not db_instance:
-                print(f"DatasetRecord with id {id} not found.")
+                logger.debug(f"DatasetRecord with id {id} not found.")
                 return None
             record = cls.model_validate(db_instance)
             return record
         except Exception as e:
-            print(f"Error getting DatasetRecord by id: {e}")
+            logger.error(f"Error getting DatasetRecord by id: {e}")
             return None
         
     @classmethod
@@ -339,12 +342,12 @@ class DatasetRecord(APIBase, FileHandlerMixin):
         try:
             records = DatasetRecordModel.all(limit=limit)
             if not records or len(records) == 0:
-                print(f"No DatasetRecords found.")
+                logger.info(f"No DatasetRecords found.")
                 return None
             records = [cls.model_validate(record) for record in records]
             return records
         except Exception as e:
-            print(f"Error getting all DatasetRecords: {e}")
+            logger.error(f"Error getting all DatasetRecords: {e}")
             return None
 
 
@@ -403,7 +406,7 @@ class DatasetRecord(APIBase, FileHandlerMixin):
                 record = cls.model_validate(record)
                 yield record
         except Exception as e:
-            print(f"Error searching DatasetRecords: {e}")
+            logger.error(f"Error searching DatasetRecords: {e}")
             yield None
 
     @classmethod
@@ -458,7 +461,7 @@ class DatasetRecord(APIBase, FileHandlerMixin):
                 record = cls.model_validate(record)
                 yield record
         except Exception as e:
-            print(f"Error filtering DatasetRecords: {e}")
+            logger.error(f"Error filtering DatasetRecords: {e}")
             yield None
 
     
@@ -487,12 +490,12 @@ class DatasetRecord(APIBase, FileHandlerMixin):
         """
         try:
             if not any([dataset_data, record_info]):
-                print(f"At least one parameter must be provided to update the DatasetRecord.")
+                logger.warning(f"At least one parameter must be provided to update the DatasetRecord.")
                 return None
             current_id = self.id
             dataset_record = DatasetRecordModel.get(current_id)
             if not dataset_record:
-                print(f"DatasetRecord with id {current_id} not found.")
+                logger.debug(f"DatasetRecord with id {current_id} not found.")
                 return None
             dataset_record = DatasetRecordModel.update(
                 dataset_record,
@@ -503,7 +506,7 @@ class DatasetRecord(APIBase, FileHandlerMixin):
             self.refresh()
             return dataset_record
         except Exception as e:
-            print(f"Error updating DatasetRecord: {e}")
+            logger.error(f"Error updating DatasetRecord: {e}")
             return None
         
     def delete(self) -> bool:
@@ -523,12 +526,12 @@ class DatasetRecord(APIBase, FileHandlerMixin):
             current_id = self.id
             dataset_record = DatasetRecordModel.get(current_id)
             if not dataset_record:
-                print(f"DatasetRecord with id {current_id} not found.")
+                logger.debug(f"DatasetRecord with id {current_id} not found.")
                 return False
             DatasetRecordModel.delete(dataset_record)
             return True
         except Exception as e:
-            print(f"Error deleting DatasetRecord: {e}")
+            logger.error(f"Error deleting DatasetRecord: {e}")
             return False
         
     def refresh(self) -> Optional["DatasetRecord"]:
@@ -549,7 +552,7 @@ class DatasetRecord(APIBase, FileHandlerMixin):
         try:
             db_instance = DatasetRecordModel.get(self.id)
             if not db_instance:
-                print(f"DatasetRecord with id {self.id} not found.")
+                logger.debug(f"DatasetRecord with id {self.id} not found.")
                 return None
             instance = self.model_validate(db_instance)
             for key, value in instance.model_dump().items():
@@ -557,7 +560,7 @@ class DatasetRecord(APIBase, FileHandlerMixin):
                     setattr(self, key, value)
             return self
         except Exception as e:
-            print(f"Error refreshing DatasetRecord: {e}")
+            logger.error(f"Error refreshing DatasetRecord: {e}")
             return None
         
     def get_info(self) -> Optional[dict]:
@@ -578,15 +581,15 @@ class DatasetRecord(APIBase, FileHandlerMixin):
             current_id = self.id
             dataset_record = DatasetRecordModel.get(current_id)
             if not dataset_record:
-                print(f"DatasetRecord with id {current_id} not found.")
+                logger.debug(f"DatasetRecord with id {current_id} not found.")
                 return None
             record_info = dataset_record.record_info
             if not record_info:
-                print(f"No record info found for DatasetRecord with id {current_id}.")
+                logger.info(f"No record info found for DatasetRecord with id {current_id}.")
                 return None
             return record_info
         except Exception as e:
-            print(f"Error getting record info: {e}")
+            logger.error(f"Error getting record info: {e}")
             return None
 
     def set_info(self, record_info: dict) -> Optional["DatasetRecord"]:
@@ -611,7 +614,7 @@ class DatasetRecord(APIBase, FileHandlerMixin):
             current_id = self.id
             dataset_record = DatasetRecordModel.get(current_id)
             if not dataset_record:
-                print(f"DatasetRecord with id {current_id} not found.")
+                logger.debug(f"DatasetRecord with id {current_id} not found.")
                 return None
             dataset_record = DatasetRecordModel.update(
                 dataset_record,
@@ -621,7 +624,7 @@ class DatasetRecord(APIBase, FileHandlerMixin):
             self.refresh()
             return dataset_record
         except Exception as e:
-            print(f"Error setting record info: {e}")
+            logger.error(f"Error setting record info: {e}")
             return None
     
     @classmethod
@@ -651,10 +654,10 @@ class DatasetRecord(APIBase, FileHandlerMixin):
         try:
             original_file_path = record.record_file
             if not original_file_path:
-                print(f"record_file is required to create file URI.")
+                logger.warning(f"record_file is required to create file URI.")
                 return None
             if not os.path.exists(original_file_path):
-                print(f"File {original_file_path} does not exist.")
+                logger.warning(f"File {original_file_path} does not exist.")
                 return None
             # Assuming the file is stored in a specific structure, we can create a file URI
             collection_date = record.collection_date.strftime("%Y-%m-%d")
@@ -667,7 +670,7 @@ class DatasetRecord(APIBase, FileHandlerMixin):
             file_key = f"dataset_data/{experiment_name}/{dataset_name}/{collection_date}/{site_name}/{season_name}/{file_timestamp}{file_extension}"
             return file_key
         except Exception as e:
-            print(f"Error creating file URI: {e}")
+            logger.error(f"Error creating file URI: {e}")
             return None
 
 
@@ -704,7 +707,7 @@ class DatasetRecord(APIBase, FileHandlerMixin):
                 return record
             file_key = cls.create_file_uri(record)
             if not file_key:
-                print(f"Failed to create file URI for record: {record}")
+                logger.info(f"Failed to create file URI for record: {record}")
                 return record
             content_type, _ = mimetypes.guess_type(file)
             # Generate Metadata for upload
@@ -726,7 +729,7 @@ class DatasetRecord(APIBase, FileHandlerMixin):
             record.record_file = file_key
             return record
         except Exception as e:
-            print(f"Error processing record: {e}")
+            logger.error(f"Error processing record: {e}")
             return record
 
 

@@ -24,6 +24,7 @@ from typing import Optional, List, TYPE_CHECKING
 from uuid import UUID
 
 from pydantic import Field, AliasChoices
+import logging
 from gemini.api.types import ID
 from gemini.api.base import APIBase
 from gemini.api.cultivar import Cultivar
@@ -38,6 +39,8 @@ if TYPE_CHECKING:
     from gemini.api.season import Season
     from gemini.api.site import Site
     from gemini.api.cultivar import Cultivar
+
+logger = logging.getLogger(__name__)
 
 class Plot(APIBase):
     """
@@ -120,7 +123,7 @@ class Plot(APIBase):
             )
             return exists
         except Exception as e:
-            print(f"Error checking existence of plot: {e}")
+            logger.error(f"Error checking existence of plot: {e}")
             return False
         
     @classmethod
@@ -129,8 +132,8 @@ class Plot(APIBase):
         plot_number: int,
         plot_row_number: int,
         plot_column_number: int,
-        plot_info: dict = {},
-        plot_geometry_info: dict = {},
+        plot_info: dict = None,
+        plot_geometry_info: dict = None,
         experiment_name: str = None,
         season_name: str = None,
         site_name: str = None,
@@ -178,7 +181,7 @@ class Plot(APIBase):
                 plot.associate_cultivar(cultivar_accession, cultivar_population)
             return plot
         except Exception as e:
-            print(f"Error creating plot: {e}")
+            logger.error(f"Error creating plot: {e}")
             return None
         
     @classmethod
@@ -219,12 +222,12 @@ class Plot(APIBase):
                 site_name=site_name
             )
             if not plot:
-                print(f"Plot with number {plot_number}, row {plot_row_number}, column {plot_column_number} not found.")
+                logger.debug(f"Plot with number {plot_number}, row {plot_row_number}, column {plot_column_number} not found.")
                 return None
             plot = cls.model_validate(plot)
             return plot
         except Exception as e:
-            print(f"Error getting plot: {e}")
+            logger.error(f"Error getting plot: {e}")
             return None
         
     @classmethod
@@ -245,16 +248,16 @@ class Plot(APIBase):
         try:
             plot = PlotViewModel.get_by_parameters(plot_id=id)
             if not plot:
-                print(f"Plot with ID {id} does not exist.")
+                logger.warning(f"Plot with ID {id} does not exist.")
                 return None
             plot = cls.model_validate(plot)
             return plot
         except Exception as e:
-            print(f"Error getting plot by ID: {e}")
+            logger.error(f"Error getting plot by ID: {e}")
             return None
         
     @classmethod
-    def get_all(cls) -> Optional[List["Plot"]]:
+    def get_all(cls, limit: int = None, offset: int = None) -> Optional[List["Plot"]]:
         """
         Retrieve all plots.
 
@@ -270,14 +273,14 @@ class Plot(APIBase):
             Optional[List[Plot]]: A list of all plots, or None if not found.
         """
         try:
-            plots = PlotModel.all()
+            plots = PlotModel.all(limit=limit, offset=offset)
             if not plots or len(plots) == 0:
-                print("No plots found.")
+                logger.info("No plots found.")
                 return None
             plots = [cls.model_validate(plot) for plot in plots]
             return plots
         except Exception as e:
-            print(f"Error getting all plots: {e}")
+            logger.error(f"Error getting all plots: {e}")
             return None
         
     @classmethod
@@ -315,7 +318,7 @@ class Plot(APIBase):
         """
         try:
             if not any([plot_number, plot_row_number, plot_column_number, experiment_name, season_name, site_name]):
-                print("At least one search parameter must be provided.")
+                logger.warning("At least one search parameter must be provided.")
                 return None
 
             plots = PlotViewModel.search(
@@ -329,12 +332,12 @@ class Plot(APIBase):
                 cultivar_population=cultivar_population
             )
             if not plots or len(plots) == 0:
-                print("No plots found with the provided search parameters.")
+                logger.info("No plots found with the provided search parameters.")
                 return None
             plots = [cls.model_validate(plot) for plot in plots]
             return plots if plots else None
         except Exception as e:
-            print(f"Error searching plots: {e}")
+            logger.error(f"Error searching plots: {e}")
             return None
         
     def update(
@@ -365,13 +368,13 @@ class Plot(APIBase):
         """
         try:
             if not any([plot_number, plot_row_number, plot_column_number, plot_info, plot_geometry_info]):
-                print("At least one parameter must be provided.")
+                logger.warning("At least one parameter must be provided.")
                 return None
 
             current_id = self.id
             plot = PlotModel.get(current_id)
             if not plot:
-                print(f"Plot with ID {current_id} does not exist.")
+                logger.warning(f"Plot with ID {current_id} does not exist.")
                 return None
             plot = PlotModel.update(
                 plot,
@@ -385,7 +388,7 @@ class Plot(APIBase):
             self.refresh()
             return plot
         except Exception as e:
-            print(f"Error updating plot: {e}")
+            logger.error(f"Error updating plot: {e}")
             return None
         
     def refresh(self) -> Optional["Plot"]:
@@ -404,7 +407,7 @@ class Plot(APIBase):
         try:
             db_instance = PlotViewModel.get_by_parameters(plot_id=self.id)
             if not db_instance:
-                print(f"Plot with ID {self.id} does not exist.")
+                logger.warning(f"Plot with ID {self.id} does not exist.")
                 return self
             instance = self.model_validate(db_instance)
             instance_dict = dict(instance)
@@ -414,7 +417,7 @@ class Plot(APIBase):
                     setattr(self, key, value)
             return self
         except Exception as e:
-            print(f"Error refreshing plot: {e}")
+            logger.error(f"Error refreshing plot: {e}")
             return None
         
     def delete(self) -> bool:
@@ -434,12 +437,12 @@ class Plot(APIBase):
             current_id = self.id
             plot = PlotModel.get(current_id)
             if not plot:
-                print(f"Plot with ID {current_id} does not exist.")
+                logger.warning(f"Plot with ID {current_id} does not exist.")
                 return False
             PlotModel.delete(plot)
             return True
         except Exception as e:
-            print(f"Error deleting plot: {e}")
+            logger.error(f"Error deleting plot: {e}")
             return False
         
     def get_info(self) -> Optional[dict]:
@@ -459,15 +462,15 @@ class Plot(APIBase):
             current_id = self.id
             plot = PlotModel.get(current_id)
             if not plot:
-                print(f"Plot with ID {current_id} does not exist.")
+                logger.warning(f"Plot with ID {current_id} does not exist.")
                 return None
             plot_info = plot.plot_info
             if not plot_info:
-                print("Plot info is empty.")
+                logger.info("Plot info is empty.")
                 return None
             return plot_info
         except Exception as e:
-            print(f"Error getting plot info: {e}")
+            logger.error(f"Error getting plot info: {e}")
             return None
         
     def set_info(self, plot_info: dict) -> Optional["Plot"]:
@@ -489,7 +492,7 @@ class Plot(APIBase):
             current_id = self.id
             plot = PlotModel.get(current_id)
             if not plot:
-                print(f"Plot with ID {current_id} does not exist.")
+                logger.warning(f"Plot with ID {current_id} does not exist.")
                 return None
             plot = PlotModel.update(
                 plot,
@@ -499,7 +502,7 @@ class Plot(APIBase):
             self.refresh()
             return self
         except Exception as e:
-            print(f"Error setting plot info: {e}")  
+            logger.error(f"Error setting plot info: {e}")  
             return None
         
     def get_associated_experiment(self) -> Optional["Experiment"]:
@@ -518,15 +521,15 @@ class Plot(APIBase):
         try:
             from gemini.api.experiment import Experiment
             if not self.experiment_id:
-                print("Plot does not belong to any experiment.")
+                logger.info("Plot does not belong to any experiment.")
                 return None
             experiment = Experiment.get_by_id(self.experiment_id)
             if not experiment:
-                print(f"Experiment with ID {self.experiment_id} does not exist.")
+                logger.warning(f"Experiment with ID {self.experiment_id} does not exist.")
                 return None
             return experiment
         except Exception as e:
-            print(f"Error getting experiment: {e}")
+            logger.error(f"Error getting experiment: {e}")
             return None
 
 
@@ -549,7 +552,7 @@ class Plot(APIBase):
             from gemini.api.experiment import Experiment
             experiment = Experiment.get(experiment_name=experiment_name)
             if not experiment:
-                print(f"Experiment with name {experiment_name} does not exist.")
+                logger.warning(f"Experiment with name {experiment_name} does not exist.")
                 return False
             association_exists = PlotViewModel.exists(
                 plot_id=self.id,
@@ -557,7 +560,7 @@ class Plot(APIBase):
             )
             return association_exists
         except Exception as e:
-            print(f"Error checking if plot belongs to experiment: {e}")
+            logger.error(f"Error checking if plot belongs to experiment: {e}")
             return False
 
     def associate_experiment(self, experiment_name: str) -> Optional["Experiment"]:
@@ -579,14 +582,14 @@ class Plot(APIBase):
             from gemini.api.experiment import Experiment
             experiment = Experiment.get(experiment_name=experiment_name)
             if not experiment:
-                print(f"Experiment with name {experiment_name} does not exist.")
+                logger.warning(f"Experiment with name {experiment_name} does not exist.")
                 return None
             existing_association = PlotViewModel.get_by_parameters(
                 plot_id=self.id,
                 experiment_id=experiment.id
             )
             if existing_association:
-                print(f"Plot {self.id} is already associated with experiment {experiment_name}.")
+                logger.info(f"Plot {self.id} is already associated with experiment {experiment_name}.")
                 return self
             db_plot = PlotModel.get(self.id)
             db_plot = PlotModel.update_parameter(
@@ -594,11 +597,11 @@ class Plot(APIBase):
                 "experiment_id",
                 experiment.id
             )
-            print(f"Plot {self.id} associated with experiment {experiment_name}.")
+            logger.info(f"Plot {self.id} associated with experiment {experiment_name}.")
             self.refresh()
             return experiment
         except Exception as e:
-            print(f"Error assigning experiment to plot: {e}")
+            logger.error(f"Error assigning experiment to plot: {e}")
             return None
 
     def unassociate_experiment(self) -> Optional["Experiment"]:
@@ -617,7 +620,7 @@ class Plot(APIBase):
         try:
             from gemini.api.experiment import Experiment
             if not self.experiment_id:
-                print("Plot does not belong to any experiment.")
+                logger.info("Plot does not belong to any experiment.")
                 return None
             experiment = Experiment.get_by_id(self.experiment_id)
             db_plot = PlotModel.get(self.id)
@@ -629,7 +632,7 @@ class Plot(APIBase):
             self.refresh()
             return experiment   
         except Exception as e:
-            print(f"Error unassigning experiment from plot: {e}")
+            logger.error(f"Error unassigning experiment from plot: {e}")
             return None
 
     def get_associated_season(self) -> Optional["Season"]:
@@ -648,15 +651,15 @@ class Plot(APIBase):
         try:
             from gemini.api.season import Season
             if not self.season_id:
-                print("Plot does not belong to any season.")
+                logger.info("Plot does not belong to any season.")
                 return None
             season = Season.get_by_id(self.season_id)
             if not season:
-                print(f"Season with ID {self.season_id} does not exist.")
+                logger.warning(f"Season with ID {self.season_id} does not exist.")
                 return None
             return season
         except Exception as e:
-            print(f"Error getting season: {e}")
+            logger.error(f"Error getting season: {e}")
             return None
         
 
@@ -682,7 +685,7 @@ class Plot(APIBase):
             season = Season.get(season_name=season_name, experiment_name=experiment_name)
             experiment = Experiment.get(experiment_name=experiment_name)
             if not experiment or not season:
-                print(f"Experiment with name {experiment_name} or season with name {season_name} does not exist.")
+                logger.warning(f"Experiment with name {experiment_name} or season with name {season_name} does not exist.")
                 return False
             association_exists = PlotViewModel.exists(
                 plot_id=self.id,
@@ -691,7 +694,7 @@ class Plot(APIBase):
             )
             return association_exists
         except Exception as e:
-            print(f"Error checking if plot belongs to season: {e}")
+            logger.error(f"Error checking if plot belongs to season: {e}")
             return False
 
     def associate_season(self, season_name: str, experiment_name: str) -> Optional["Season"]:
@@ -714,7 +717,7 @@ class Plot(APIBase):
             from gemini.api.season import Season
             season = Season.get(season_name=season_name, experiment_name=experiment_name)
             if not season:
-                print(f"Season with name {season_name} does not exist.")
+                logger.warning(f"Season with name {season_name} does not exist.")
                 return None
             existing_association = PlotViewModel.get_by_parameters(
                 plot_id=self.id,
@@ -722,7 +725,7 @@ class Plot(APIBase):
                 experiment_id=season.experiment_id
             )
             if existing_association:
-                print(f"Plot {self.id} is already associated with season {season_name}.")
+                logger.info(f"Plot {self.id} is already associated with season {season_name}.")
                 return self
             db_plot = PlotModel.get(self.id)
             db_plot = PlotModel.update_parameter(
@@ -730,11 +733,11 @@ class Plot(APIBase):
                 "season_id",
                 season.id
             )
-            print(f"Plot {self.id} associated with season {season_name}.")
+            logger.info(f"Plot {self.id} associated with season {season_name}.")
             self.refresh()
             return season
         except Exception as e:
-            print(f"Error assigning season to plot: {e}")
+            logger.error(f"Error assigning season to plot: {e}")
             return None
 
     def unassociate_season(self) -> Optional["Season"]:
@@ -753,7 +756,7 @@ class Plot(APIBase):
         try:
             from gemini.api.season import Season
             if not self.season_id:
-                print("Plot does not belong to any season.")
+                logger.info("Plot does not belong to any season.")
                 return None
             season = Season.get_by_id(self.season_id)
             db_plot = PlotModel.get(self.id)
@@ -765,7 +768,7 @@ class Plot(APIBase):
             self.refresh()
             return season
         except Exception as e:
-            print(f"Error unassigning season from plot: {e}")
+            logger.error(f"Error unassigning season from plot: {e}")
             return None
         
     def get_associated_site(self) -> Optional["Site"]:
@@ -784,15 +787,15 @@ class Plot(APIBase):
         try:
             from gemini.api.site import Site
             if not self.site_id:
-                print("Plot does not belong to any site.")
+                logger.info("Plot does not belong to any site.")
                 return None
             site = Site.get_by_id(self.site_id)
             if not site:
-                print(f"Site with ID {self.site_id} does not exist.")
+                logger.warning(f"Site with ID {self.site_id} does not exist.")
                 return None
             return site
         except Exception as e:
-            print(f"Error getting site: {e}")
+            logger.error(f"Error getting site: {e}")
             return None
 
     def belongs_to_site(self, site_name: str) -> bool:
@@ -814,7 +817,7 @@ class Plot(APIBase):
             from gemini.api.site import Site
             site = Site.get(site_name=site_name)
             if not site:
-                print(f"Site with name {site_name} does not exist.")
+                logger.warning(f"Site with name {site_name} does not exist.")
                 return False
             association_exists = PlotViewModel.exists(
                 plot_id=self.id,
@@ -822,7 +825,7 @@ class Plot(APIBase):
             )
             return association_exists
         except Exception as e:
-            print(f"Error checking if plot belongs to site: {e}")
+            logger.error(f"Error checking if plot belongs to site: {e}")
             return False
 
     def associate_site(self, site_name: str) -> Optional["Site"]:
@@ -844,14 +847,14 @@ class Plot(APIBase):
             from gemini.api.site import Site
             site = Site.get(site_name=site_name)
             if not site:
-                print(f"Site with name {site_name} does not exist.")
+                logger.warning(f"Site with name {site_name} does not exist.")
                 return None
             existing_association = PlotViewModel.get_by_parameters(
                 plot_id=self.id,
                 site_id=site.id
             )
             if existing_association:
-                print(f"Plot {self.id} is already associated with site {site_name}.")
+                logger.info(f"Plot {self.id} is already associated with site {site_name}.")
                 return self
             db_plot = PlotModel.get(self.id)
             db_plot = PlotModel.update_parameter(
@@ -859,11 +862,11 @@ class Plot(APIBase):
                 "site_id",
                 site.id
             )
-            print(f"Plot {self.id} associated with site {site_name}.")
+            logger.info(f"Plot {self.id} associated with site {site_name}.")
             self.refresh()
             return site
         except Exception as e:
-            print(f"Error assigning site to plot: {e}")
+            logger.error(f"Error assigning site to plot: {e}")
             return None
 
     def unassociate_site(self) -> Optional["Site"]:
@@ -882,7 +885,7 @@ class Plot(APIBase):
         try:
             from gemini.api.site import Site
             if not self.site_id:
-                print("Plot does not belong to any site.")
+                logger.info("Plot does not belong to any site.")
                 return None
             site = Site.get_by_id(self.site_id)
             db_plot = PlotModel.get(self.id)
@@ -894,7 +897,7 @@ class Plot(APIBase):
             self.refresh()
             return site
         except Exception as e:
-            print(f"Error unassigning site from plot: {e}")
+            logger.error(f"Error unassigning site from plot: {e}")
             return None
 
     def get_associated_cultivars(self) -> Optional[List["Cultivar"]]:
@@ -915,12 +918,12 @@ class Plot(APIBase):
             from gemini.api.cultivar import Cultivar
             cultivars = PlotCultivarViewModel.search(plot_id=self.id)
             if not cultivars or len(cultivars) == 0:
-                print("No associated cultivars found for this plot.")
+                logger.info("No associated cultivars found for this plot.")
                 return None
             cultivars = [Cultivar.model_validate(cultivar) for cultivar in cultivars]
             return cultivars
         except Exception as e:
-            print(f"Error getting associated cultivars: {e}")
+            logger.error(f"Error getting associated cultivars: {e}")
             return None
 
     def associate_cultivar(
@@ -950,26 +953,26 @@ class Plot(APIBase):
                 cultivar_population=cultivar_population
             )
             if not cultivar:
-                print(f"Cultivar {cultivar_accession} {cultivar_population} does not exist.")
+                logger.warning(f"Cultivar {cultivar_accession} {cultivar_population} does not exist.")
                 return None
             existing_association = PlotCultivarViewModel.get_by_parameters(
                 plot_id=self.id,
                 cultivar_id=cultivar.id
             )
             if existing_association:
-                print(f"Cultivar {cultivar_accession} {cultivar_population} is already assigned to this plot.")
+                logger.info(f"Cultivar {cultivar_accession} {cultivar_population} is already assigned to this plot.")
                 return self
             new_association = PlotCultivarModel.get_or_create(
                 plot_id=self.id,
                 cultivar_id=cultivar.id
             )
             if not new_association:
-                print(f"Failed to assign cultivar {cultivar_accession} {cultivar_population} to plot {self.id}.")
+                logger.info(f"Failed to assign cultivar {cultivar_accession} {cultivar_population} to plot {self.id}.")
                 return None
             self.refresh()
             return cultivar
         except Exception as e:
-            print(f"Error assigning cultivar to plot: {e}")
+            logger.error(f"Error assigning cultivar to plot: {e}")
             return None
 
     def unassociate_cultivar(
@@ -999,23 +1002,23 @@ class Plot(APIBase):
                 cultivar_population=cultivar_population
             )
             if not cultivar:
-                print(f"Cultivar {cultivar_accession} {cultivar_population} does not exist.")
+                logger.warning(f"Cultivar {cultivar_accession} {cultivar_population} does not exist.")
                 return None
             existing_association = PlotCultivarModel.get_by_parameters(
                 plot_id=self.id,
                 cultivar_id=cultivar.id
             )
             if not existing_association:
-                print(f"Cultivar {cultivar_accession} {cultivar_population} is not assigned to this plot.")
+                logger.info(f"Cultivar {cultivar_accession} {cultivar_population} is not assigned to this plot.")
                 return None
             is_deleted = PlotCultivarModel.delete(existing_association)
             if not is_deleted:
-                print(f"Failed to unassign cultivar {cultivar_accession} {cultivar_population} from plot {self.id}.")
+                logger.info(f"Failed to unassign cultivar {cultivar_accession} {cultivar_population} from plot {self.id}.")
                 return None
             self.refresh()
             return cultivar
         except Exception as e:
-            print(f"Error unassigning cultivar from plot: {e}")
+            logger.error(f"Error unassigning cultivar from plot: {e}")
             return None
 
     def belongs_to_cultivar(
@@ -1045,7 +1048,7 @@ class Plot(APIBase):
                 cultivar_population=cultivar_population
             )
             if not cultivar:
-                print(f"Cultivar {cultivar_accession} {cultivar_population} does not exist.")
+                logger.warning(f"Cultivar {cultivar_accession} {cultivar_population} does not exist.")
                 return False
             association_exists = PlotCultivarViewModel.exists(
                 plot_id=self.id,
@@ -1053,5 +1056,5 @@ class Plot(APIBase):
             )
             return association_exists
         except Exception as e:
-            print(f"Error checking if plot has cultivar: {e}")
+            logger.error(f"Error checking if plot has cultivar: {e}")
             return False

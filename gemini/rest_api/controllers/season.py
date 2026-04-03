@@ -19,10 +19,10 @@ from typing import List, Annotated, Optional
 class SeasonController(Controller):
 
     # Get All Seasons
-    @get(path="/all")
-    async def get_all_seasons(self) -> List[SeasonOutput]:
+    @get(path="/all", sync_to_thread=True)
+    def get_all_seasons(self, limit: int = 100, offset: int = 0) -> List[SeasonOutput]:
         try:
-            seasons = Season.get_all()
+            seasons = Season.get_all(limit=limit, offset=offset)
             if seasons is None:
                 error = RESTAPIError(
                     error="No seasons found",
@@ -38,8 +38,8 @@ class SeasonController(Controller):
             return Response(content=error, status_code=500)
 
     # Get Seasons
-    @get()
-    async def get_seasons(
+    @get(sync_to_thread=True)
+    def get_seasons(
         self,
         season_name: Optional[str] = None,
         season_info: Optional[JSONB] = None,
@@ -73,8 +73,8 @@ class SeasonController(Controller):
             return Response(content=error, status_code=500)
         
     # Get Season by ID
-    @get(path="/id/{season_id:str}")
-    async def get_season_by_id(
+    @get(path="/id/{season_id:str}", sync_to_thread=True)
+    def get_season_by_id(
         self, season_id: str
     ) -> SeasonOutput:
         try:
@@ -94,8 +94,8 @@ class SeasonController(Controller):
             return Response(content=error, status_code=500)
         
     # Create Season
-    @post()
-    async def create_season(
+    @post(sync_to_thread=True)
+    def create_season(
         self,
         data: Annotated[SeasonInput, Body]
     ) -> SeasonOutput:
@@ -122,8 +122,8 @@ class SeasonController(Controller):
             return Response(content=error, status_code=500)
 
     # Update Season
-    @patch(path="/id/{season_id:str}")
-    async def update_season(
+    @patch(path="/id/{season_id:str}", sync_to_thread=True)
+    def update_season(
         self,
         season_id: str,
         data: Annotated[SeasonUpdate, Body]
@@ -158,8 +158,8 @@ class SeasonController(Controller):
             return Response(content=error, status_code=500)
         
     # Delete Season
-    @delete(path="/id/{season_id:str}")
-    async def delete_season(
+    @delete(path="/id/{season_id:str}", sync_to_thread=True)
+    def delete_season(
         self, season_id: str
     ) -> None:
         try:
@@ -188,8 +188,8 @@ class SeasonController(Controller):
             return Response(content=error, status_code=500)
         
     # Get Associated Experiment
-    @get(path="/id/{season_id:str}/experiment")
-    async def get_associated_experiment(
+    @get(path="/id/{season_id:str}/experiment", sync_to_thread=True)
+    def get_associated_experiment(
         self, season_id: str
     ) -> ExperimentOutput:
         try:

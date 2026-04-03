@@ -25,6 +25,7 @@ from uuid import UUID
 from tqdm import tqdm
 
 from pydantic import Field, AliasChoices
+import logging
 from gemini.api.types import ID
 from gemini.api.base import APIBase
 from gemini.api.dataset import Dataset, GEMINIDatasetType
@@ -42,6 +43,8 @@ if TYPE_CHECKING:
     from gemini.api.experiment import Experiment
     from gemini.api.dataset import Dataset
     from gemini.api.model_run import ModelRun
+
+logger = logging.getLogger(__name__)
 
 class Model(APIBase):
     """
@@ -91,7 +94,7 @@ class Model(APIBase):
             exists = ModelModel.exists(model_name=model_name)
             return exists
         except Exception as e:
-            print(f"Error checking existence of model: {e}")
+            logger.error(f"Error checking existence of model: {e}")
             return False
         
     @classmethod
@@ -99,7 +102,7 @@ class Model(APIBase):
         cls,
         model_name: str,
         model_url: str = None,
-        model_info: dict = {},
+        model_info: dict = None,
         experiment_name: str = None
     ) -> Optional["Model"]:
         """
@@ -131,7 +134,7 @@ class Model(APIBase):
                 model.associate_experiment(experiment_name=experiment_name)
             return model
         except Exception as e:
-            print(f"Error creating model: {e}")
+            logger.error(f"Error creating model: {e}")
             return None
         
     @classmethod
@@ -159,12 +162,12 @@ class Model(APIBase):
                 experiment_name=experiment_name
             )
             if not db_instance:
-                print(f"Model with name {model_name} not found.")
+                logger.debug(f"Model with name {model_name} not found.")
                 return None
             model = cls.model_validate(db_instance)
             return model
         except Exception as e:
-            print(f"Error getting model: {e}")
+            logger.error(f"Error getting model: {e}")
             return None
         
     @classmethod
@@ -184,16 +187,16 @@ class Model(APIBase):
         try:
             db_instance = ModelModel.get(id)
             if not db_instance:
-                print(f"Model with ID {id} does not exist.")
+                logger.warning(f"Model with ID {id} does not exist.")
                 return None
             model = cls.model_validate(db_instance)
             return model
         except Exception as e:
-            print(f"Error getting model by ID: {e}")
+            logger.error(f"Error getting model by ID: {e}")
             return None
         
     @classmethod
-    def get_all(cls) -> Optional[List["Model"]]:
+    def get_all(cls, limit: int = None, offset: int = None) -> Optional[List["Model"]]:
         """
         Retrieve all models.
 
@@ -208,14 +211,14 @@ class Model(APIBase):
             Optional[List["Model"]]: List of all models, or None if not found.
         """
         try:
-            models = ModelModel.all()
+            models = ModelModel.all(limit=limit, offset=offset)
             if not models or len(models) == 0:
-                print("No models found.")
+                logger.info("No models found.")
                 return None
             models = [cls.model_validate(model) for model in models]
             return models
         except Exception as e:
-            print(f"Error getting all models: {e}")
+            logger.error(f"Error getting all models: {e}")
             return None
         
     @classmethod
@@ -245,7 +248,7 @@ class Model(APIBase):
         """
         try:
             if not any([model_name, model_info, model_url, experiment_name]):
-                print("At least one search parameter must be provided.")
+                logger.warning("At least one search parameter must be provided.")
                 return None
             models = ExperimentModelsViewModel.search(
                 model_name=model_name,
@@ -254,12 +257,12 @@ class Model(APIBase):
                 experiment_name=experiment_name
             )
             if not models or len(models) == 0:
-                print("No models found with the provided search parameters.")
+                logger.info("No models found with the provided search parameters.")
                 return None
             models = [cls.model_validate(model) for model in models]
             return models
         except Exception as e:
-            print(f"Error searching models: {e}")
+            logger.error(f"Error searching models: {e}")
             return None
         
     def update(
@@ -285,12 +288,12 @@ class Model(APIBase):
         """
         try:
             if not any([model_name, model_url, model_info]):
-                print("At least one update parameter must be provided.")
+                logger.warning("At least one update parameter must be provided.")
                 return None
             current_id = self.id
             model = ModelModel.get(current_id)
             if not model:
-                print(f"Model with ID {current_id} does not exist.")
+                logger.warning(f"Model with ID {current_id} does not exist.")
                 return None
             model = ModelModel.update(
                 model,
@@ -302,7 +305,7 @@ class Model(APIBase):
             self.refresh()
             return model
         except Exception as e:
-            print(f"Error updating model: {e}")
+            logger.error(f"Error updating model: {e}")
             return None
         
     def delete(self) -> bool:
@@ -322,12 +325,12 @@ class Model(APIBase):
             current_id = self.id
             model = ModelModel.get(current_id)
             if not model:
-                print(f"Model with ID {current_id} does not exist.")
+                logger.warning(f"Model with ID {current_id} does not exist.")
                 return False
             ModelModel.delete(model)
             return True
         except Exception as e:
-            print(f"Error deleting model: {e}")
+            logger.error(f"Error deleting model: {e}")
             return False
         
     def refresh(self) -> Optional["Model"]:
@@ -346,7 +349,7 @@ class Model(APIBase):
         try:
             db_instance = ModelModel.get(self.id)
             if not db_instance:
-                print(f"Model with ID {self.id} does not exist.")
+                logger.warning(f"Model with ID {self.id} does not exist.")
                 return self
             instance = self.model_validate(db_instance)
             for key, value in instance.model_dump().items():
@@ -354,7 +357,7 @@ class Model(APIBase):
                     setattr(self, key, value)
             return self
         except Exception as e:
-            print(f"Error refreshing model: {e}")
+            logger.error(f"Error refreshing model: {e}")
             return None
         
     def get_info(self) -> Optional[dict]:
@@ -374,15 +377,15 @@ class Model(APIBase):
             current_id = self.id
             model = ModelModel.get(current_id)
             if not model:
-                print(f"Model with ID {current_id} does not exist.")
+                logger.warning(f"Model with ID {current_id} does not exist.")
                 return None
             model_info = model.model_info
             if not model_info:
-                print("Model info is empty.")
+                logger.info("Model info is empty.")
                 return None
             return model_info
         except Exception as e:
-            print(f"Error getting model info: {e}")
+            logger.error(f"Error getting model info: {e}")
             return None
         
     def set_info(self, model_info: dict) -> Optional["Model"]:
@@ -404,7 +407,7 @@ class Model(APIBase):
             current_id = self.id
             model = ModelModel.get(current_id)
             if not model:
-                print(f"Model with ID {current_id} does not exist.")
+                logger.warning(f"Model with ID {current_id} does not exist.")
                 return None
             model = ModelModel.update(
                 model,
@@ -414,7 +417,7 @@ class Model(APIBase):
             self.refresh()
             return model
         except Exception as e:
-            print(f"Error setting model info: {e}")
+            logger.error(f"Error setting model info: {e}")
             return None
         
     def get_associated_runs(self) -> Optional[List["ModelRun"]]:
@@ -437,12 +440,12 @@ class Model(APIBase):
             current_id = self.id
             model_runs = ModelRunsViewModel.search(model_id=current_id)
             if not model_runs or len(model_runs) == 0:
-                print(f"No runs associated with model {self.model_name}.")
+                logger.info(f"No runs associated with model {self.model_name}.")
                 return None
             runs = [ModelRun.model_validate(model_run) for model_run in model_runs]
             return runs
         except Exception as e:
-            print(f"Error getting associated runs: {e}")
+            logger.error(f"Error getting associated runs: {e}")
             return None
 
     def create_new_run(self, model_run_info: dict) -> Optional["ModelRun"]:
@@ -469,11 +472,11 @@ class Model(APIBase):
                 model_name=current_name
             )
             if not model_run:
-                print(f"Failed to create run for model {self.model_name}.")
+                logger.info(f"Failed to create run for model {self.model_name}.")
                 return None
             return model_run
         except Exception as e:
-            print(f"Error creating run: {e}")
+            logger.error(f"Error creating run: {e}")
             return None
 
     def get_associated_experiments(self) -> Optional[List["Experiment"]]:
@@ -496,12 +499,12 @@ class Model(APIBase):
             current_id = self.id
             experiment_models = ExperimentModelsViewModel.search(model_id=current_id)
             if not experiment_models or len(experiment_models) == 0:
-                print(f"No experiments associated with model {self.model_name}.")
+                logger.info(f"No experiments associated with model {self.model_name}.")
                 return None
             experiments = [Experiment.model_validate(experiment) for experiment in experiment_models]
             return experiments
         except Exception as e:
-            print(f"Error getting associated experiments: {e}")
+            logger.error(f"Error getting associated experiments: {e}")
             return None
 
     def associate_experiment(self, experiment_name: str) -> Optional["Experiment"]:
@@ -523,26 +526,26 @@ class Model(APIBase):
             from gemini.api.experiment import Experiment
             experiment = Experiment.get(experiment_name=experiment_name)
             if not experiment:
-                print(f"Experiment {experiment_name} does not exist.")
+                logger.warning(f"Experiment {experiment_name} does not exist.")
                 return None
             existing_association = ExperimentModelModel.exists(
                 experiment_id=experiment.id,
                 model_id=self.id
             )
             if existing_association:
-                print(f"Model {self.model_name} is already associated with experiment {experiment_name}.")
+                logger.info(f"Model {self.model_name} is already associated with experiment {experiment_name}.")
                 return experiment
             new_association = ExperimentModelModel.get_or_create(
                 experiment_id=experiment.id,
                 model_id=self.id
             )
             if not new_association:
-                print(f"Failed to associate model {self.model_name} with experiment {experiment_name}.")
+                logger.info(f"Failed to associate model {self.model_name} with experiment {experiment_name}.")
                 return None
             self.refresh()
             return experiment
         except Exception as e:
-            print(f"Error associating experiment: {e}")
+            logger.error(f"Error associating experiment: {e}")
             return None
 
     def unassociate_experiment(self, experiment_name: str) -> Optional["Experiment"]:
@@ -564,23 +567,23 @@ class Model(APIBase):
             from gemini.api.experiment import Experiment
             experiment = Experiment.get(experiment_name=experiment_name)
             if not experiment:
-                print(f"Experiment {experiment_name} does not exist.")
+                logger.warning(f"Experiment {experiment_name} does not exist.")
                 return None
             existing_association = ExperimentModelModel.get_by_parameters(
                 experiment_id=experiment.id,
                 model_id=self.id
             )
             if not existing_association:
-                print(f"Model {self.model_name} is not associated with experiment {experiment_name}.")
+                logger.info(f"Model {self.model_name} is not associated with experiment {experiment_name}.")
                 return None
             is_deleted = ExperimentModelModel.delete(existing_association)
             if not is_deleted:
-                print(f"Failed to disassociate model {self.model_name} from experiment {experiment_name}.")
+                logger.info(f"Failed to disassociate model {self.model_name} from experiment {experiment_name}.")
                 return None
             self.refresh()
             return experiment
         except Exception as e:
-            print(f"Error disassociating experiment: {e}")
+            logger.error(f"Error disassociating experiment: {e}")
             return None
 
     def belongs_to_experiment(self, experiment_name: str) -> bool:
@@ -602,7 +605,7 @@ class Model(APIBase):
             from gemini.api.experiment import Experiment
             experiment = Experiment.get(experiment_name=experiment_name)
             if not experiment:
-                print(f"Experiment {experiment_name} does not exist.")
+                logger.warning(f"Experiment {experiment_name} does not exist.")
                 return False
             association_exists = ExperimentModelModel.exists(
                 experiment_id=experiment.id,
@@ -610,7 +613,7 @@ class Model(APIBase):
             )
             return association_exists
         except Exception as e:
-            print(f"Error checking experiment membership: {e}")
+            logger.error(f"Error checking experiment membership: {e}")
             return False
         
     def get_associated_datasets(self) -> Optional[List["Dataset"]]:
@@ -633,18 +636,18 @@ class Model(APIBase):
             current_id = self.id
             model_datasets = ModelDatasetsViewModel.search(model_id=current_id)
             if not model_datasets or len(model_datasets) == 0:
-                print(f"No datasets associated with model {self.model_name}.")
+                logger.info(f"No datasets associated with model {self.model_name}.")
                 return None
             datasets = [Dataset.model_validate(model_dataset) for model_dataset in model_datasets]
             return datasets
         except Exception as e:
-            print(f"Error getting associated datasets: {e}")
+            logger.error(f"Error getting associated datasets: {e}")
             return None
 
     def create_new_dataset(
         self,
         dataset_name: str,
-        dataset_info: dict = {},
+        dataset_info: dict = None,
         collection_date: date = None,
         experiment_name: str = None
     ) -> Optional["Dataset"]:
@@ -675,12 +678,12 @@ class Model(APIBase):
                 dataset_type=GEMINIDatasetType.Model
             )
             if not dataset:
-                print(f"Failed to create dataset for model {self.model_name}.")
+                logger.info(f"Failed to create dataset for model {self.model_name}.")
                 return None
             dataset = self.associate_dataset(dataset_name=dataset_name)
             return dataset
         except Exception as e:
-            print(f"Error creating dataset: {e}")
+            logger.error(f"Error creating dataset: {e}")
             return None
         
     def associate_dataset(self, dataset_name: str) -> Optional["Dataset"]:
@@ -702,26 +705,26 @@ class Model(APIBase):
             from gemini.api.dataset import Dataset
             dataset = Dataset.get(dataset_name=dataset_name)
             if not dataset:
-                print(f"Dataset {dataset_name} does not exist.")
+                logger.warning(f"Dataset {dataset_name} does not exist.")
                 return None
             existing_association = ModelDatasetModel.exists(
                 dataset_id=dataset.id,
                 model_id=self.id
             )
             if existing_association:
-                print(f"Model {self.model_name} is already associated with dataset {dataset_name}.")
+                logger.info(f"Model {self.model_name} is already associated with dataset {dataset_name}.")
                 return dataset
             new_association = ModelDatasetModel.get_or_create(
                 dataset_id=dataset.id,
                 model_id=self.id
             )
             if not new_association:
-                print(f"Failed to associate model {self.model_name} with dataset {dataset_name}.")
+                logger.info(f"Failed to associate model {self.model_name} with dataset {dataset_name}.")
                 return None
             self.refresh()
             return dataset
         except Exception as e:
-            print(f"Error associating dataset: {e}")
+            logger.error(f"Error associating dataset: {e}")
             return None
         
 
@@ -729,13 +732,13 @@ class Model(APIBase):
         self,
         timestamp: datetime = None,
         collection_date: date = None,
-        model_data: dict = {},
+        model_data: dict = None,
         dataset_name: str = None,
         experiment_name: str = None,
         season_name: str = None,
         site_name: str = None,
         record_file: str = None,
-        record_info: dict = {},
+        record_info: dict = None,
     ) -> tuple[bool, List[str]]:
         """
         Insert a single model record for this model.
@@ -799,20 +802,20 @@ class Model(APIBase):
                 raise Exception("Failed to insert model record.")
             return success, inserted_record_ids
         except Exception as e:
-            print(f"Error inserting model record: {e}")
+            logger.error(f"Error inserting model record: {e}")
             return False, []
         
     def insert_records(
         self,
         timestamps: List[datetime] = None,
         collection_date: date = None,
-        model_data: List[dict] = [],
+        model_data: List[dict] = None,
         dataset_name: str = None,
         experiment_name: str = None,
         season_name: str = None,
         site_name: str = None,
-        record_files: List[str] = [],
-        record_info: List[dict] = []
+        record_files: List[str] = None,
+        record_info: List[dict] = None
     ) -> tuple[bool, List[str]]:
         """
         Insert multiple model records for this model.
@@ -887,11 +890,11 @@ class Model(APIBase):
 
             success, inserted_record_ids = ModelRecord.insert(model_records)
             if not success:
-                print("Failed to insert model records.")
+                logger.info("Failed to insert model records.")
                 return False, []
             return success, inserted_record_ids
         except Exception as e:
-            print(f"Error inserting model records: {e}")
+            logger.error(f"Error inserting model records: {e}")
             return False, []
         
     def search_records(
@@ -945,7 +948,7 @@ class Model(APIBase):
             )
             return records
         except Exception as e:
-            print(f"Error searching model records: {e}")
+            logger.error(f"Error searching model records: {e}")
             return []
         
     def filter_records(
@@ -996,6 +999,6 @@ class Model(APIBase):
             )
             return records
         except Exception as e:
-            print(f"Error filtering model records: {e}")
+            logger.error(f"Error filtering model records: {e}")
             return []
 

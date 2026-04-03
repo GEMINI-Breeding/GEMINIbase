@@ -23,10 +23,10 @@ class SensorPlatformSensorInput(BaseModel):
 class SensorPlatformController(Controller):
 
     # Get All Sensor Platforms
-    @get(path="/all")
-    async def get_all_sensor_platforms(self) -> List[SensorPlatformOutput]:
+    @get(path="/all", sync_to_thread=True)
+    def get_all_sensor_platforms(self, limit: int = 100, offset: int = 0) -> List[SensorPlatformOutput]:
         try:
-            sensor_platforms = SensorPlatform.get_all()
+            sensor_platforms = SensorPlatform.get_all(limit=limit, offset=offset)
             if sensor_platforms is None:
                 error = RESTAPIError(
                     error="No sensor platforms found",
@@ -42,8 +42,8 @@ class SensorPlatformController(Controller):
             return Response(content=error, status_code=500)
 
     # Get Sensor Platforms
-    @get()
-    async def get_sensor_platforms(
+    @get(sync_to_thread=True)
+    def get_sensor_platforms(
         self,
         sensor_platform_name: Optional[str] = None,
         sensor_platform_info: Optional[JSONB] = None,
@@ -75,8 +75,8 @@ class SensorPlatformController(Controller):
         
 
     # Get Sensor Platform by ID
-    @get(path="/id/{sensor_platform_id:str}")
-    async def get_sensor_platform_by_id(
+    @get(path="/id/{sensor_platform_id:str}", sync_to_thread=True)
+    def get_sensor_platform_by_id(
         self, sensor_platform_id: str
     ) -> SensorPlatformOutput:
         try:
@@ -96,8 +96,8 @@ class SensorPlatformController(Controller):
             return Response(content=error, status_code=500)
         
     # Create Sensor Platform
-    @post()
-    async def create_sensor_platform(
+    @post(sync_to_thread=True)
+    def create_sensor_platform(
         self,
         data: Annotated[SensorPlatformInput, Body]
     ) -> SensorPlatformOutput:
@@ -122,8 +122,8 @@ class SensorPlatformController(Controller):
             return Response(content=error, status_code=500)
         
     # Update Sensor Platform
-    @patch(path="/id/{sensor_platform_id:str}")
-    async def update_sensor_platform(
+    @patch(path="/id/{sensor_platform_id:str}", sync_to_thread=True)
+    def update_sensor_platform(
         self,
         sensor_platform_id: str,
         data: Annotated[SensorPlatformUpdate, Body]
@@ -156,8 +156,8 @@ class SensorPlatformController(Controller):
         
 
     # Delete Sensor Platform
-    @delete(path="/id/{sensor_platform_id:str}")
-    async def delete_sensor_platform(
+    @delete(path="/id/{sensor_platform_id:str}", sync_to_thread=True)
+    def delete_sensor_platform(
         self, sensor_platform_id: str
     ) -> None:
         try:
@@ -183,8 +183,8 @@ class SensorPlatformController(Controller):
             return Response(content=error, status_code=500)
         
     # Get Experiments for Sensor Platform
-    @get(path="/id/{sensor_platform_id:str}/experiments")
-    async def get_experiments_for_sensor_platform(
+    @get(path="/id/{sensor_platform_id:str}/experiments", sync_to_thread=True)
+    def get_experiments_for_sensor_platform(
         self, sensor_platform_id: str
     ) -> List[ExperimentOutput]:
         try:
@@ -211,8 +211,8 @@ class SensorPlatformController(Controller):
             return Response(content=error, status_code=500)
             
     # Get Sensors for Sensor Platform
-    @get(path="/id/{sensor_platform_id:str}/sensors")
-    async def get_sensors_for_sensor_platform(
+    @get(path="/id/{sensor_platform_id:str}/sensors", sync_to_thread=True)
+    def get_sensors_for_sensor_platform(
         self, sensor_platform_id: str
     ) -> List[SensorOutput]:
         try:

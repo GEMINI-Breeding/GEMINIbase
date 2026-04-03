@@ -42,10 +42,10 @@ async def dataset_records_bytes_generator(dataset_record_generator: Generator[Da
 class DatasetController(Controller):
 
     # Get All Datasets
-    @get(path="/all")
-    async def get_all_datasets(self) -> List[DatasetOutput]:
+    @get(path="/all", sync_to_thread=True)
+    def get_all_datasets(self, limit: int = 100, offset: int = 0) -> List[DatasetOutput]:
         try:
-            datasets = Dataset.get_all()
+            datasets = Dataset.get_all(limit=limit, offset=offset)
             if datasets is None:
                 error = RESTAPIError(
                     error="No datasets found",
@@ -61,8 +61,8 @@ class DatasetController(Controller):
             return Response(content=error, status_code=500)
 
     # Get Datasets
-    @get()
-    async def get_datasets(
+    @get(sync_to_thread=True)
+    def get_datasets(
         self,
         dataset_name: Optional[str] = None,
         dataset_info: Optional[JSONB] = None,
@@ -96,8 +96,8 @@ class DatasetController(Controller):
             return Response(content=error, status_code=500)
         
     # Get Dataset by ID
-    @get(path="/id/{dataset_id:str}")
-    async def get_dataset_by_id(
+    @get(path="/id/{dataset_id:str}", sync_to_thread=True)
+    def get_dataset_by_id(
         self, dataset_id: str
     ) -> DatasetOutput:
         try:
@@ -117,8 +117,8 @@ class DatasetController(Controller):
             return Response(content=error, status_code=500)
         
     # Create Dataset
-    @post()
-    async def create_dataset(
+    @post(sync_to_thread=True)
+    def create_dataset(
         self, data: Annotated[DatasetInput, Body]
     ) -> DatasetOutput:
         try:
@@ -144,8 +144,8 @@ class DatasetController(Controller):
             return Response(content=error, status_code=500)
         
     # Update Dataset
-    @patch(path="/id/{dataset_id:str}")
-    async def update_dataset(
+    @patch(path="/id/{dataset_id:str}", sync_to_thread=True)
+    def update_dataset(
         self, dataset_id: str, data: Annotated[DatasetUpdate, Body]
     ) -> DatasetOutput:
         try:
@@ -178,8 +178,8 @@ class DatasetController(Controller):
             return Response(content=error, status_code=500)
         
     # Delete Dataset
-    @delete(path="/id/{dataset_id:str}")
-    async def delete_dataset(
+    @delete(path="/id/{dataset_id:str}", sync_to_thread=True)
+    def delete_dataset(
         self, dataset_id: str
     ) -> None:
         try:
@@ -206,8 +206,8 @@ class DatasetController(Controller):
             return Response(content=error, status_code=500)
         
     # Get Associated Experiments
-    @get(path="/id/{dataset_id:str}/experiments")
-    async def get_associated_experiments(
+    @get(path="/id/{dataset_id:str}/experiments", sync_to_thread=True)
+    def get_associated_experiments(
         self, dataset_id: str
     ) -> List[ExperimentOutput]:
         try:
@@ -286,8 +286,8 @@ class DatasetController(Controller):
 
 
     # Search Dataset Records
-    @get(path="/id/{dataset_id:str}/records")
-    async def search_dataset_records(
+    @get(path="/id/{dataset_id:str}/records", sync_to_thread=True)
+    def search_dataset_records(
         self,
         dataset_id: str,
         experiment_name: Optional[str] = None,
@@ -319,8 +319,8 @@ class DatasetController(Controller):
         
 
     # Filter Dataset Records
-    @get(path="/id/{dataset_id:str}/records/filter")
-    async def filter_dataset_records(
+    @get(path="/id/{dataset_id:str}/records/filter", sync_to_thread=True)
+    def filter_dataset_records(
         self,
         dataset_id: str,
         start_timestamp: Optional[str] = None,
@@ -354,8 +354,8 @@ class DatasetController(Controller):
     
 
     # Get Dataset Record by ID
-    @get(path="/records/id/{record_id:str}")
-    async def get_dataset_record_by_id(
+    @get(path="/records/id/{record_id:str}", sync_to_thread=True)
+    def get_dataset_record_by_id(
         self, record_id: str
     ) -> DatasetRecordOutput:
         try:
@@ -376,8 +376,8 @@ class DatasetController(Controller):
         
         
     # Download Dataset Record File
-    @get(path="/records/id/{record_id:str}/download")
-    async def download_dataset_record_file(
+    @get(path="/records/id/{record_id:str}/download", sync_to_thread=True)
+    def download_dataset_record_file(
         self, record_id: str
     ) -> Redirect:
         try:
@@ -407,8 +407,8 @@ class DatasetController(Controller):
             return Response(content=error, status_code=500)
 
     # Update Dataset Record
-    @patch(path="/records/id/{record_id:str}")
-    async def update_dataset_record(
+    @patch(path="/records/id/{record_id:str}", sync_to_thread=True)
+    def update_dataset_record(
         self, record_id: str, data: Annotated[DatasetRecordUpdate, Body]
     ) -> DatasetRecordOutput:
         try:
@@ -438,8 +438,8 @@ class DatasetController(Controller):
             return Response(content=error, status_code=500)
 
     # Delete Dataset Record
-    @delete(path="/records/id/{record_id:str}")
-    async def delete_dataset_record(
+    @delete(path="/records/id/{record_id:str}", sync_to_thread=True)
+    def delete_dataset_record(
         self, record_id: str
     ) -> None:
         try:

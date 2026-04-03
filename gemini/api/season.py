@@ -24,6 +24,7 @@ from typing import List, Optional, TYPE_CHECKING
 from uuid import UUID
 
 from pydantic import Field, AliasChoices
+import logging
 from gemini.api.types import ID
 from gemini.api.base import APIBase
 from gemini.db.models.seasons import SeasonModel
@@ -32,6 +33,8 @@ from datetime import date, timedelta
 
 if TYPE_CHECKING:
     from gemini.api.experiment import Experiment
+
+logger = logging.getLogger(__name__)
 
 class Season(APIBase):
     """
@@ -90,7 +93,7 @@ class Season(APIBase):
             )
             return exists
         except Exception as e:
-            print(f"Error checking existence of season: {e}")
+            logger.error(f"Error checking existence of season: {e}")
             return False
         
     @classmethod
@@ -99,7 +102,7 @@ class Season(APIBase):
         season_name: str,
         season_start_date: date = date.today(),
         season_end_date: date = date.today() + timedelta(days=30),
-        season_info: dict = {},
+        season_info: dict = None,
         experiment_name: str = None
     ) -> Optional["Season"]:
         """
@@ -131,7 +134,7 @@ class Season(APIBase):
                 season.associate_experiment(experiment_name=experiment_name)
             return season
         except Exception as e:
-            print(f"Error creating season: {e}")
+            logger.error(f"Error creating season: {e}")
             return None
         
     @classmethod
@@ -160,12 +163,12 @@ class Season(APIBase):
                 experiment_name=experiment_name,
             )
             if not db_instance:
-                print(f"Season with name {season_name} does not exist.")
+                logger.warning(f"Season with name {season_name} does not exist.")
                 return None
             season = cls.model_validate(db_instance)
             return season
         except Exception as e:
-            print(f"Error retrieving season: {e}")
+            logger.error(f"Error retrieving season: {e}")
             return None
         
     @classmethod
@@ -186,17 +189,17 @@ class Season(APIBase):
         try:
             db_instance = SeasonModel.get(id)
             if not db_instance:
-                print(f"Season with ID {id} does not exist.")
+                logger.warning(f"Season with ID {id} does not exist.")
                 return None
             season = cls.model_validate(db_instance)
             return season
         except Exception as e:
-            print(f"Error retrieving season by ID: {e}")
+            logger.error(f"Error retrieving season by ID: {e}")
             return None
         
 
     @classmethod
-    def get_all(cls) -> Optional[List["Season"]]:
+    def get_all(cls, limit: int = None, offset: int = None) -> Optional[List["Season"]]:
         """
         Retrieve all seasons.
 
@@ -210,14 +213,14 @@ class Season(APIBase):
             Optional[List[Season]]: List of all seasons, or None if not found.
         """
         try:
-            seasons = SeasonModel.all()
+            seasons = SeasonModel.all(limit=limit, offset=offset)
             if not seasons or len(seasons) == 0:
-                print("No seasons found.")
+                logger.info("No seasons found.")
                 return None
             seasons = [cls.model_validate(season) for season in seasons]
             return seasons
         except Exception as e:
-            print(f"Error retrieving all seasons: {e}")
+            logger.error(f"Error retrieving all seasons: {e}")
             return None
         
     @classmethod
@@ -250,7 +253,7 @@ class Season(APIBase):
         """
         try:
             if not any([season_name, experiment_name, season_start_date, season_end_date, season_info]):
-                print("At least one search parameter must be provided.")
+                logger.warning("At least one search parameter must be provided.")
                 return None
             seasons = ExperimentSeasonsViewModel.search(
                 season_name=season_name,
@@ -260,12 +263,12 @@ class Season(APIBase):
                 season_info=season_info
             )
             if not seasons or len(seasons) == 0:
-                print("No seasons found matching the search criteria.")
+                logger.info("No seasons found matching the search criteria.")
                 return None
             seasons = [cls.model_validate(season) for season in seasons]
             return seasons
         except Exception as e:
-            print(f"Error searching for seasons: {e}")
+            logger.error(f"Error searching for seasons: {e}")
             return None
         
     def update(
@@ -294,12 +297,12 @@ class Season(APIBase):
         """
         try:
             if not any([season_start_date, season_end_date, season_info, season_name]):
-                print("At least one update parameter must be provided.")
+                logger.warning("At least one update parameter must be provided.")
                 return None
             current_id = self.id
             season = SeasonModel.get(current_id)
             if not season:
-                print(f"Season with ID {current_id} does not exist.")
+                logger.warning(f"Season with ID {current_id} does not exist.")
                 return None
             season = SeasonModel.update(
                 season,
@@ -312,7 +315,7 @@ class Season(APIBase):
             self.refresh()  # Update the current instance
             return updated_season
         except Exception as e:
-            print(f"Error updating season: {e}")
+            logger.error(f"Error updating season: {e}")
             return None
         
     def delete(self) -> bool:
@@ -332,12 +335,12 @@ class Season(APIBase):
             current_id = self.id
             season = SeasonModel.get(current_id)
             if not season:
-                print(f"Season with ID {current_id} does not exist.")
+                logger.warning(f"Season with ID {current_id} does not exist.")
                 return False
             SeasonModel.delete(season)
             return True
         except Exception as e:
-            print(f"Error deleting season: {e}")
+            logger.error(f"Error deleting season: {e}")
             return False
         
     def refresh(self) -> Optional["Season"]:
@@ -356,7 +359,7 @@ class Season(APIBase):
         try:
             db_instance = SeasonModel.get(self.id)
             if not db_instance:
-                print(f"Season with ID {self.id} does not exist.")
+                logger.warning(f"Season with ID {self.id} does not exist.")
                 return self
             instance = self.model_validate(db_instance)
             for key, value in instance.model_dump().items():
@@ -364,7 +367,7 @@ class Season(APIBase):
                     setattr(self, key, value)
             return self
         except Exception as e:
-            print(f"Error refreshing season: {e}")
+            logger.error(f"Error refreshing season: {e}")
             return None
         
     def get_info(self) -> Optional[dict]:
@@ -384,15 +387,15 @@ class Season(APIBase):
             current_id = self.id
             season = SeasonModel.get(current_id)
             if not season:
-                print(f"Season with ID {current_id} does not exist.")
+                logger.warning(f"Season with ID {current_id} does not exist.")
                 return None
             season_info = season.season_info
             if not season_info:
-                print("Season info is empty.")
+                logger.info("Season info is empty.")
                 return None
             return season_info
         except Exception as e:
-            print(f"Error retrieving season info: {e}")
+            logger.error(f"Error retrieving season info: {e}")
             return None
         
     def set_info(self, season_info: dict) -> Optional["Season"]:
@@ -414,7 +417,7 @@ class Season(APIBase):
             current_id = self.id
             season = SeasonModel.get(current_id)
             if not season:
-                print(f"Season with ID {current_id} does not exist.")
+                logger.warning(f"Season with ID {current_id} does not exist.")
                 return None
             season = SeasonModel.update(
                 season,
@@ -424,7 +427,7 @@ class Season(APIBase):
             self.refresh()  # Update the current instance
             return updated_season
         except Exception as e:
-            print(f"Error setting season info: {e}")
+            logger.error(f"Error setting season info: {e}")
             return None
 
     def get_associated_experiment(self) -> Optional["Experiment"]:
@@ -443,15 +446,15 @@ class Season(APIBase):
         try:
             from gemini.api.experiment import Experiment
             if not self.experiment_id:
-                print("This season is not assigned to any experiment.")
+                logger.info("This season is not assigned to any experiment.")
                 return None
             experiment = Experiment.get_by_id(self.experiment_id)
             if not experiment:
-                print(f"Experiment with ID {self.experiment_id} does not exist.")
+                logger.warning(f"Experiment with ID {self.experiment_id} does not exist.")
                 return None
             return experiment
         except Exception as e:
-            print(f"Error retrieving experiment for season: {e}")
+            logger.error(f"Error retrieving experiment for season: {e}")
             return None
 
     def associate_experiment(self, experiment_name: str) -> Optional["Experiment"]:
@@ -473,14 +476,14 @@ class Season(APIBase):
             from gemini.api.experiment import Experiment
             experiment = Experiment.get(experiment_name=experiment_name)
             if not experiment:
-                print(f"Experiment with name {experiment_name} does not exist.")
+                logger.warning(f"Experiment with name {experiment_name} does not exist.")
                 return None
             existing_association = ExperimentSeasonsViewModel.exists(
                 season_id=self.id,
                 experiment_id=experiment.id
             )
             if existing_association:
-                print(f"Season {self.season_name} is already assigned to experiment {experiment_name}.")
+                logger.info(f"Season {self.season_name} is already assigned to experiment {experiment_name}.")
                 return self
             db_season = SeasonModel.get(self.id)
             db_season = SeasonModel.update(
@@ -490,7 +493,7 @@ class Season(APIBase):
             self.refresh()
             return experiment
         except Exception as e:
-            print(f"Error assigning experiment to season: {e}")
+            logger.error(f"Error assigning experiment to season: {e}")
             return None
 
     def unassociate_experiment(self) -> Optional["Experiment"]:
@@ -509,11 +512,11 @@ class Season(APIBase):
         try:
             from gemini.api.experiment import Experiment
             if not self.experiment_id:
-                print("This season is not assigned to any experiment.")
+                logger.info("This season is not assigned to any experiment.")
                 return None
             db_season = SeasonModel.get(self.id)
             if not db_season:
-                print(f"Season with ID {self.id} does not exist.")
+                logger.warning(f"Season with ID {self.id} does not exist.")
                 return None
             experiment = Experiment.get_by_id(self.experiment_id)
             db_season = SeasonModel.update(
@@ -523,7 +526,7 @@ class Season(APIBase):
             self.refresh()
             return experiment
         except Exception as e:
-            print(f"Error unassigning experiment from season: {e}")
+            logger.error(f"Error unassigning experiment from season: {e}")
             return None
 
     def belongs_to_experiment(self, experiment_name: str) -> bool:
@@ -545,7 +548,7 @@ class Season(APIBase):
             from gemini.api.experiment import Experiment
             experiment = Experiment.get(experiment_name=experiment_name)
             if not experiment:
-                print(f"Experiment with name {experiment_name} does not exist.")
+                logger.warning(f"Experiment with name {experiment_name} does not exist.")
                 return False
             association_exists = ExperimentSeasonsViewModel.exists(
                 season_id=self.id,
@@ -553,6 +556,6 @@ class Season(APIBase):
             )
             return association_exists
         except Exception as e:
-            print(f"Error checking if season belongs to experiment: {e}")
+            logger.error(f"Error checking if season belongs to experiment: {e}")
             return False
 

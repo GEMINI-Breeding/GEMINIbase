@@ -6,6 +6,7 @@ from pydantic import model_validator
 from typing import Any, Optional, Union, ClassVar
 from uuid import UUID
 
+import logging
 from gemini.storage.providers.minio_storage import MinioStorageProvider
 from gemini.storage.config.storage_config import MinioStorageConfig
 from gemini.manager import GEMINIManager, GEMINIComponentType
@@ -23,6 +24,8 @@ minio_storage_config = MinioStorageConfig(
     secure=False
 )
 minio_storage_provider = MinioStorageProvider(minio_storage_config)
+
+logger = logging.getLogger(__name__)
 
 class APIBase(BaseModel):
 

@@ -25,6 +25,7 @@ from uuid import UUID
 from tqdm import tqdm
 
 from pydantic import Field, AliasChoices
+import logging
 from gemini.api.types import ID
 from gemini.api.base import APIBase
 from gemini.api.dataset import Dataset, GEMINIDatasetType
@@ -42,6 +43,8 @@ if TYPE_CHECKING:
     from gemini.api.experiment import Experiment
     from gemini.api.dataset import Dataset
     from gemini.api.procedure_run import ProcedureRun
+
+logger = logging.getLogger(__name__)
 
 class Procedure(APIBase):
     """
@@ -90,14 +93,14 @@ class Procedure(APIBase):
             exists = ProcedureModel.exists(procedure_name=procedure_name)
             return exists
         except Exception as e:
-            print(f"Error checking existence of procedure: {e}")
+            logger.error(f"Error checking existence of procedure: {e}")
             return False
         
     @classmethod
     def create(
         cls,
         procedure_name: str,
-        procedure_info: dict = {},
+        procedure_info: dict = None,
         experiment_name: str = None
     ) -> Optional["Procedure"]:
         """
@@ -124,7 +127,7 @@ class Procedure(APIBase):
                 procedure.associate_experiment(experiment_name)
             return procedure
         except Exception as e:
-            print(f"Error creating procedure: {e}")
+            logger.error(f"Error creating procedure: {e}")
             return None
         
     @classmethod
@@ -152,12 +155,12 @@ class Procedure(APIBase):
                 experiment_name=experiment_name
             )
             if not db_instance:
-                print(f"Procedure with name {procedure_name} not found.")
+                logger.debug(f"Procedure with name {procedure_name} not found.")
                 return None
             procedure = cls.model_validate(db_instance)
             return procedure
         except Exception as e:
-            print(f"Error getting procedure: {e}")
+            logger.error(f"Error getting procedure: {e}")
             return None
         
     @classmethod
@@ -178,16 +181,16 @@ class Procedure(APIBase):
         try:
             db_instance = ProcedureModel.get(id)
             if not db_instance:
-                print(f"Procedure with ID {id} does not exist.")
+                logger.warning(f"Procedure with ID {id} does not exist.")
                 return None
             procedure = cls.model_validate(db_instance)
             return procedure
         except Exception as e:
-            print(f"Error getting procedure by ID: {e}")
+            logger.error(f"Error getting procedure by ID: {e}")
             return None
         
     @classmethod
-    def get_all(cls) -> Optional[List["Procedure"]]:
+    def get_all(cls, limit: int = None, offset: int = None) -> Optional[List["Procedure"]]:
         """
         Retrieve all procedures.
 
@@ -202,14 +205,14 @@ class Procedure(APIBase):
             Optional[List[Procedure]]: List of all procedures, or None if not found.
         """
         try:
-            procedures = ProcedureModel.all()
+            procedures = ProcedureModel.all(limit=limit, offset=offset)
             if not procedures or len(procedures) == 0:
-                print("No procedures found.")
+                logger.info("No procedures found.")
                 return None
             procedures = [cls.model_validate(procedure) for procedure in procedures]
             return procedures
         except Exception as e:
-            print(f"Error getting all procedures: {e}")
+            logger.error(f"Error getting all procedures: {e}")
             return None
         
     @classmethod
@@ -238,7 +241,7 @@ class Procedure(APIBase):
         """
         try:
             if not any([procedure_name, procedure_info, experiment_name]):
-                print("At least one search parameter must be provided.")
+                logger.warning("At least one search parameter must be provided.")
                 return None
             procedures = ExperimentProceduresViewModel.search(
                 procedure_name=procedure_name,
@@ -246,12 +249,12 @@ class Procedure(APIBase):
                 experiment_name=experiment_name
             )
             if not procedures or len(procedures) == 0:
-                print("No procedures found with the provided search parameters.")
+                logger.info("No procedures found with the provided search parameters.")
                 return None
             procedures = [cls.model_validate(procedure) for procedure in procedures]
             return procedures
         except Exception as e:
-            print(f"Error searching procedures: {e}")
+            logger.error(f"Error searching procedures: {e}")
             return None
         
     def update(
@@ -276,12 +279,12 @@ class Procedure(APIBase):
         """
         try:
             if not any([procedure_name, procedure_info]):
-                print("At least one parameter must be provided.")
+                logger.warning("At least one parameter must be provided.")
                 return None
             current_id = self.id
             procedure = ProcedureModel.get(current_id)
             if not procedure:
-                print(f"Procedure with ID {current_id} does not exist.")
+                logger.warning(f"Procedure with ID {current_id} does not exist.")
                 return None
             procedure = ProcedureModel.update(
                 procedure,
@@ -292,7 +295,7 @@ class Procedure(APIBase):
             self.refresh()
             return procedure
         except Exception as e:
-            print(f"Error updating procedure: {e}")
+            logger.error(f"Error updating procedure: {e}")
             return None
         
     def delete(self) -> bool:
@@ -312,12 +315,12 @@ class Procedure(APIBase):
             current_id = self.id
             procedure = ProcedureModel.get(current_id)
             if not procedure:
-                print(f"Procedure with ID {current_id} does not exist.")
+                logger.warning(f"Procedure with ID {current_id} does not exist.")
                 return False
             ProcedureModel.delete(procedure)
             return True
         except Exception as e:
-            print(f"Error deleting procedure: {e}")
+            logger.error(f"Error deleting procedure: {e}")
             return False
         
     def refresh(self) -> Optional["Procedure"]:
@@ -336,7 +339,7 @@ class Procedure(APIBase):
         try:
             db_instance = ProcedureModel.get(self.id)
             if not db_instance:
-                print(f"Procedure with ID {self.id} does not exist.")
+                logger.warning(f"Procedure with ID {self.id} does not exist.")
                 return self
             instance = self.model_validate(db_instance)
             for key, value in instance.model_dump().items():
@@ -344,7 +347,7 @@ class Procedure(APIBase):
                     setattr(self, key, value)
             return self
         except Exception as e:
-            print(f"Error refreshing procedure: {e}")
+            logger.error(f"Error refreshing procedure: {e}")
             return None
         
     def get_info(self) -> Optional[dict]:
@@ -364,15 +367,15 @@ class Procedure(APIBase):
             current_id = self.id
             procedure = ProcedureModel.get(current_id)
             if not procedure:
-                print(f"Procedure with ID {current_id} does not exist.")
+                logger.warning(f"Procedure with ID {current_id} does not exist.")
                 return None
             procedure_info = procedure.procedure_info
             if not procedure_info:
-                print("Procedure info is empty.")
+                logger.info("Procedure info is empty.")
                 return None
             return procedure_info
         except Exception as e:
-            print(f"Error getting procedure info: {e}")
+            logger.error(f"Error getting procedure info: {e}")
             return None
 
     def set_info(self, procedure_info: dict) -> Optional["Procedure"]:
@@ -394,7 +397,7 @@ class Procedure(APIBase):
             current_id = self.id
             procedure = ProcedureModel.get(current_id)
             if not procedure:
-                print(f"Procedure with ID {current_id} does not exist.")
+                logger.warning(f"Procedure with ID {current_id} does not exist.")
                 return None
             procedure = ProcedureModel.update(
                 procedure,
@@ -404,7 +407,7 @@ class Procedure(APIBase):
             self.refresh()
             return procedure
         except Exception as e:
-            print(f"Error setting procedure info: {e}")
+            logger.error(f"Error setting procedure info: {e}")
             return None        
     
     def get_associated_runs(self) -> Optional[List["ProcedureRun"]]:
@@ -428,12 +431,12 @@ class Procedure(APIBase):
             current_id = self.id
             procedure_runs = ProcedureRunsViewModel.search(procedure_id=current_id)
             if not procedure_runs or len(procedure_runs) == 0:
-                print("No associated runs found.")
+                logger.info("No associated runs found.")
                 return None
             procedure_runs = [ProcedureRun.model_validate(run) for run in procedure_runs]
             return procedure_runs
         except Exception as e:
-            print(f"Error getting associated runs: {e}")
+            logger.error(f"Error getting associated runs: {e}")
             return None
         
     def create_new_run(self, procedure_run_info: dict = None) -> Optional["ProcedureRun"]:
@@ -458,11 +461,11 @@ class Procedure(APIBase):
                 procedure_name=self.procedure_name
             )
             if not new_procedure_run:
-                print("Failed to create new procedure run.")
+                logger.info("Failed to create new procedure run.")
                 return None
             return new_procedure_run
         except Exception as e:
-            print(f"Error creating procedure run: {e}")
+            logger.error(f"Error creating procedure run: {e}")
             return None
 
     def get_associated_experiments(self) -> Optional[List["Experiment"]]:
@@ -484,12 +487,12 @@ class Procedure(APIBase):
             from gemini.api.experiment import Experiment
             experiment_procedures = ExperimentProceduresViewModel.search(procedure_id=self.id)
             if not experiment_procedures or len(experiment_procedures) == 0:
-                print("No associated experiments found.")
+                logger.info("No associated experiments found.")
                 return None
             experiments = [Experiment.model_validate(exp) for exp in experiment_procedures]
             return experiments
         except Exception as e:
-            print(f"Error getting associated experiments: {e}")
+            logger.error(f"Error getting associated experiments: {e}")
             return None
 
     def associate_experiment(self, experiment_name: str) -> Optional["Experiment"]:
@@ -511,26 +514,26 @@ class Procedure(APIBase):
             from gemini.api.experiment import Experiment
             experiment = Experiment.get(experiment_name=experiment_name)
             if not experiment:
-                print(f"Experiment {experiment_name} does not exist.")
+                logger.warning(f"Experiment {experiment_name} does not exist.")
                 return None
             existing_association = ExperimentProcedureModel.get_by_parameters(
                 experiment_id=experiment.id,
                 procedure_id=self.id
             )
             if existing_association:
-                print(f"Procedure {self.procedure_name} is already associated with experiment {experiment_name}.")
+                logger.info(f"Procedure {self.procedure_name} is already associated with experiment {experiment_name}.")
                 return self
             new_association = ExperimentProcedureModel.get_or_create(
                 experiment_id=experiment.id,
                 procedure_id=self.id
             )
             if not new_association:
-                print(f"Failed to associate procedure {self.procedure_name} with experiment {experiment_name}.")
+                logger.info(f"Failed to associate procedure {self.procedure_name} with experiment {experiment_name}.")
                 return None
             self.refresh()
             return experiment
         except Exception as e:
-            print(f"Error associating experiment: {e}")
+            logger.error(f"Error associating experiment: {e}")
             return None 
 
     def unassociate_experiment(self, experiment_name: str) -> Optional["Experiment"]:
@@ -552,23 +555,23 @@ class Procedure(APIBase):
             from gemini.api.experiment import Experiment
             experiment = Experiment.get(experiment_name=experiment_name)
             if not experiment:
-                print(f"Experiment {experiment_name} does not exist.")
+                logger.warning(f"Experiment {experiment_name} does not exist.")
                 return None
             existing_association = ExperimentProcedureModel.get_by_parameters(
                 experiment_id=experiment.id,
                 procedure_id=self.id
             )
             if not existing_association:
-                print(f"Procedure {self.procedure_name} is not associated with experiment {experiment_name}.")
+                logger.info(f"Procedure {self.procedure_name} is not associated with experiment {experiment_name}.")
                 return None
             is_deleted = ExperimentProcedureModel.delete(existing_association)
             if not is_deleted:
-                print(f"Failed to disassociate procedure {self.procedure_name} from experiment {experiment_name}.")
+                logger.info(f"Failed to disassociate procedure {self.procedure_name} from experiment {experiment_name}.")
                 return None
             self.refresh()
             return experiment
         except Exception as e:
-            print(f"Error disassociating experiment: {e}")
+            logger.error(f"Error disassociating experiment: {e}")
             return None
 
     def belongs_to_experiment(self, experiment_name: str) -> bool:
@@ -590,7 +593,7 @@ class Procedure(APIBase):
             from gemini.api.experiment import Experiment
             experiment = Experiment.get(experiment_name=experiment_name)
             if not experiment:
-                print(f"Experiment {experiment_name} does not exist.")
+                logger.warning(f"Experiment {experiment_name} does not exist.")
                 return False
             association_exists = ExperimentProcedureModel.exists(
                 experiment_id=experiment.id,
@@ -598,7 +601,7 @@ class Procedure(APIBase):
             )
             return association_exists
         except Exception as e:
-            print(f"Error checking experiment membership: {e}")
+            logger.error(f"Error checking experiment membership: {e}")
             return False
         
     def get_associated_datasets(self) -> List["Dataset"]:
@@ -621,18 +624,18 @@ class Procedure(APIBase):
             from gemini.api.dataset import Dataset
             datasets = ProcedureDatasetsViewModel.search(procedure_id=self.id)
             if not datasets or len(datasets) == 0:
-                print("No associated datasets found.")
+                logger.info("No associated datasets found.")
                 return None
             datasets = [Dataset.model_validate(dataset) for dataset in datasets]
             return datasets
         except Exception as e:
-            print(f"Error getting associated datasets: {e}")
+            logger.error(f"Error getting associated datasets: {e}")
             return None
         
     def create_new_dataset(
         self,
         dataset_name: str,
-        dataset_info: dict = {},
+        dataset_info: dict = None,
         collection_date: date = None,
         experiment_name: str = None
     ) -> Optional["Dataset"]:
@@ -663,12 +666,12 @@ class Procedure(APIBase):
                 dataset_type=GEMINIDatasetType.Procedure
             )
             if not dataset:
-                print("Failed to create new dataset.")
+                logger.info("Failed to create new dataset.")
                 return None
             dataset = self.associate_dataset(dataset_name)
             return dataset
         except Exception as e:
-            print(f"Error creating new dataset: {e}")
+            logger.error(f"Error creating new dataset: {e}")
             return None
     
     def associate_dataset(self, dataset_name: str) -> Optional["Dataset"]:
@@ -690,39 +693,39 @@ class Procedure(APIBase):
             from gemini.api.dataset import Dataset
             dataset = Dataset.get(dataset_name=dataset_name)
             if not dataset:
-                print(f"Dataset {dataset_name} does not exist.")
+                logger.warning(f"Dataset {dataset_name} does not exist.")
                 return None
             existing_association = ProcedureDatasetModel.get_by_parameters(
                 procedure_id=self.id,
                 dataset_id=dataset.id
             )
             if existing_association:
-                print(f"Dataset {dataset_name} is already associated with procedure {self.procedure_name}.")
+                logger.info(f"Dataset {dataset_name} is already associated with procedure {self.procedure_name}.")
                 return self
             new_association = ProcedureDatasetModel.get_or_create(
                 procedure_id=self.id,
                 dataset_id=dataset.id
             )
             if not new_association:
-                print(f"Failed to associate dataset {dataset_name} with procedure {self.procedure_name}.")
+                logger.info(f"Failed to associate dataset {dataset_name} with procedure {self.procedure_name}.")
                 return None
             self.refresh()
             return dataset
         except Exception as e:
-            print(f"Error associating dataset: {e}")
+            logger.error(f"Error associating dataset: {e}")
             return None
         
     def insert_record(
         self,
         timestamp: datetime = None,
         collection_date: date = None,
-        procedure_data: dict = {},
+        procedure_data: dict = None,
         dataset_name: str = None,
         experiment_name: str = None,
         season_name: str = None,
         site_name: str = None,
         record_file: str = None,
-        record_info: dict = {},
+        record_info: dict = None,
     ) -> tuple[bool, List[str]]:
         """
         Insert a single procedure record for this procedure.
@@ -787,20 +790,20 @@ class Procedure(APIBase):
                 raise Exception("Failed to insert procedure record.")
             return success, inserted_record_ids
         except Exception as e:
-            print(f"Error inserting procedure record: {e}")
+            logger.error(f"Error inserting procedure record: {e}")
             return False, []
         
     def insert_records(
         self,
         timestamps: List[datetime] = None,
         collection_date: date = None,
-        procedure_data: List[dict] = [],
+        procedure_data: List[dict] = None,
         dataset_name: str = None,
         experiment_name: str = None,
         season_name: str = None,
         site_name: str = None,
-        record_files: List[str] = [],
-        record_info: List[dict] = []
+        record_files: List[str] = None,
+        record_info: List[dict] = None
     ) -> tuple[bool, List[str]]:
         """
         Insert multiple procedure records for this procedure.
@@ -873,11 +876,11 @@ class Procedure(APIBase):
 
             success, inserted_record_ids = ProcedureRecord.insert(procedure_records)
             if not success:
-                print("Failed to insert procedure records.")
+                logger.info("Failed to insert procedure records.")
                 return False, []
             return success, inserted_record_ids
         except Exception as e:
-            print(f"Error inserting procedure records: {e}")
+            logger.error(f"Error inserting procedure records: {e}")
             return False, []
         
     def search_records(
@@ -932,7 +935,7 @@ class Procedure(APIBase):
             )
             return records
         except Exception as e:
-            print(f"Error searching procedure records: {e}")
+            logger.error(f"Error searching procedure records: {e}")
             return []
         
     def filter_records(
@@ -984,5 +987,5 @@ class Procedure(APIBase):
             )
             return records
         except Exception as e:
-            print(f"Error filtering procedure records: {e}")
+            logger.error(f"Error filtering procedure records: {e}")
             return []

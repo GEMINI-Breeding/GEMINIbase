@@ -43,10 +43,10 @@ class TraitDatasetInput(BaseModel):
 class TraitController(Controller):
 
     # Get All Traits
-    @get(path="/all")
-    async def get_all_traits(self) -> List[TraitOutput]:
+    @get(path="/all", sync_to_thread=True)
+    def get_all_traits(self, limit: int = 100, offset: int = 0) -> List[TraitOutput]:
         try:
-            traits = Trait.get_all()
+            traits = Trait.get_all(limit=limit, offset=offset)
             if traits is None:
                 error = RESTAPIError(
                     error="No traits found",
@@ -62,8 +62,8 @@ class TraitController(Controller):
             return Response(content=error, status_code=500)
 
     # Get Traits
-    @get()
-    async def get_traits(
+    @get(sync_to_thread=True)
+    def get_traits(
         self,
         trait_name: Optional[str] = None,
         trait_units: Optional[str] = None,
@@ -101,8 +101,8 @@ class TraitController(Controller):
             return Response(content=error_message, status_code=500)
         
     # Get Trait by ID
-    @get(path="/id/{trait_id:str}")
-    async def get_trait_by_id(
+    @get(path="/id/{trait_id:str}", sync_to_thread=True)
+    def get_trait_by_id(
         self, trait_id: str
     ) -> TraitOutput:
         try:
@@ -122,8 +122,8 @@ class TraitController(Controller):
             return Response(content=error_message, status_code=500)
         
     # Create Trait
-    @post()
-    async def create_trait(
+    @post(sync_to_thread=True)
+    def create_trait(
         self,
         data: Annotated[TraitInput, Body]
     ) -> TraitOutput:
@@ -151,8 +151,8 @@ class TraitController(Controller):
             return Response(content=error_message, status_code=500)
         
     # Update Trait
-    @patch(path="/id/{trait_id:str}")
-    async def update_trait(
+    @patch(path="/id/{trait_id:str}", sync_to_thread=True)
+    def update_trait(
         self,
         trait_id: str,
         data: Annotated[TraitUpdate, Body]
@@ -187,8 +187,8 @@ class TraitController(Controller):
             return Response(content=error_message, status_code=500)
         
     # Delete Trait
-    @delete(path="/id/{trait_id:str}")
-    async def delete_trait(
+    @delete(path="/id/{trait_id:str}", sync_to_thread=True)
+    def delete_trait(
         self, trait_id: str
     ) -> None:
         try:
@@ -215,8 +215,8 @@ class TraitController(Controller):
             return Response(content=error_message, status_code=500)
         
     # Get Trait Experiments
-    @get(path="/id/{trait_id:str}/experiments")
-    async def get_trait_experiments(
+    @get(path="/id/{trait_id:str}/experiments", sync_to_thread=True)
+    def get_trait_experiments(
         self, trait_id: str
     ) -> List[str]:
         try:
@@ -243,8 +243,8 @@ class TraitController(Controller):
             return Response(content=error_message, status_code=500)
 
     # Get Trait Datasets
-    @get(path="/id/{trait_id:str}/datasets")
-    async def get_trait_datasets(
+    @get(path="/id/{trait_id:str}/datasets", sync_to_thread=True)
+    def get_trait_datasets(
         self, trait_id: str
     ) -> List[DatasetOutput]:
         try:
@@ -271,8 +271,8 @@ class TraitController(Controller):
             return Response(content=error_message, status_code=500)
         
     # Add Trait Record
-    @post(path="/id/{trait_id:str}/records")
-    async def add_trait_record(
+    @post(path="/id/{trait_id:str}/records", sync_to_thread=True)
+    def add_trait_record(
         self,
         trait_id: str,
         data: Annotated[TraitRecordInput, Body(media_type=RequestEncodingType.MULTI_PART)]
@@ -322,8 +322,8 @@ class TraitController(Controller):
             return Response(content=error_message, status_code=500)
 
     # Search Trait Records
-    @get(path="/id/{trait_id:str}/records")
-    async def search_trait_records(
+    @get(path="/id/{trait_id:str}/records", sync_to_thread=True)
+    def search_trait_records(
         self,
         trait_id: str,
         experiment_name: Optional[str] = None,
@@ -359,8 +359,8 @@ class TraitController(Controller):
             )
             return Response(content=error_message, status_code=500)
         
-    @get(path="/id/{trait_id:str}/records/filter")
-    async def filter_trait_records(
+    @get(path="/id/{trait_id:str}/records/filter", sync_to_thread=True)
+    def filter_trait_records(
         self,
         trait_id: str,
         start_timestamp: Optional[str] = None,
@@ -395,8 +395,8 @@ class TraitController(Controller):
             return Response(content=error, status_code=500)
         
     # Get Trait Record by ID
-    @get(path="/records/id/{trait_record_id:str}")
-    async def get_trait_record_by_id(
+    @get(path="/records/id/{trait_record_id:str}", sync_to_thread=True)
+    def get_trait_record_by_id(
         self, trait_record_id: str
     ) -> TraitRecordOutput:
         try:
@@ -416,8 +416,8 @@ class TraitController(Controller):
             return Response(content=error_message, status_code=500)
         
     # Update Trait Record
-    @patch(path="/records/id/{trait_record_id:str}")
-    async def update_trait_record(
+    @patch(path="/records/id/{trait_record_id:str}", sync_to_thread=True)
+    def update_trait_record(
         self,
         trait_record_id: str,
         data: Annotated[TraitRecordUpdate, Body]
@@ -449,8 +449,8 @@ class TraitController(Controller):
             return Response(content=error_message, status_code=500)
         
     # Delete Trait Record
-    @delete(path="/records/id/{trait_record_id:str}")
-    async def delete_trait_record(
+    @delete(path="/records/id/{trait_record_id:str}", sync_to_thread=True)
+    def delete_trait_record(
         self, trait_record_id: str
     ) -> None:
         try:

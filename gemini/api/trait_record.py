@@ -25,6 +25,7 @@ from typing import Optional, List, Generator
 from uuid import UUID
 from tqdm import tqdm
 
+import logging
 from gemini.api.types import ID
 from pydantic import Field, AliasChoices
 from gemini.api.base import APIBase
@@ -32,6 +33,8 @@ from gemini.db.models.columnar.trait_records import TraitRecordModel
 from gemini.db.models.views.trait_records_immv import TraitRecordsIMMVModel
 
 from datetime import date, datetime
+
+logger = logging.getLogger(__name__)
 
 class TraitRecord(APIBase):
     """
@@ -146,7 +149,7 @@ class TraitRecord(APIBase):
             )
             return exists
         except Exception as e:
-            print(f"Error checking existence of TraitRecord: {e}")
+            logger.error(f"Error checking existence of TraitRecord: {e}")
             raise e
         
     @classmethod
@@ -163,7 +166,7 @@ class TraitRecord(APIBase):
         plot_number: int = None,
         plot_row_number: int = None,
         plot_column_number: int = None,
-        record_info: dict = {},
+        record_info: dict = None,
         insert_on_create: bool = True
     ) -> Optional["TraitRecord"]:
         """
@@ -236,16 +239,16 @@ class TraitRecord(APIBase):
             if insert_on_create:
                 insert_success, inserted_record_ids = cls.insert([trait_record])
                 if not insert_success:
-                    print(f"Failed to insert TraitRecord: {trait_record}")
+                    logger.info(f"Failed to insert TraitRecord: {trait_record}")
                     return None
                 if not inserted_record_ids or len(inserted_record_ids) == 0:
-                    print(f"No TraitRecord IDs returned after insertion.")
+                    logger.info(f"No TraitRecord IDs returned after insertion.")
                     return None
                 inserted_record_id = inserted_record_ids[0]
                 trait_record = cls.get_by_id(inserted_record_id)
             return trait_record
         except Exception as e:
-            print(f"Error creating TraitRecord: {e}")
+            logger.error(f"Error creating TraitRecord: {e}")
             return None
         
     @classmethod
@@ -260,19 +263,19 @@ class TraitRecord(APIBase):
         """
         try:
             if not records or len(records) == 0:
-                print(f"No records provided to insert.")
+                logger.info(f"No records provided to insert.")
                 return False, []
             records_to_insert = []
             for record in records:
                 record_dict = record.model_dump()
                 record_dict = {k: v for k, v in record_dict.items() if v is not None}
                 records_to_insert.append(record_dict)
-            print(f"Inserting {len(records_to_insert)} TraitRecords.")
+            logger.info(f"Inserting {len(records_to_insert)} TraitRecords.")
             inserted_record_ids = TraitRecordModel.insert_bulk('trait_records_unique', records_to_insert)
-            print(f"Inserted {len(inserted_record_ids)} TraitRecords.")
+            logger.info(f"Inserted {len(inserted_record_ids)} TraitRecords.")
             return True, inserted_record_ids
         except Exception as e:
-            print(f"Error inserting TraitRecords: {e}")
+            logger.error(f"Error inserting TraitRecords: {e}")
             return False, []
         
     @classmethod
@@ -320,19 +323,19 @@ class TraitRecord(APIBase):
         """
         try:
             if not timestamp:
-                print("Timestamp is required to get TraitRecord.")
+                logger.warning("Timestamp is required to get TraitRecord.")
                 return None
             if not trait_name:
-                print("Trait name is required to get TraitRecord.")
+                logger.warning("Trait name is required to get TraitRecord.")
                 return None
             if not dataset_name:
-                print("Dataset name is required to get TraitRecord.")
+                logger.warning("Dataset name is required to get TraitRecord.")
                 return None
             if not experiment_name and not site_name and not season_name:
-                print("At least one of experiment_name, site_name, or season_name is required to get TraitRecord.")
+                logger.warning("At least one of experiment_name, site_name, or season_name is required to get TraitRecord.")
                 return None
             if not all([plot_number, plot_row_number, plot_column_number]):
-                print("Plot information (number, row, column) is required if any is provided.")
+                logger.warning("Plot information (number, row, column) is required if any is provided.")
                 return None
             trait_record = TraitRecordsIMMVModel.get_by_parameters(
                 timestamp=timestamp,
@@ -346,12 +349,12 @@ class TraitRecord(APIBase):
                 plot_column_number=plot_column_number
             )
             if not trait_record:
-                print("TraitRecord not found with the provided parameters.")
+                logger.debug("TraitRecord not found with the provided parameters.")
                 return None
             trait_record = cls.model_validate(trait_record)
             return trait_record
         except Exception as e:
-            print(f"Error getting TraitRecord: {e}")
+            logger.error(f"Error getting TraitRecord: {e}")
             return None
         
     @classmethod
@@ -371,12 +374,12 @@ class TraitRecord(APIBase):
         try:
             db_instance = TraitRecordModel.get(id)
             if not db_instance:
-                print(f"TraitRecord with ID {id} not found.")
+                logger.debug(f"TraitRecord with ID {id} not found.")
                 return None
             record = cls.model_validate(db_instance)
             return record
         except Exception as e:
-            print(f"Error getting TraitRecord by ID {id}: {e}")
+            logger.error(f"Error getting TraitRecord by ID {id}: {e}")
             return None
         
     @classmethod
@@ -399,12 +402,12 @@ class TraitRecord(APIBase):
         try:
             records = TraitRecordModel.all(limit=limit)
             if not records or len(records) == 0:
-                print(f"No TraitRecords found")
+                logger.info(f"No TraitRecords found")
                 return None
             records = [cls.model_validate(instance) for instance in records]
             return records
         except Exception as e:
-            print(f"Error getting all TraitRecords: {e}")
+            logger.error(f"Error getting all TraitRecords: {e}")
             return None
 
     @classmethod
@@ -448,7 +451,7 @@ class TraitRecord(APIBase):
         """
         try:
             if not any([dataset_name, trait_name, trait_value, experiment_name, site_name, season_name, plot_number, plot_row_number, plot_column_number, collection_date, record_info]):
-                print("At least one search parameter must be provided.")
+                logger.warning("At least one search parameter must be provided.")
                 return
             records = TraitRecordsIMMVModel.stream(
                 dataset_name=dataset_name,
@@ -467,7 +470,7 @@ class TraitRecord(APIBase):
                 record = cls.model_validate(record)
                 yield record
         except Exception as e:
-            print(f"Error searching TraitRecords: {e}")
+            logger.error(f"Error searching TraitRecords: {e}")
             yield from []
 
 
@@ -512,7 +515,7 @@ class TraitRecord(APIBase):
         """
         try:
             if not any([start_timestamp, end_timestamp, trait_names, dataset_names, experiment_names, season_names, site_names]):
-                print("At least one filter parameter must be provided.")
+                logger.warning("At least one filter parameter must be provided.")
                 return
             records = TraitRecordModel.filter_records(
                 start_timestamp=start_timestamp,
@@ -527,7 +530,7 @@ class TraitRecord(APIBase):
                 record = cls.model_validate(record)
                 yield record
         except Exception as e:
-            print(f"Error filtering TraitRecords: {e}")
+            logger.error(f"Error filtering TraitRecords: {e}")
             yield from []
 
     def update(
@@ -555,12 +558,12 @@ class TraitRecord(APIBase):
         """
         try:
             if not any([trait_value, record_info]):
-                print("At least one parameter must be provided to update TraitRecord.")
+                logger.warning("At least one parameter must be provided to update TraitRecord.")
                 return None
             current_id = self.id
             trait_record = TraitRecordModel.get(current_id)
             if not trait_record:
-                print(f"TraitRecord with ID {current_id} not found.")
+                logger.debug(f"TraitRecord with ID {current_id} not found.")
                 return None
             trait_record = TraitRecordModel.update(
                 trait_record,
@@ -571,7 +574,7 @@ class TraitRecord(APIBase):
             self.refresh()
             return trait_record
         except Exception as e:
-            print(f"Error updating TraitRecord: {e}")
+            logger.error(f"Error updating TraitRecord: {e}")
             return None
         
     def delete(self) -> bool:
@@ -591,12 +594,12 @@ class TraitRecord(APIBase):
             current_id = self.id
             trait_record = TraitRecordModel.get(current_id)
             if not trait_record:
-                print(f"TraitRecord with ID {current_id} not found.")
+                logger.debug(f"TraitRecord with ID {current_id} not found.")
                 return False
             TraitRecordModel.delete(trait_record)
             return True
         except Exception as e:
-            print(f"Error deleting TraitRecord: {e}")
+            logger.error(f"Error deleting TraitRecord: {e}")
             return False
         
     def refresh(self) -> Optional["TraitRecord"]:
@@ -615,7 +618,7 @@ class TraitRecord(APIBase):
         try:
             db_instance = TraitRecordModel.get(self.id)
             if not db_instance:
-                print(f"TraitRecord with ID {self.id} not found.")
+                logger.debug(f"TraitRecord with ID {self.id} not found.")
                 return None
             instance = self.model_validate(db_instance)
             for key, value in instance.model_dump().items():
@@ -623,7 +626,7 @@ class TraitRecord(APIBase):
                     setattr(self, key, value)
             return self
         except Exception as e:
-            print(f"Error refreshing TraitRecord: {e}")
+            logger.error(f"Error refreshing TraitRecord: {e}")
             return None
         
     def get_info(self) -> Optional[dict]:
@@ -643,15 +646,15 @@ class TraitRecord(APIBase):
             current_id = self.id
             trait_record = TraitRecordModel.get(current_id)
             if not trait_record:
-                print(f"TraitRecord with ID {current_id} not found.")
+                logger.debug(f"TraitRecord with ID {current_id} not found.")
                 return None
             record_info = trait_record.record_info
             if not record_info:
-                print(f"No record info found for TraitRecord with ID {current_id}.")
+                logger.info(f"No record info found for TraitRecord with ID {current_id}.")
                 return None
             return record_info
         except Exception as e:
-            print(f"Error getting record info for TraitRecord: {e}")
+            logger.error(f"Error getting record info for TraitRecord: {e}")
             return None
         
     def set_info(self, record_info: dict) -> Optional["TraitRecord"]:
@@ -675,7 +678,7 @@ class TraitRecord(APIBase):
             current_id = self.id
             trait_record = TraitRecordModel.get(current_id)
             if not trait_record:
-                print(f"TraitRecord with ID {current_id} not found.")
+                logger.debug(f"TraitRecord with ID {current_id} not found.")
                 return None
             TraitRecordModel.update(
                 trait_record,
@@ -685,5 +688,5 @@ class TraitRecord(APIBase):
             self.refresh()
             return trait_record
         except Exception as e:
-            print(f"Error setting record info for TraitRecord: {e}")
+            logger.error(f"Error setting record info for TraitRecord: {e}")
             return None

@@ -53,10 +53,10 @@ class ModelDatasetInput(BaseModel):
 class ModelController(Controller):
 
     # Get All Models
-    @get(path="/all")
-    async def get_all_models(self) -> List[ModelOutput]:
+    @get(path="/all", sync_to_thread=True)
+    def get_all_models(self, limit: int = 100, offset: int = 0) -> List[ModelOutput]:
         try:
-            models = Model.get_all()
+            models = Model.get_all(limit=limit, offset=offset)
             if models is None:
                 error = RESTAPIError(
                     error="No models found",
@@ -72,8 +72,8 @@ class ModelController(Controller):
             return Response(content=error, status_code=500)
 
     # Get Models
-    @get()
-    async def get_models(
+    @get(sync_to_thread=True)
+    def get_models(
         self,
         model_name: Optional[str] = None,
         model_url: Optional[str] = None,
@@ -104,8 +104,8 @@ class ModelController(Controller):
             return Response(content=error, status_code=500)
         
     # Get Model by ID
-    @get(path="/id/{model_id:str}")
-    async def get_model_by_id(
+    @get(path="/id/{model_id:str}", sync_to_thread=True)
+    def get_model_by_id(
         self, model_id: str
     ) -> ModelOutput:
         try:
@@ -125,8 +125,8 @@ class ModelController(Controller):
             return Response(content=error, status_code=500)
     
     # Create a new Model
-    @post()
-    async def create_model(
+    @post(sync_to_thread=True)
+    def create_model(
         self, data: Annotated[ModelInput, Body]
     ) -> ModelOutput:
         try:
@@ -151,8 +151,8 @@ class ModelController(Controller):
             return Response(content=error, status_code=500)
         
     # Update Model
-    @patch(path="/id/{model_id:str}")
-    async def update_model(
+    @patch(path="/id/{model_id:str}", sync_to_thread=True)
+    def update_model(
         self,
         model_id: str,
         data: Annotated[ModelUpdate, Body]
@@ -185,8 +185,8 @@ class ModelController(Controller):
             return Response(content=error, status_code=500)
         
     # Delete Model
-    @delete(path="/id/{model_id:str}")
-    async def delete_model(
+    @delete(path="/id/{model_id:str}", sync_to_thread=True)
+    def delete_model(
         self, model_id: str
     ) -> None:
         try:
@@ -214,8 +214,8 @@ class ModelController(Controller):
         
 
     # Get Model Experiments
-    @get(path="/id/{model_id:str}/experiments")
-    async def get_model_experiments(
+    @get(path="/id/{model_id:str}/experiments", sync_to_thread=True)
+    def get_model_experiments(
         self, model_id: str
     ) -> List[str]:
         try:
@@ -242,8 +242,8 @@ class ModelController(Controller):
             return Response(content=error, status_code=500)
 
     # Get Model Runs
-    @get(path="/id/{model_id:str}/runs")
-    async def get_model_runs(
+    @get(path="/id/{model_id:str}/runs", sync_to_thread=True)
+    def get_model_runs(
         self, model_id: str
     ) -> List[ModelRunOutput]:
         try:
@@ -270,8 +270,8 @@ class ModelController(Controller):
             return Response(content=error, status_code=500)
         
     # Get Model Datasets
-    @get(path="/id/{model_id:str}/datasets")
-    async def get_model_datasets(
+    @get(path="/id/{model_id:str}/datasets", sync_to_thread=True)
+    def get_model_datasets(
         self, model_id: str
     ) -> List[DatasetOutput]:
         try:
@@ -298,8 +298,8 @@ class ModelController(Controller):
             return Response(content=error, status_code=500)
         
     # Create Model Run
-    @post(path="/id/{model_id:str}/runs")
-    async def create_model_run(
+    @post(path="/id/{model_id:str}/runs", sync_to_thread=True)
+    def create_model_run(
         self,
         model_id: str,
         data: Annotated[ModelModelRunInput, Body]
@@ -328,8 +328,8 @@ class ModelController(Controller):
             return Response(content=error, status_code=500)
         
     # Create Model Dataset
-    @post(path="/id/{model_id:str}/datasets")
-    async def create_model_dataset(
+    @post(path="/id/{model_id:str}/datasets", sync_to_thread=True)
+    def create_model_dataset(
         self,
         model_id: str,
         data: Annotated[ModelDatasetInput, Body]
@@ -416,8 +416,8 @@ class ModelController(Controller):
             
 
     # Search Model Records
-    @get(path="/id/{model_id:str}/records")
-    async def search_model_records(
+    @get(path="/id/{model_id:str}/records", sync_to_thread=True)
+    def search_model_records(
         self,
         model_id: str,
         experiment_name: Optional[str] = None,
@@ -447,8 +447,8 @@ class ModelController(Controller):
             )
             return Response(content=error, status_code=500)
         
-    @get(path="/id/{model_id:str}/records/filter")
-    async def filter_model_records(
+    @get(path="/id/{model_id:str}/records/filter", sync_to_thread=True)
+    def filter_model_records(
         self,
         model_id: str,
         start_timestamp: Optional[str] = None,
@@ -484,8 +484,8 @@ class ModelController(Controller):
         
 
     # Get Model Record by ID
-    @get(path="/records/id/{record_id:str}")
-    async def get_model_record_by_id(
+    @get(path="/records/id/{record_id:str}", sync_to_thread=True)
+    def get_model_record_by_id(
         self, record_id: str
     ) -> ModelRecordOutput:
         try:
@@ -505,8 +505,8 @@ class ModelController(Controller):
             return Response(content=error, status_code=500)
         
     # Download Model Record File
-    @get(path="/records/id/{record_id:str}/download")
-    async def download_model_record_file(
+    @get(path="/records/id/{record_id:str}/download", sync_to_thread=True)
+    def download_model_record_file(
         self, record_id: str
     ) -> Redirect:
         try:
@@ -536,8 +536,8 @@ class ModelController(Controller):
             return Response(content=error, status_code=500)
 
     # Update Model Record
-    @patch(path="/records/id/{record_id:str}")
-    async def update_model_record(
+    @patch(path="/records/id/{record_id:str}", sync_to_thread=True)
+    def update_model_record(
         self,
         record_id: str,
         data: Annotated[ModelRecordUpdate, Body]
@@ -569,8 +569,8 @@ class ModelController(Controller):
             return Response(content=error, status_code=500)
         
     # Delete Model Record
-    @delete(path="/records/id/{record_id:str}")
-    async def delete_model_record(
+    @delete(path="/records/id/{record_id:str}", sync_to_thread=True)
+    def delete_model_record(
         self, record_id: str
     ) -> None:
         try:

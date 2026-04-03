@@ -41,8 +41,8 @@ class ExperimentModel(BaseModel):
     )
     experiment_name: Mapped[str] = mapped_column(String(255), nullable=False)
     experiment_info: Mapped[dict] = mapped_column(JSONB, nullable=True)
-    experiment_start_date: Mapped[date] = mapped_column(DATE, nullable=False, default=datetime.now)
-    experiment_end_date: Mapped[date] = mapped_column(DATE, nullable=False, default=datetime.now)
+    experiment_start_date: Mapped[date] = mapped_column(DATE, nullable=False, default=date.today)
+    experiment_end_date: Mapped[date] = mapped_column(DATE, nullable=False, default=date.today)
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP, default=datetime.now)
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP, default=datetime.now, onupdate=datetime.now)
 

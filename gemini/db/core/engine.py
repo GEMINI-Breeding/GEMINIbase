@@ -167,7 +167,7 @@ class DatabaseEngine:
             logger.debug("Query execution time: %s", total)
 
         @event.listens_for(self._engine, 'engine_connect')
-        def engine_connect(conn, branch):
+        def engine_connect(conn):
             logger.debug("New database connection established")
 
         @event.listens_for(self._engine.pool, 'close')
@@ -277,4 +277,9 @@ class DatabaseEngine:
         if self._engine:
             self._engine.dispose()
         if self._async_engine:
-            asyncio.run(self._async_engine.dispose())
+            try:
+                asyncio.run(self._async_engine.dispose())
+            except (ValueError, RuntimeError):
+                # greenlet not installed or event loop already running —
+                # sync dispose of the underlying engine is sufficient
+                self._async_engine.sync_engine.dispose()

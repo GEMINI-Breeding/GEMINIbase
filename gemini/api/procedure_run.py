@@ -24,6 +24,7 @@ from typing import Optional, List, TYPE_CHECKING
 from uuid import UUID
 
 from pydantic import Field, AliasChoices
+import logging
 from gemini.api.types import ID
 from gemini.api.base import APIBase
 from gemini.db.models.procedure_runs import ProcedureRunModel
@@ -32,6 +33,8 @@ from gemini.db.models.views.run_views import ProcedureRunsViewModel
 if TYPE_CHECKING:
     from gemini.api.procedure import Procedure
 
+
+logger = logging.getLogger(__name__)
 
 class ProcedureRun(APIBase):
     """
@@ -84,13 +87,13 @@ class ProcedureRun(APIBase):
             )
             return exists
         except Exception as e:
-            print(f"Error checking existence of ProcedureRun: {e}")
+            logger.error(f"Error checking existence of ProcedureRun: {e}")
             return False
         
     @classmethod
     def create(
         cls,
-        procedure_run_info: dict = {},
+        procedure_run_info: dict = None,
         procedure_name: str = None,
     ) -> Optional["ProcedureRun"]:
         """
@@ -116,7 +119,7 @@ class ProcedureRun(APIBase):
                 procedure_run.associate_procedure(procedure_name)
             return procedure_run
         except Exception as e:
-            print(f"Error creating ProcedureRun: {e}")
+            logger.error(f"Error creating ProcedureRun: {e}")
             return None
         
     @classmethod
@@ -140,12 +143,12 @@ class ProcedureRun(APIBase):
                 procedure_name=procedure_name
             )
             if not db_instance:
-                print(f"ProcedureRun with info {procedure_run_info} and name {procedure_name} not found.")
+                logger.debug(f"ProcedureRun with info {procedure_run_info} and name {procedure_name} not found.")
                 return None
             instance = cls.model_validate(db_instance)
             return instance
         except Exception as e:
-            print(f"Error getting ProcedureRun: {e}")
+            logger.error(f"Error getting ProcedureRun: {e}")
             return None
         
     @classmethod
@@ -165,16 +168,16 @@ class ProcedureRun(APIBase):
         try:
             db_instance = ProcedureRunModel.get(id)
             if not db_instance:
-                print(f"ProcedureRun with ID {id} does not exist.")
+                logger.warning(f"ProcedureRun with ID {id} does not exist.")
                 return None
             instance = cls.model_validate(db_instance)
             return instance
         except Exception as e:
-            print(f"Error getting ProcedureRun by ID: {e}")
+            logger.error(f"Error getting ProcedureRun by ID: {e}")
             return None
         
     @classmethod
-    def get_all(cls) -> Optional[List["ProcedureRun"]]:
+    def get_all(cls, limit: int = None, offset: int = None) -> Optional[List["ProcedureRun"]]:
         """
         Retrieve all procedure runs.
 
@@ -186,14 +189,14 @@ class ProcedureRun(APIBase):
             Optional[List[ProcedureRun]]: List of all procedure runs, or None if not found.
         """
         try:
-            procedure_runs = ProcedureRunModel.all()
+            procedure_runs = ProcedureRunModel.all(limit=limit, offset=offset)
             if not procedure_runs or len(procedure_runs) == 0:
-                print("No ProcedureRuns found.")
+                logger.info("No ProcedureRuns found.")
                 return None
             procedure_runs = [cls.model_validate(procedure_run) for procedure_run in procedure_runs]
             return procedure_runs
         except Exception as e:
-            print(f"Error getting all ProcedureRuns: {e}")
+            logger.error(f"Error getting all ProcedureRuns: {e}")
             return None
         
     @classmethod
@@ -217,19 +220,19 @@ class ProcedureRun(APIBase):
         """
         try:
             if not any([procedure_name, procedure_run_info]):
-                print("Either procedure_name or procedure_run_info must be provided.")
+                logger.info("Either procedure_name or procedure_run_info must be provided.")
                 return None
             procedure_runs = ProcedureRunsViewModel.search(
                 procedure_run_info=procedure_run_info,
                 procedure_name=procedure_name
             )
             if not procedure_runs or len(procedure_runs) == 0:
-                print("No ProcedureRuns found with the provided search parameters.")
+                logger.info("No ProcedureRuns found with the provided search parameters.")
                 return None
             procedure_runs = [cls.model_validate(procedure_run) for procedure_run in procedure_runs]
             return procedure_runs
         except Exception as e:
-            print(f"Error searching ProcedureRuns: {e}")
+            logger.error(f"Error searching ProcedureRuns: {e}")
             return None
         
     def update(self, procedure_run_info: dict = None) -> Optional["ProcedureRun"]:
@@ -249,12 +252,12 @@ class ProcedureRun(APIBase):
         """
         try:
             if not procedure_run_info:
-                print("procedure_run_info must be provided.")
+                logger.info("procedure_run_info must be provided.")
                 return None
             current_id = self.id
             procedure_run = ProcedureRunModel.get(id=current_id)
             if not procedure_run:
-                print(f"ProcedureRun with ID {current_id} does not exist.")
+                logger.warning(f"ProcedureRun with ID {current_id} does not exist.")
                 return None
             procedure_run = ProcedureRunModel.update(
                 procedure_run,
@@ -264,7 +267,7 @@ class ProcedureRun(APIBase):
             self.refresh()
             return instance 
         except Exception as e:
-            print(f"Error updating ProcedureRun: {e}")
+            logger.error(f"Error updating ProcedureRun: {e}")
             return None
         
     def delete(self) -> bool:
@@ -284,12 +287,12 @@ class ProcedureRun(APIBase):
             current_id = self.id
             procedure_run = ProcedureRunModel.get(current_id)
             if not procedure_run:
-                print(f"ProcedureRun with ID {current_id} does not exist.")
+                logger.warning(f"ProcedureRun with ID {current_id} does not exist.")
                 return False
             ProcedureRunModel.delete(procedure_run)
             return True
         except Exception as e:
-            print(f"Error deleting ProcedureRun: {e}")
+            logger.error(f"Error deleting ProcedureRun: {e}")
             return False
         
     def refresh(self) -> Optional["ProcedureRun"]:
@@ -308,7 +311,7 @@ class ProcedureRun(APIBase):
         try:
             db_instance = ProcedureRunModel.get(self.id)
             if not db_instance:
-                print(f"ProcedureRun with ID {self.id} does not exist.")
+                logger.warning(f"ProcedureRun with ID {self.id} does not exist.")
                 return self
             instance = self.model_validate(db_instance)
             for key, value in instance.model_dump().items():
@@ -316,7 +319,7 @@ class ProcedureRun(APIBase):
                     setattr(self, key, value)
             return self
         except Exception as e:
-            print(f"Error refreshing ProcedureRun: {e}")
+            logger.error(f"Error refreshing ProcedureRun: {e}")
             return None
         
     def get_info(self) -> Optional[dict]:
@@ -336,15 +339,15 @@ class ProcedureRun(APIBase):
             current_id = self.id
             procedure_run = ProcedureRunModel.get(current_id)
             if not procedure_run:
-                print(f"ProcedureRun with ID {current_id} does not exist.")
+                logger.warning(f"ProcedureRun with ID {current_id} does not exist.")
                 return None
             procedure_run_info = procedure_run.procedure_run_info
             if not procedure_run_info:
-                print("ProcedureRun info is empty.")
+                logger.info("ProcedureRun info is empty.")
                 return None  # Return None if info is empty/None
             return procedure_run_info
         except Exception as e:
-            print(f"Error getting ProcedureRun info: {e}")
+            logger.error(f"Error getting ProcedureRun info: {e}")
             return None
         
     def set_info(self, procedure_run_info: dict) -> Optional["ProcedureRun"]:
@@ -366,7 +369,7 @@ class ProcedureRun(APIBase):
             current_id = self.id
             procedure_run = ProcedureRunModel.get(current_id)
             if not procedure_run:
-                print(f"ProcedureRun with ID {current_id} does not exist.")
+                logger.warning(f"ProcedureRun with ID {current_id} does not exist.")
                 return None
             procedure_run = ProcedureRunModel.update(
                 procedure_run,
@@ -376,7 +379,7 @@ class ProcedureRun(APIBase):
             self.refresh()
             return instance
         except Exception as e:
-            print(f"Error setting ProcedureRun info: {e}")
+            logger.error(f"Error setting ProcedureRun info: {e}")
             return None
         
     def get_associated_procedure(self) -> Optional["Procedure"]:
@@ -396,15 +399,15 @@ class ProcedureRun(APIBase):
         try:
             from gemini.api.procedure import Procedure
             if not self.procedure_id:
-                print("Procedure ID is not set.")
+                logger.info("Procedure ID is not set.")
                 return None
             procedure = Procedure.get_by_id(self.procedure_id)
             if not procedure:
-                print(f"Procedure with ID {self.procedure_id} does not exist.")
+                logger.warning(f"Procedure with ID {self.procedure_id} does not exist.")
                 return None
             return procedure
         except Exception as e:
-            print(f"Error getting associated Procedure: {e}")
+            logger.error(f"Error getting associated Procedure: {e}")
             return None
 
     def associate_procedure(self, procedure_name: str) -> Optional["Procedure"]:
@@ -426,14 +429,14 @@ class ProcedureRun(APIBase):
             from gemini.api.procedure import Procedure
             procedure = Procedure.get(procedure_name=procedure_name)
             if not procedure:
-                print(f"Procedure with name {procedure_name} does not exist.")
+                logger.warning(f"Procedure with name {procedure_name} does not exist.")
                 return None
             existing_association = ProcedureRunModel.get_by_parameters(
                 procedure_id=procedure.id,
                 id=self.id
             )
             if existing_association:
-                print(f"ProcedureRun with ID {self.id} is already associated with Procedure {procedure_name}.")
+                logger.info(f"ProcedureRun with ID {self.id} is already associated with Procedure {procedure_name}.")
                 return self
             db_procedure_run = ProcedureRunModel.get(self.id)
             db_procedure_run = ProcedureRunModel.update_parameter(
@@ -444,7 +447,7 @@ class ProcedureRun(APIBase):
             self.refresh()
             return procedure
         except Exception as e:
-            print(f"Error associating Procedure with ProcedureRun: {e}")
+            logger.error(f"Error associating Procedure with ProcedureRun: {e}")
             return None
     
     def belongs_to_procedure(self, procedure_name: str) -> bool:
@@ -466,7 +469,7 @@ class ProcedureRun(APIBase):
             from gemini.api.procedure import Procedure
             procedure = Procedure.get(procedure_name=procedure_name)
             if not procedure:
-                print(f"Procedure with name {procedure_name} does not exist.")
+                logger.warning(f"Procedure with name {procedure_name} does not exist.")
                 return False
             assignment_exists = ProcedureRunModel.exists(
                 id=self.id,
@@ -474,7 +477,7 @@ class ProcedureRun(APIBase):
             )
             return assignment_exists
         except Exception as e:
-            print(f"Error checking if ProcedureRun belongs to Procedure: {e}")
+            logger.error(f"Error checking if ProcedureRun belongs to Procedure: {e}")
             return False
 
     def unassociate_procedure(self) -> Optional["Procedure"]:
@@ -494,7 +497,7 @@ class ProcedureRun(APIBase):
             from gemini.api.procedure import Procedure
             procedure_run = ProcedureRunModel.get(self.id)
             if not procedure_run:
-                print(f"ProcedureRun with ID {self.id} does not exist.")
+                logger.warning(f"ProcedureRun with ID {self.id} does not exist.")
                 return None
             procedure = Procedure.get_by_id(procedure_run.procedure_id)
             procedure_run = ProcedureRunModel.update_parameter(
@@ -505,5 +508,5 @@ class ProcedureRun(APIBase):
             self.refresh()
             return procedure
         except Exception as e:
-            print(f"Error unassociating Procedure from ProcedureRun: {e}")
+            logger.error(f"Error unassociating Procedure from ProcedureRun: {e}")
             return None

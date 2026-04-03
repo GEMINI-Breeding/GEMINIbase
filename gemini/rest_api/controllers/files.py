@@ -33,8 +33,8 @@ minio_storage_provider = MinioStorageProvider(minio_storage_config)
 
 class FileController(Controller):
 
-    @get(path="/metadata/{file_path:path}")
-    async def get_file_metadata(
+    @get(path="/metadata/{file_path:path}", sync_to_thread=True)
+    def get_file_metadata(
         self,
         file_path: str
     ) -> FileMetadata:
@@ -76,8 +76,8 @@ class FileController(Controller):
             )
             return Response(content=error, status_code=500)
         
-    @get(path="/list/{file_path:path}")
-    async def list_files(
+    @get(path="/list/{file_path:path}", sync_to_thread=True)
+    def list_files(
         self,
         file_path: str
     ) -> List[FileMetadata]:
@@ -120,8 +120,8 @@ class FileController(Controller):
             )
             return Response(content=error, status_code=500)
         
-    @get(path="/download/{file_path:path}")
-    async def download_file(
+    @get(path="/download/{file_path:path}", sync_to_thread=True)
+    def download_file(
         self,
         file_path: str
     ) -> Stream:
@@ -161,8 +161,8 @@ class FileController(Controller):
             )
             return Response(content=error, status_code=500)
         
-    @post(path="/upload")
-    async def upload_file(
+    @post(path="/upload", sync_to_thread=True)
+    def upload_file(
         self,
         data: Annotated[UploadFileRequest, Body(media_type=RequestEncodingType.MULTI_PART)]
     ) -> FileMetadata:
@@ -201,8 +201,8 @@ class FileController(Controller):
         
     
         
-    @delete(path="/delete/{file_path:path}")
-    async def delete_file(
+    @delete(path="/delete/{file_path:path}", sync_to_thread=True)
+    def delete_file(
         self,
         file_path: str
     ) -> None:

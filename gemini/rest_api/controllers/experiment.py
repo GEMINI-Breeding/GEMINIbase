@@ -84,10 +84,10 @@ class ExperimentDatasetInput(BaseModel):
 class ExperimentController(Controller):
 
     # Get All Experiments
-    @get(path="/all")
-    async def get_all_experiments(self) -> List[ExperimentOutput]:
+    @get(path="/all", sync_to_thread=True)
+    def get_all_experiments(self, limit: int = 100, offset: int = 0) -> List[ExperimentOutput]:
         try:
-            experiments = Experiment.get_all()
+            experiments = Experiment.get_all(limit=limit, offset=offset)
             if experiments is None:
                 error = RESTAPIError(
                     error="No experiments found",
@@ -103,8 +103,8 @@ class ExperimentController(Controller):
             return Response(content=error, status_code=500)
 
     # Get Experiments
-    @get()
-    async def get_experiments(
+    @get(sync_to_thread=True)
+    def get_experiments(
         self,
         experiment_name: Optional[str] = None,
         experiment_info: Optional[JSONB] = None,
@@ -138,8 +138,8 @@ class ExperimentController(Controller):
         
     
     # Get Experiment by ID
-    @get(path="/id/{experiment_id:str}")
-    async def get_experiment_by_id(
+    @get(path="/id/{experiment_id:str}", sync_to_thread=True)
+    def get_experiment_by_id(
         self, experiment_id: str
     ) -> ExperimentOutput:
         try:
@@ -160,8 +160,8 @@ class ExperimentController(Controller):
         
 
     # Create Experiment
-    @post()
-    async def create_experiment(
+    @post(sync_to_thread=True)
+    def create_experiment(
         self, data: Annotated[ExperimentInput, Body]
     ) -> ExperimentOutput:
         try:
@@ -187,8 +187,8 @@ class ExperimentController(Controller):
         
 
     # Update Existing Experiment
-    @patch(path="/id/{experiment_id:str}")
-    async def update_experiment(
+    @patch(path="/id/{experiment_id:str}", sync_to_thread=True)
+    def update_experiment(
         self, experiment_id: str, data: Annotated[ExperimentUpdate, Body]
     ) -> ExperimentOutput:
         try:
@@ -215,8 +215,8 @@ class ExperimentController(Controller):
         
 
     # Delete Experiment
-    @delete(path="/id/{experiment_id:str}")
-    async def delete_experiment(
+    @delete(path="/id/{experiment_id:str}", sync_to_thread=True)
+    def delete_experiment(
         self, experiment_id: str
     ) -> None:
         try:
@@ -236,8 +236,8 @@ class ExperimentController(Controller):
             return Response(content=error, status_code=500)
     
     # Get Experiment Seasons
-    @get(path="/id/{experiment_id:str}/seasons")
-    async def get_experiment_seasons(
+    @get(path="/id/{experiment_id:str}/seasons", sync_to_thread=True)
+    def get_experiment_seasons(
         self, experiment_id: str
     ) -> List[SeasonOutput]:
         try:
@@ -265,8 +265,8 @@ class ExperimentController(Controller):
         
 
     # Create Season for Experiment
-    @post(path="/id/{experiment_id:str}/seasons")
-    async def create_experiment_season(
+    @post(path="/id/{experiment_id:str}/seasons", sync_to_thread=True)
+    def create_experiment_season(
         self, experiment_id: str, data: Annotated[ExperimentSeasonInput, Body]
     ) -> SeasonOutput:
         try:
@@ -299,8 +299,8 @@ class ExperimentController(Controller):
         
 
     # Get Experiment Sites
-    @get(path="/id/{experiment_id:str}/sites")
-    async def get_experiment_sites(
+    @get(path="/id/{experiment_id:str}/sites", sync_to_thread=True)
+    def get_experiment_sites(
         self, experiment_id: str
     ) -> List[SiteOutput]:
         try:
@@ -328,8 +328,8 @@ class ExperimentController(Controller):
         
 
     # Create Site for Experiment
-    @post(path="/id/{experiment_id:str}/sites")
-    async def create_experiment_site(
+    @post(path="/id/{experiment_id:str}/sites", sync_to_thread=True)
+    def create_experiment_site(
         self, experiment_id: str, data: Annotated[ExperimentSiteInput, Body]
     ) -> SiteOutput:
         try:
@@ -363,8 +363,8 @@ class ExperimentController(Controller):
         
 
     # Get Experiment Cultivars
-    @get(path="/id/{experiment_id:str}/cultivars")
-    async def get_experiment_cultivars(
+    @get(path="/id/{experiment_id:str}/cultivars", sync_to_thread=True)
+    def get_experiment_cultivars(
         self, experiment_id: str
     ) -> List[CultivarOutput]:
         try:
@@ -392,8 +392,8 @@ class ExperimentController(Controller):
 
     
     # Create Cultivar for Experiment
-    @post(path="/id/{experiment_id:str}/cultivars")
-    async def create_experiment_cultivar(
+    @post(path="/id/{experiment_id:str}/cultivars", sync_to_thread=True)
+    def create_experiment_cultivar(
         self, experiment_id: str, data: Annotated[ExperimentCultivarInput, Body]
     ) -> CultivarOutput:
         try:
@@ -425,8 +425,8 @@ class ExperimentController(Controller):
         
 
     # Get Experiment Sensor Platforms
-    @get(path="/id/{experiment_id:str}/sensor_platforms")
-    async def get_experiment_sensor_platforms(
+    @get(path="/id/{experiment_id:str}/sensor_platforms", sync_to_thread=True)
+    def get_experiment_sensor_platforms(
         self, experiment_id: str
     ) -> List[SensorPlatformOutput]:
         try:
@@ -454,8 +454,8 @@ class ExperimentController(Controller):
         
 
     # Create Sensor Platform for Experiment
-    @post(path="/id/{experiment_id:str}/sensor_platforms")
-    async def create_experiment_sensor_platform(
+    @post(path="/id/{experiment_id:str}/sensor_platforms", sync_to_thread=True)
+    def create_experiment_sensor_platform(
         self, experiment_id: str, data: Annotated[ExperimentSensorPlatformInput, Body]
     ) -> SensorPlatformOutput:
         try:
@@ -486,8 +486,8 @@ class ExperimentController(Controller):
         
 
     # Get Experiment Traits
-    @get(path="/id/{experiment_id:str}/traits")
-    async def get_experiment_traits(
+    @get(path="/id/{experiment_id:str}/traits", sync_to_thread=True)
+    def get_experiment_traits(
         self, experiment_id: str
     ) -> List[TraitOutput]:
         try:
@@ -514,8 +514,8 @@ class ExperimentController(Controller):
             return Response(content=error, status_code=500)
         
     # Create Trait for Experiment
-    @post(path="/id/{experiment_id:str}/traits")
-    async def create_experiment_trait(
+    @post(path="/id/{experiment_id:str}/traits", sync_to_thread=True)
+    def create_experiment_trait(
         self, experiment_id: str, data: Annotated[ExperimentTraitInput, Body]
     ) -> TraitOutput:
         try:
@@ -549,8 +549,8 @@ class ExperimentController(Controller):
         
 
     # Get Experiment Sensors
-    @get(path="/id/{experiment_id:str}/sensors")
-    async def get_experiment_sensors(
+    @get(path="/id/{experiment_id:str}/sensors", sync_to_thread=True)
+    def get_experiment_sensors(
         self, experiment_id: str
     ) -> List[SensorOutput]:
         try:
@@ -577,8 +577,8 @@ class ExperimentController(Controller):
             return Response(content=error, status_code=500)
         
     # Create Sensor for Experiment
-    @post(path="/id/{experiment_id:str}/sensors")
-    async def create_experiment_sensor(
+    @post(path="/id/{experiment_id:str}/sensors", sync_to_thread=True)
+    def create_experiment_sensor(
         self, experiment_id: str, data: Annotated[ExperimentSensorInput, Body]
     ) -> SensorOutput:
         try:
@@ -613,8 +613,8 @@ class ExperimentController(Controller):
         
 
     # Get Experiment Scripts
-    @get(path="/id/{experiment_id:str}/scripts")
-    async def get_experiment_scripts(
+    @get(path="/id/{experiment_id:str}/scripts", sync_to_thread=True)
+    def get_experiment_scripts(
         self, experiment_id: str
     ) -> List[ScriptOutput]:
         try:
@@ -642,8 +642,8 @@ class ExperimentController(Controller):
         
 
     # Create Experiment Script
-    @post(path="/id/{experiment_id:str}/scripts")
-    async def create_experiment_script(
+    @post(path="/id/{experiment_id:str}/scripts", sync_to_thread=True)
+    def create_experiment_script(
         self, experiment_id: str, data: Annotated[ExperimentScriptInput, Body]
     ) -> ScriptOutput:
         try:
@@ -676,8 +676,8 @@ class ExperimentController(Controller):
         
 
     # Get Experiment Procedures
-    @get(path="/id/{experiment_id:str}/procedures")
-    async def get_experiment_procedures(
+    @get(path="/id/{experiment_id:str}/procedures", sync_to_thread=True)
+    def get_experiment_procedures(
         self, experiment_id: str
     ) -> List[ProcedureOutput]:
         try:
@@ -705,8 +705,8 @@ class ExperimentController(Controller):
         
 
     # Create Experiment Procedure
-    @post(path="/id/{experiment_id:str}/procedures")
-    async def create_experiment_procedure(
+    @post(path="/id/{experiment_id:str}/procedures", sync_to_thread=True)
+    def create_experiment_procedure(
         self, experiment_id: str, data: Annotated[ExperimentProcedureInput, Body]
     ) -> ProcedureOutput:
         try:
@@ -737,8 +737,8 @@ class ExperimentController(Controller):
         
 
     # Get Experiment Models
-    @get(path="/id/{experiment_id:str}/models")
-    async def get_experiment_models(
+    @get(path="/id/{experiment_id:str}/models", sync_to_thread=True)
+    def get_experiment_models(
         self, experiment_id: str
     ) -> List[ModelOutput]:
         try:
@@ -766,8 +766,8 @@ class ExperimentController(Controller):
         
 
     # Create Experiment Model
-    @post(path="/id/{experiment_id:str}/models")
-    async def create_experiment_model(
+    @post(path="/id/{experiment_id:str}/models", sync_to_thread=True)
+    def create_experiment_model(
         self, experiment_id: str, data: Annotated[ExperimentModelInput, Body]
     ) -> ModelOutput:
         try:
@@ -799,8 +799,8 @@ class ExperimentController(Controller):
         
 
     # Get Experiment Datasets
-    @get(path="/id/{experiment_id:str}/datasets")
-    async def get_experiment_datasets(
+    @get(path="/id/{experiment_id:str}/datasets", sync_to_thread=True)
+    def get_experiment_datasets(
         self, experiment_id: str
     ) -> List[DatasetOutput]:
         try:
@@ -828,8 +828,8 @@ class ExperimentController(Controller):
         
 
     # Create Dataset for Experiment
-    @post(path="/id/{experiment_id:str}/datasets")
-    async def create_experiment_dataset(
+    @post(path="/id/{experiment_id:str}/datasets", sync_to_thread=True)
+    def create_experiment_dataset(
         self, experiment_id: str, data: Annotated[ExperimentDatasetInput, Body]
     ) -> DatasetOutput:
         try:

@@ -28,6 +28,7 @@ from typing import Optional, List
 from uuid import UUID
 
 from pydantic import Field, AliasChoices
+import logging
 from gemini.api.types import ID
 from gemini.api.base import APIBase
 from gemini.db.models.data_formats import DataFormatModel
@@ -37,6 +38,8 @@ from gemini.db.models.views.datatype_format_view import DataTypeFormatsViewModel
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from gemini.api.data_type import DataType  # Import DataType only if type checking is needed
+
+logger = logging.getLogger(__name__)
 
 class DataFormat(APIBase):
     """
@@ -87,7 +90,7 @@ class DataFormat(APIBase):
             exists = DataFormatModel.exists(data_format_name=data_format_name)
             return exists
         except Exception as e:
-            print(f"Error checking existence of data format: {e}")
+            logger.error(f"Error checking existence of data format: {e}")
             return False
 
     @classmethod
@@ -95,7 +98,7 @@ class DataFormat(APIBase):
         cls,
         data_format_name: str,
         data_format_mime_type: str = None,
-        data_format_info: dict = {},
+        data_format_info: dict = None,
     ) -> Optional["DataFormat"]:
         """
         Create a new data format. If a data format with the same name already exists, it will return that instance.
@@ -126,7 +129,7 @@ class DataFormat(APIBase):
             instance = cls.model_validate(db_instance)
             return instance
         except Exception as e:
-            print(f"Error creating data format: {e}")
+            logger.error(f"Error creating data format: {e}")
             return None
 
     @classmethod
@@ -148,12 +151,12 @@ class DataFormat(APIBase):
         try:
             db_instance = DataFormatModel.get_by_parameters(data_format_name=data_format_name)
             if not db_instance:
-                print(f"Data format with name {data_format_name} not found.")
+                logger.debug(f"Data format with name {data_format_name} not found.")
                 return None
             instance = cls.model_validate(db_instance)
             return instance
         except Exception as e:
-            print(f"Error getting data format: {e}")
+            logger.error(f"Error getting data format: {e}")
             return None
 
     @classmethod
@@ -175,16 +178,16 @@ class DataFormat(APIBase):
         try:
             db_instance = DataFormatModel.get(id)
             if not db_instance:
-                print(f"Data format with ID {id} does not exist.")
+                logger.warning(f"Data format with ID {id} does not exist.")
                 return None
             instance = cls.model_validate(db_instance)
             return instance
         except Exception as e:
-            print(f"Error getting data format by ID: {e}")
+            logger.error(f"Error getting data format by ID: {e}")
             return None
 
     @classmethod
-    def get_all(cls) -> Optional[List["DataFormat"]]:
+    def get_all(cls, limit: int = None, offset: int = None) -> Optional[List["DataFormat"]]:
         """
         Get all data formats.
 
@@ -199,14 +202,14 @@ class DataFormat(APIBase):
             Optional[List["DataFormat"]]: A list of all data formats, or None if an error occurred.
         """
         try:
-            instances = DataFormatModel.all()
+            instances = DataFormatModel.all(limit=limit, offset=offset)
             if not instances or len(instances) == 0:
-                print("No data formats found.")
+                logger.info("No data formats found.")
                 return None
             instances = [cls.model_validate(instance) for instance in instances]
             return instances
         except Exception as e:
-            print(f"Error getting all data formats: {e}")
+            logger.error(f"Error getting all data formats: {e}")
             return None
 
     @classmethod
@@ -236,7 +239,7 @@ class DataFormat(APIBase):
         """
         try:
             if not any([data_format_name, data_format_mime_type, data_format_info]):
-                print("At least one search parameter must be provided.")
+                logger.warning("At least one search parameter must be provided.")
                 return None
 
             data_formats = DataFormatModel.search(
@@ -245,12 +248,12 @@ class DataFormat(APIBase):
                 data_format_info=data_format_info,
             )
             if not data_formats or len(data_formats) == 0:
-                print("No data formats found with the provided search parameters.")
+                logger.info("No data formats found with the provided search parameters.")
                 return None
             data_formats = [cls.model_validate(data_format) for data_format in data_formats]
             return data_formats
         except Exception as e:
-            print(f"Error searching data formats: {e}")
+            logger.error(f"Error searching data formats: {e}")
             return None
 
     def update(
@@ -283,13 +286,13 @@ class DataFormat(APIBase):
         """
         try:
             if not any([data_format_name, data_format_mime_type, data_format_info]):
-                print("At least one parameter must be provided for update.")
+                logger.warning("At least one parameter must be provided for update.")
                 return None
 
             current_id = self.id
             data_format = DataFormatModel.get(current_id)
             if not data_format:
-                print(f"Data format with ID {current_id} does not exist.")
+                logger.warning(f"Data format with ID {current_id} does not exist.")
                 return None
 
             data_format = DataFormatModel.update(
@@ -302,7 +305,7 @@ class DataFormat(APIBase):
             self.refresh() # Refresh self with updated data
             return instance # Return the validated instance
         except Exception as e:
-            print(f"Error updating data format: {e}")
+            logger.error(f"Error updating data format: {e}")
             return None
 
     def delete(self) -> bool:
@@ -322,12 +325,12 @@ class DataFormat(APIBase):
             current_id = self.id
             data_format = DataFormatModel.get(current_id)
             if not data_format:
-                print(f"Data format with ID {current_id} does not exist.")
+                logger.warning(f"Data format with ID {current_id} does not exist.")
                 return False
             DataFormatModel.delete(data_format)
             return True
         except Exception as e:
-            print(f"Error deleting data format: {e}")
+            logger.error(f"Error deleting data format: {e}")
             return False
 
     def refresh(self) -> Optional["DataFormat"]:
@@ -348,7 +351,7 @@ class DataFormat(APIBase):
         try:
             db_instance = DataFormatModel.get(self.id)
             if not db_instance:
-                print(f"Data format with ID {self.id} does not exist.")
+                logger.warning(f"Data format with ID {self.id} does not exist.")
                 return self
             instance = self.model_validate(db_instance)
             # Update self attributes
@@ -357,7 +360,7 @@ class DataFormat(APIBase):
                     setattr(self, key, value)
             return self
         except Exception as e:
-            print(f"Error refreshing data format: {e}")
+            logger.error(f"Error refreshing data format: {e}")
             return None
 
     def get_info(self) -> Optional[dict]:
@@ -377,15 +380,15 @@ class DataFormat(APIBase):
             current_id = self.id
             data_format = DataFormatModel.get(current_id)
             if not data_format:
-                print(f"Data format with ID {current_id} does not exist.")
+                logger.warning(f"Data format with ID {current_id} does not exist.")
                 return None
             data_format_info = data_format.data_format_info
             if not data_format_info:
-                print("DataFormat info is empty.")
+                logger.info("DataFormat info is empty.")
                 return None # Return None if info is empty/None
             return data_format_info
         except Exception as e:
-            print(f"Error getting data format info: {e}")
+            logger.error(f"Error getting data format info: {e}")
             return None
 
     def set_info(self, data_format_info: dict) -> Optional["DataFormat"]:
@@ -408,7 +411,7 @@ class DataFormat(APIBase):
             current_id = self.id
             data_format = DataFormatModel.get(current_id)
             if not data_format:
-                print(f"Data format with ID {current_id} does not exist.")
+                logger.warning(f"Data format with ID {current_id} does not exist.")
                 return None
             data_format = DataFormatModel.update(
                 data_format,
@@ -418,7 +421,7 @@ class DataFormat(APIBase):
             self.refresh() # Refresh self
             return instance # Return validated instance
         except Exception as e:
-            print(f"Error setting data format info: {e}")
+            logger.error(f"Error setting data format info: {e}")
             return None
 
     def get_associated_data_types(self) -> Optional[List["DataType"]]:
@@ -443,12 +446,12 @@ class DataFormat(APIBase):
                 data_format_id=current_id
             )
             if not data_type_formats or len(data_type_formats) == 0:
-                print(f"No associated data types found for data format ID {current_id}.")
+                logger.info(f"No associated data types found for data format ID {current_id}.")
                 return None
             data_types = [DataType.model_validate(data_type_format) for data_type_format in data_type_formats]
             return data_types
         except Exception as e:
-            print(f"Error getting associated data types: {e}")
+            logger.error(f"Error getting associated data types: {e}")
             return None
 
     def associate_data_type(self, data_type_name: str) -> Optional["DataType"]:
@@ -471,26 +474,26 @@ class DataFormat(APIBase):
             from gemini.api.data_type import DataType
             data_type = DataType.get(data_type_name=data_type_name)
             if not data_type:
-                print(f"Data type with name {data_type_name} does not exist.")
+                logger.warning(f"Data type with name {data_type_name} does not exist.")
                 return None
             existing_association = DataTypeFormatModel.get_or_create(
                 data_type_id=data_type.id,
                 data_format_id=self.id
             )
             if existing_association:
-                print(f"Data type {data_type_name} is already associated with data format ID {self.id}.")
+                logger.info(f"Data type {data_type_name} is already associated with data format ID {self.id}.")
                 return data_type
             new_association = DataTypeFormatModel.create(
                 data_type_id=data_type.id,
                 data_format_id=self.id
             )
             if not new_association:
-                print(f"Failed to create association for data type {data_type_name} with data format ID {self.id}.")
+                logger.info(f"Failed to create association for data type {data_type_name} with data format ID {self.id}.")
                 return None
             self.refresh()  # Refresh self with updated data
             return data_type
         except Exception as e:
-            print(f"Error associating data type {data_type_name} with data format: {e}")
+            logger.error(f"Error associating data type {data_type_name} with data format: {e}")
             return None
 
 
@@ -514,23 +517,23 @@ class DataFormat(APIBase):
             from gemini.api.data_type import DataType
             data_type = DataType.get(data_type_name=data_type_name)
             if not data_type:
-                print(f"Data type with name {data_type_name} does not exist.")
+                logger.warning(f"Data type with name {data_type_name} does not exist.")
                 return None
             existing_association = DataTypeFormatModel.get_by_parameters(
                 data_type_id=data_type.id,
                 data_format_id=self.id
             )
             if not existing_association:
-                print(f"Data type {data_type_name} is not associated with data format ID {self.id}.")
+                logger.info(f"Data type {data_type_name} is not associated with data format ID {self.id}.")
                 return None
             is_deleted = DataTypeFormatModel.delete(existing_association)
             if not is_deleted:
-                print(f"Failed to unassociate data type {data_type_name} from data format ID {self.id}.")
+                logger.info(f"Failed to unassociate data type {data_type_name} from data format ID {self.id}.")
                 return None
             self.refresh()  # Refresh self with updated data
             return data_type
         except Exception as e:
-            print(f"Error unassociating data type {data_type_name} from data format: {e}")
+            logger.error(f"Error unassociating data type {data_type_name} from data format: {e}")
             return None
 
     def belongs_to_data_type(self, data_type_name: str) -> bool:
@@ -553,7 +556,7 @@ class DataFormat(APIBase):
             from gemini.api.data_type import DataType
             data_type = DataType.get(data_type_name=data_type_name)
             if not data_type:
-                print(f"Data type with name {data_type_name} does not exist.")
+                logger.warning(f"Data type with name {data_type_name} does not exist.")
                 return False
             association_exists = DataTypeFormatModel.exists(
                 data_type_id=data_type.id,
@@ -561,5 +564,5 @@ class DataFormat(APIBase):
             )
             return association_exists
         except Exception as e:
-            print(f"Error checking if data format belongs to data type {data_type_name}: {e}")
+            logger.error(f"Error checking if data format belongs to data type {data_type_name}: {e}")
             return False

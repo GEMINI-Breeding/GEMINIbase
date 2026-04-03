@@ -29,6 +29,7 @@ from uuid import UUID
 from tqdm import tqdm
 
 from pydantic import Field, AliasChoices
+import logging
 from gemini.api.types import ID
 from gemini.api.base import APIBase
 from gemini.api.enums import GEMINIDatasetType
@@ -43,6 +44,8 @@ from datetime import date, datetime
 
 if TYPE_CHECKING:
     from gemini.api.experiment import Experiment  # Avoid circular import issues
+
+logger = logging.getLogger(__name__)
 
 class Dataset(APIBase):
     """
@@ -96,14 +99,14 @@ class Dataset(APIBase):
             )
             return exists
         except Exception as e:
-            print(f"Error checking existence of dataset: {e}")
+            logger.error(f"Error checking existence of dataset: {e}")
             return False
         
     @classmethod
     def create(
         cls,
         dataset_name: str,
-        dataset_info: dict = {},
+        dataset_info: dict = None,
         dataset_type: GEMINIDatasetType = GEMINIDatasetType.Default,
         collection_date: date = date.today(),
         experiment_name: str = None
@@ -137,7 +140,7 @@ class Dataset(APIBase):
                 dataset.associate_experiment(experiment_name=experiment_name)
             return dataset
         except Exception as e:
-            print(f"Error creating dataset: {e}")
+            logger.error(f"Error creating dataset: {e}")
             return None
         
     @classmethod
@@ -166,12 +169,12 @@ class Dataset(APIBase):
                 experiment_name=experiment_name
             )
             if not db_instance:
-                print(f"Dataset with name {dataset_name} not found.")
+                logger.debug(f"Dataset with name {dataset_name} not found.")
                 return None
             dataset = cls.model_validate(db_instance)
             return dataset
         except Exception as e:
-            print(f"Error getting dataset: {e}")
+            logger.error(f"Error getting dataset: {e}")
             return None
         
     @classmethod
@@ -192,16 +195,16 @@ class Dataset(APIBase):
         try:
             db_instance = DatasetModel.get(id)
             if not db_instance:
-                print(f"Dataset with ID {id} does not exist.")
+                logger.warning(f"Dataset with ID {id} does not exist.")
                 return None
             dataset = cls.model_validate(db_instance)
             return dataset
         except Exception as e:
-            print(f"Error getting dataset by ID: {e}")
+            logger.error(f"Error getting dataset by ID: {e}")
             return None
         
     @classmethod
-    def get_all(cls) -> Optional[List["Dataset"]]:
+    def get_all(cls, limit: int = None, offset: int = None) -> Optional[List["Dataset"]]:
         """
         Retrieve all datasets.
 
@@ -216,14 +219,14 @@ class Dataset(APIBase):
             Optional[List["Dataset"]]: A list of all datasets, or None if an error occurred.
         """
         try:
-            datasets = DatasetModel.all()
+            datasets = DatasetModel.all(limit=limit, offset=offset)
             if not datasets or len(datasets) == 0:
-                print("No datasets found.")
+                logger.info("No datasets found.")
                 return None
             datasets = [cls.model_validate(dataset) for dataset in datasets]
             return datasets
         except Exception as e:
-            print(f"Error getting all datasets: {e}")
+            logger.error(f"Error getting all datasets: {e}")
             return None
         
     @classmethod
@@ -255,7 +258,7 @@ class Dataset(APIBase):
         """
         try:
             if not any([dataset_name, dataset_info, dataset_type, collection_date, experiment_name]):
-                print("At least one parameter must be provided.")
+                logger.warning("At least one parameter must be provided.")
                 return None
             datasets = ExperimentDatasetsViewModel.search(
                 dataset_name=dataset_name,
@@ -265,12 +268,12 @@ class Dataset(APIBase):
                 experiment_name=experiment_name
             )
             if not datasets or len(datasets) == 0:
-                print("No datasets found with the provided search parameters.")
+                logger.info("No datasets found with the provided search parameters.")
                 return None
             datasets = [cls.model_validate(dataset) for dataset in datasets]
             return datasets
         except Exception as e:
-            print(f"Error searching datasets: {e}")
+            logger.error(f"Error searching datasets: {e}")
             return None
         
     def update(
@@ -299,12 +302,12 @@ class Dataset(APIBase):
         """
         try:
             if not any([dataset_name, dataset_info, dataset_type, collection_date]):
-                print("At least one parameter must be provided for update.")
+                logger.warning("At least one parameter must be provided for update.")
                 return None
             current_id = self.id
             dataset = DatasetModel.get(current_id)
             if not dataset:
-                print(f"Dataset with ID {current_id} does not exist.")
+                logger.warning(f"Dataset with ID {current_id} does not exist.")
                 return None
             dataset = DatasetModel.update(
                 dataset,
@@ -317,7 +320,7 @@ class Dataset(APIBase):
             self.refresh()
             return dataset
         except Exception as e:
-            print(f"Error updating dataset: {e}")
+            logger.error(f"Error updating dataset: {e}")
             return None
         
     def delete(self) -> bool:
@@ -337,12 +340,12 @@ class Dataset(APIBase):
             current_id = self.id
             dataset = DatasetModel.get(current_id)
             if not dataset:
-                print(f"Dataset with ID {current_id} does not exist.")
+                logger.warning(f"Dataset with ID {current_id} does not exist.")
                 return False
             DatasetModel.delete(dataset)
             return True
         except Exception as e:
-            print(f"Error deleting dataset: {e}")
+            logger.error(f"Error deleting dataset: {e}")
             return False
         
     def refresh(self) -> Optional["Dataset"]:
@@ -362,7 +365,7 @@ class Dataset(APIBase):
         try:
             db_instance = DatasetModel.get(self.id)
             if not db_instance:
-                print(f"Dataset with ID {self.id} does not exist.")
+                logger.warning(f"Dataset with ID {self.id} does not exist.")
                 return self
             instance = self.model_validate(db_instance)
             for key, value in instance.model_dump().items():
@@ -370,7 +373,7 @@ class Dataset(APIBase):
                     setattr(self, key, value)
             return self
         except Exception as e:
-            print(f"Error refreshing dataset: {e}")
+            logger.error(f"Error refreshing dataset: {e}")
             return None
         
     def get_info(self) -> Optional[dict]:
@@ -390,15 +393,15 @@ class Dataset(APIBase):
             current_id = self.id
             dataset = DatasetModel.get(current_id)
             if not dataset:
-                print(f"Dataset with ID {current_id} does not exist.")
+                logger.warning(f"Dataset with ID {current_id} does not exist.")
                 return None
             dataset_info = dataset.dataset_info
             if not dataset_info:
-                print("Dataset info is empty.")
+                logger.info("Dataset info is empty.")
                 return None
             return dataset_info
         except Exception as e:
-            print(f"Error getting dataset info: {e}")
+            logger.error(f"Error getting dataset info: {e}")
             return None
         
     def set_info(self, dataset_info: dict) -> Optional["Dataset"]:
@@ -420,7 +423,7 @@ class Dataset(APIBase):
             current_id = self.id
             dataset = DatasetModel.get(current_id)
             if not dataset:
-                print(f"Dataset with ID {current_id} does not exist.")
+                logger.warning(f"Dataset with ID {current_id} does not exist.")
                 return None
             dataset = DatasetModel.update(
                 dataset,
@@ -430,7 +433,7 @@ class Dataset(APIBase):
             self.refresh()
             return dataset
         except Exception as e:
-            print(f"Error setting dataset info: {e}")
+            logger.error(f"Error setting dataset info: {e}")
             return None
         
     def get_associated_experiments(self) -> Optional[List["Experiment"]]:
@@ -453,12 +456,12 @@ class Dataset(APIBase):
             current_id = self.id
             experiment_datasets = ExperimentDatasetsViewModel.search(dataset_id=current_id)
             if not experiment_datasets or len(experiment_datasets) == 0:
-                print(f"No experiments associated with dataset ID {current_id}.")
+                logger.info(f"No experiments associated with dataset ID {current_id}.")
                 return None
             experiments = [Experiment.model_validate(experiment) for experiment in experiment_datasets]
             return experiments
         except Exception as e:
-            print(f"Error getting associated experiments: {e}")
+            logger.error(f"Error getting associated experiments: {e}")
             return None
 
     def associate_experiment(self, experiment_name: str) -> Optional["Experiment"]:
@@ -480,26 +483,26 @@ class Dataset(APIBase):
             from gemini.api.experiment import Experiment
             experiment = Experiment.get(experiment_name)
             if not experiment:
-                print(f"Experiment {experiment_name} does not exist.")
+                logger.warning(f"Experiment {experiment_name} does not exist.")
                 return None
             existing_association = ExperimentDatasetModel.get_by_parameters(
                 experiment_id=experiment.id,
                 dataset_id=self.id
             )
             if existing_association:
-                print(f"Dataset {self.dataset_name} is already associated with experiment {experiment_name}.")
+                logger.info(f"Dataset {self.dataset_name} is already associated with experiment {experiment_name}.")
                 return experiment
             association = ExperimentDatasetModel.get_or_create(
                 experiment_id=experiment.id,
                 dataset_id=self.id
             )
             if not association:
-                print(f"Failed to associate dataset {self.dataset_name} with experiment {experiment_name}.")
+                logger.info(f"Failed to associate dataset {self.dataset_name} with experiment {experiment_name}.")
                 return None
             self.refresh()
             return experiment
         except Exception as e:
-            print(f"Error associating dataset with experiment: {e}")
+            logger.error(f"Error associating dataset with experiment: {e}")
             return None 
 
     def unassociate_experiment(self, experiment_name: str) -> Optional["Experiment"]:
@@ -521,23 +524,23 @@ class Dataset(APIBase):
             from gemini.api.experiment import Experiment
             experiment = Experiment.get(experiment_name)
             if not experiment:
-                print(f"Experiment {experiment_name} does not exist.")
+                logger.warning(f"Experiment {experiment_name} does not exist.")
                 return None
             existing_association = ExperimentDatasetModel.get_by_parameters(
                 experiment_id=experiment.id,
                 dataset_id=self.id
             )
             if not existing_association:
-                print(f"Dataset {self.dataset_name} is not associated with experiment {experiment_name}.")
+                logger.info(f"Dataset {self.dataset_name} is not associated with experiment {experiment_name}.")
                 return None
             is_deleted = ExperimentDatasetModel.delete(existing_association)
             if not is_deleted:
-                print(f"Failed to unassociate dataset {self.dataset_name} from experiment {experiment_name}.")
+                logger.info(f"Failed to unassociate dataset {self.dataset_name} from experiment {experiment_name}.")
                 return None
             self.refresh()
             return experiment
         except Exception as e:
-            print(f"Error unassociating dataset from experiment: {e}")
+            logger.error(f"Error unassociating dataset from experiment: {e}")
             return None
 
     def belongs_to_experiment(self, experiment_name: str) -> bool:
@@ -559,7 +562,7 @@ class Dataset(APIBase):
             from gemini.api.experiment import Experiment
             experiment = Experiment.get(experiment_name)
             if not experiment:
-                print(f"Experiment {experiment_name} does not exist.")
+                logger.warning(f"Experiment {experiment_name} does not exist.")
                 return False
             association_exists = ExperimentDatasetModel.exists(
                 experiment_id=experiment.id,
@@ -567,7 +570,7 @@ class Dataset(APIBase):
             )
             return association_exists
         except Exception as e:
-            print(f"Error checking if dataset belongs to experiment: {e}")
+            logger.error(f"Error checking if dataset belongs to experiment: {e}")
             return False
         
 
@@ -575,12 +578,12 @@ class Dataset(APIBase):
         self,
         timestamp: datetime = None,
         collection_date: date = None,
-        dataset_data: dict = {},
+        dataset_data: dict = None,
         experiment_name: str = None,
         season_name: str = None,
         site_name: str = None,
         record_file: str = None,
-        record_info: dict = {},
+        record_info: dict = None,
     ) -> tuple[bool, List[str]]:
         """
         Add a new record to the dataset.
@@ -637,22 +640,22 @@ class Dataset(APIBase):
             )
             success, inserted_record_ids = DatasetRecord.insert([dataset_record])
             if not success:
-                print(f"Failed to add record for dataset {self.dataset_name}.")
+                logger.info(f"Failed to add record for dataset {self.dataset_name}.")
             return success, inserted_record_ids
         except Exception as e:
-            print(f"Error adding record to dataset {self.dataset_name}: {e}")
+            logger.error(f"Error adding record to dataset {self.dataset_name}: {e}")
             return False, []
         
     def insert_records(
         self,
         timestamps: List[datetime] = None,
         collection_date: date = None,
-        dataset_data: List[dict] = [],
+        dataset_data: List[dict] = None,
         experiment_name: str = None,
         season_name: str = None,
         site_name: str = None,
         record_files: List[str] = None,
-        record_info: List[dict] = []
+        record_info: List[dict] = None
     ) -> tuple[bool, List[str]]:
         """
         Add new records to the dataset.
@@ -717,11 +720,11 @@ class Dataset(APIBase):
                 dataset_records.append(dataset_record)
             success, inserted_record_ids = DatasetRecord.insert(dataset_records)
             if not success:
-                print(f"Failed to add records for dataset {self.dataset_name}.")
+                logger.info(f"Failed to add records for dataset {self.dataset_name}.")
                 return False, []
             return success, inserted_record_ids
         except Exception as e:
-            print(f"Error adding records to dataset {self.dataset_name}: {e}")
+            logger.error(f"Error adding records to dataset {self.dataset_name}: {e}")
             return False, []
         
     def search_records(
@@ -771,7 +774,7 @@ class Dataset(APIBase):
             )
             return records
         except Exception as e:
-            print(f"Error searching records in dataset {self.dataset_name}: {e}")
+            logger.error(f"Error searching records in dataset {self.dataset_name}: {e}")
             return []
         
 
@@ -820,5 +823,5 @@ class Dataset(APIBase):
             )
             return records
         except Exception as e:
-            print(f"Error filtering records in dataset {self.dataset_name}: {e}")
+            logger.error(f"Error filtering records in dataset {self.dataset_name}: {e}")
             return []

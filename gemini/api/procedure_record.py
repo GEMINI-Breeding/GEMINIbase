@@ -26,6 +26,7 @@ import os, mimetypes
 from uuid import UUID
 from tqdm import tqdm
 
+import logging
 from gemini.api.types import ID
 from pydantic import Field, AliasChoices
 from gemini.api.base import APIBase, FileHandlerMixin
@@ -34,6 +35,8 @@ from gemini.db.models.views.procedure_records_immv import ProcedureRecordsIMMVMo
 
 
 from datetime import date, datetime
+
+logger = logging.getLogger(__name__)
 
 class ProcedureRecord(APIBase, FileHandlerMixin):
     """
@@ -128,7 +131,7 @@ class ProcedureRecord(APIBase, FileHandlerMixin):
             )
             return exists
         except Exception as e:
-            print(f"Error checking existence of ProcedureRecord: {e}")
+            logger.error(f"Error checking existence of ProcedureRecord: {e}")
             raise e
         
     @classmethod
@@ -138,12 +141,12 @@ class ProcedureRecord(APIBase, FileHandlerMixin):
         collection_date: date = None,
         dataset_name: str = None,
         procedure_name: str = None,
-        procedure_data: dict = {},
+        procedure_data: dict = None,
         experiment_name: str = None,
         site_name: str = None,
         season_name: str = None,
         record_file: str = None,
-        record_info: dict = {},
+        record_info: dict = None,
         insert_on_create: bool = True
     ) -> Optional["ProcedureRecord"]:
         """
@@ -209,16 +212,16 @@ class ProcedureRecord(APIBase, FileHandlerMixin):
             if insert_on_create:
                 insert_success, inserted_record_ids = cls.insert([procedure_record])
                 if not insert_success:
-                    print(f"Failed to insert ProcedureRecord: {procedure_record}")
+                    logger.info(f"Failed to insert ProcedureRecord: {procedure_record}")
                     return None
                 if not inserted_record_ids or len(inserted_record_ids) == 0:
-                    print(f"No new ProcedureRecord was inserted.")
+                    logger.info(f"No new ProcedureRecord was inserted.")
                     return None
                 inserted_record_id = inserted_record_ids[0]
                 procedure_record = cls.get_by_id(inserted_record_id)
             return procedure_record
         except Exception as e:
-            print(f"Error creating ProcedureRecord: {e}")
+            logger.error(f"Error creating ProcedureRecord: {e}")
             raise None
         
     @classmethod
@@ -233,7 +236,7 @@ class ProcedureRecord(APIBase, FileHandlerMixin):
         """
         try:
             if not records or len(records) == 0:
-                print(f"No records provided for insertion.")
+                logger.info(f"No records provided for insertion.")
                 return False, []
             records = [cls.process_record(record) for record in tqdm(records, desc="Processing ProcedureRecords")]
             records_to_insert = []
@@ -241,12 +244,12 @@ class ProcedureRecord(APIBase, FileHandlerMixin):
                 record_dict = record.model_dump()
                 record_dict = {k: v for k, v in record_dict.items() if v is not None}
                 records_to_insert.append(record_dict)
-            print(f"Inserting {len(records_to_insert)} records.")
+            logger.info(f"Inserting {len(records_to_insert)} records.")
             inserted_record_ids = ProcedureRecordModel.insert_bulk('procedure_records_unique', records_to_insert)
-            print(f"Inserted {len(inserted_record_ids)} records.")
+            logger.info(f"Inserted {len(inserted_record_ids)} records.")
             return True, inserted_record_ids
         except Exception as e:
-            print(f"Error inserting ProcedureRecords: {e}")
+            logger.error(f"Error inserting ProcedureRecords: {e}")
             return False, []
         
     @classmethod
@@ -286,16 +289,16 @@ class ProcedureRecord(APIBase, FileHandlerMixin):
         """
         try:
             if not timestamp:
-                print(f"Timestamp is required to get ProcedureRecord.")
+                logger.warning(f"Timestamp is required to get ProcedureRecord.")
                 return None
             if not dataset_name:
-                print(f"Dataset name is required to get ProcedureRecord.")
+                logger.warning(f"Dataset name is required to get ProcedureRecord.")
                 return None
             if not procedure_name:
-                print(f"Procedure name is required to get ProcedureRecord.")
+                logger.warning(f"Procedure name is required to get ProcedureRecord.")
                 return None
             if not experiment_name and not season_name and not site_name:
-                print(f"At least one of experiment_name, season_name, or site_name is required to get ProcedureRecord.")
+                logger.warning(f"At least one of experiment_name, season_name, or site_name is required to get ProcedureRecord.")
                 return None
             procedure_record = ProcedureRecordsIMMVModel.get_by_parameters(
                 timestamp=timestamp,
@@ -306,12 +309,12 @@ class ProcedureRecord(APIBase, FileHandlerMixin):
                 site_name=site_name
             )
             if not procedure_record:
-                print(f"No ProcedureRecord found for the given parameters.")
+                logger.info(f"No ProcedureRecord found for the given parameters.")
                 return None
             procedure_record = cls.model_validate(procedure_record)
             return procedure_record
         except Exception as e:
-            print(f"Error getting ProcedureRecord: {e}")
+            logger.error(f"Error getting ProcedureRecord: {e}")
             return None
         
     @classmethod
@@ -332,12 +335,12 @@ class ProcedureRecord(APIBase, FileHandlerMixin):
         try:
             db_instance = ProcedureRecordModel.get(id)
             if not db_instance:
-                print(f"No ProcedureRecord found with ID: {id}")
+                logger.info(f"No ProcedureRecord found with ID: {id}")
                 return None
             record = cls.model_validate(db_instance)
             return record
         except Exception as e:
-            print(f"Error getting ProcedureRecord by ID: {e}")
+            logger.error(f"Error getting ProcedureRecord by ID: {e}")
             return None
         
     @classmethod
@@ -360,12 +363,12 @@ class ProcedureRecord(APIBase, FileHandlerMixin):
         try:
             records = ProcedureRecordModel.all(limit=limit)
             if not records or len(records) == 0:
-                print(f"No ProcedureRecords found.")
+                logger.info(f"No ProcedureRecords found.")
                 return None
             records = [cls.model_validate(record) for record in records]
             return records
         except Exception as e:
-            print(f"Error getting all ProcedureRecords: {e}")
+            logger.error(f"Error getting all ProcedureRecords: {e}")
             return None
         
     @classmethod
@@ -412,7 +415,7 @@ class ProcedureRecord(APIBase, FileHandlerMixin):
         """
         try:
             if not any([procedure_name, dataset_name, experiment_name, site_name, season_name, collection_date, record_info]):
-                print(f"At least one parameter must be provided for search.")
+                logger.warning(f"At least one parameter must be provided for search.")
                 return
             records = ProcedureRecordsIMMVModel.stream(
                 procedure_name=procedure_name,
@@ -428,7 +431,7 @@ class ProcedureRecord(APIBase, FileHandlerMixin):
                 record = cls.model_validate(record)
                 yield record
         except Exception as e:
-            print(f"Error searching ProcedureRecords: {e}")
+            logger.error(f"Error searching ProcedureRecords: {e}")
             yield None
 
 
@@ -474,7 +477,7 @@ class ProcedureRecord(APIBase, FileHandlerMixin):
         """
         try:
             if not any([procedure_names, dataset_names, start_timestamp, end_timestamp, experiment_names, site_names, season_names]):
-                print(f"At least one parameter must be provided for filtering.")
+                logger.warning(f"At least one parameter must be provided for filtering.")
                 return
             records = ProcedureRecordModel.filter_records(
                 procedure_names=procedure_names,
@@ -489,7 +492,7 @@ class ProcedureRecord(APIBase, FileHandlerMixin):
                 record = cls.model_validate(record)
                 yield record
         except Exception as e:
-            print(f"Error filtering ProcedureRecords: {e}")
+            logger.error(f"Error filtering ProcedureRecords: {e}")
             yield None
 
     def update(
@@ -517,12 +520,12 @@ class ProcedureRecord(APIBase, FileHandlerMixin):
         """
         try:
             if not any([procedure_data, record_info]):
-                print(f"At least one parameter must be provided for update.")
+                logger.warning(f"At least one parameter must be provided for update.")
                 return None
             current_id = self.id
             procedure_record = ProcedureRecordModel.get(current_id)
             if not procedure_record:
-                print(f"No ProcedureRecord found with ID: {current_id}")
+                logger.info(f"No ProcedureRecord found with ID: {current_id}")
                 return None
             procedure_record = ProcedureRecordModel.update(
                 procedure_record,
@@ -533,7 +536,7 @@ class ProcedureRecord(APIBase, FileHandlerMixin):
             self.refresh()
             return procedure_record
         except Exception as e:
-            print(f"Error updating ProcedureRecord: {e}")
+            logger.error(f"Error updating ProcedureRecord: {e}")
             return None
         
     def delete(self) -> bool:
@@ -553,12 +556,12 @@ class ProcedureRecord(APIBase, FileHandlerMixin):
             current_id = self.id
             procedure_record = ProcedureRecordModel.get(current_id)
             if not procedure_record:
-                print(f"No ProcedureRecord found with ID: {current_id}")
+                logger.info(f"No ProcedureRecord found with ID: {current_id}")
                 return False
             ProcedureRecordModel.delete(procedure_record)
             return True
         except Exception as e:
-            print(f"Error deleting ProcedureRecord: {e}")
+            logger.error(f"Error deleting ProcedureRecord: {e}")
             return False
         
     def refresh(self) -> Optional["ProcedureRecord"]:
@@ -577,7 +580,7 @@ class ProcedureRecord(APIBase, FileHandlerMixin):
         try:
             db_instance = ProcedureRecordModel.get(self.id)
             if not db_instance:
-                print(f"No ProcedureRecord found with ID: {self.id}")
+                logger.info(f"No ProcedureRecord found with ID: {self.id}")
                 return None
             instance = self.model_validate(db_instance)
             for key, value in instance.model_dump().items():
@@ -585,7 +588,7 @@ class ProcedureRecord(APIBase, FileHandlerMixin):
                     setattr(self, key, value)
             return self
         except Exception as e:
-            print(f"Error refreshing ProcedureRecord: {e}")
+            logger.error(f"Error refreshing ProcedureRecord: {e}")
             return None
         
     def get_info(self) -> Optional[dict]:
@@ -605,15 +608,15 @@ class ProcedureRecord(APIBase, FileHandlerMixin):
             current_id = self.id
             procedure_record = ProcedureRecordModel.get(current_id)
             if not procedure_record:
-                print(f"No ProcedureRecord found with ID: {current_id}")
+                logger.info(f"No ProcedureRecord found with ID: {current_id}")
                 return None
             record_info = procedure_record.record_info
             if not record_info:
-                print(f"No record info found for ProcedureRecord with ID: {current_id}")
+                logger.info(f"No record info found for ProcedureRecord with ID: {current_id}")
                 return None
             return record_info
         except Exception as e:
-            print(f"Error getting record info: {e}")
+            logger.error(f"Error getting record info: {e}")
             return None
         
     def set_info(self, record_info: dict) -> Optional["ProcedureRecord"]:
@@ -637,7 +640,7 @@ class ProcedureRecord(APIBase, FileHandlerMixin):
             current_id = self.id
             procedure_record = ProcedureRecordModel.get(current_id)
             if not procedure_record:
-                print(f"No ProcedureRecord found with ID: {current_id}")
+                logger.info(f"No ProcedureRecord found with ID: {current_id}")
                 return None
             ProcedureRecordModel.update(
                 procedure_record,
@@ -647,7 +650,7 @@ class ProcedureRecord(APIBase, FileHandlerMixin):
             self.refresh()
             return procedure_record
         except Exception as e:
-            print(f"Error setting record info: {e}")
+            logger.error(f"Error setting record info: {e}")
             return None
         
     @classmethod
@@ -678,10 +681,10 @@ class ProcedureRecord(APIBase, FileHandlerMixin):
         try:
             original_file_path = record.record_file
             if not original_file_path:
-                print(f"record_file is required to create file URI.")
+                logger.warning(f"record_file is required to create file URI.")
                 return None
             if not os.path.exists(original_file_path):
-                print(f"File {original_file_path} does not exist.")
+                logger.warning(f"File {original_file_path} does not exist.")
                 return None
             collection_date = record.collection_date.strftime("%Y-%m-%d")
             procedure_name = record.procedure_name
@@ -694,7 +697,7 @@ class ProcedureRecord(APIBase, FileHandlerMixin):
             file_key = f"procedure_data/{experiment_name}/{procedure_name}/{dataset_name}/{collection_date}/{site_name}/{season_name}/{file_timestamp}{file_extension}"
             return file_key
         except Exception as e:
-            print(f"Error creating file URI: {e}")
+            logger.error(f"Error creating file URI: {e}")
             return None
 
 
@@ -726,11 +729,11 @@ class ProcedureRecord(APIBase, FileHandlerMixin):
         try:
             file = record.record_file
             if not file:
-                print(f"record_file is required to process ProcedureRecord.")
+                logger.warning(f"record_file is required to process ProcedureRecord.")
                 return record
             file_key = cls.create_file_uri(record)
             if not file_key:
-                print(f"Failed to create file URI for ProcedureRecord: {record}")
+                logger.info(f"Failed to create file URI for ProcedureRecord: {record}")
                 return record
             content_type, _ = mimetypes.guess_type(file)
             # Generate Metadata for upload
@@ -753,6 +756,6 @@ class ProcedureRecord(APIBase, FileHandlerMixin):
             record.record_file = file_key
             return record
         except Exception as e:
-            print(f"Error processing ProcedureRecord: {e}")
+            logger.error(f"Error processing ProcedureRecord: {e}")
             return record
 

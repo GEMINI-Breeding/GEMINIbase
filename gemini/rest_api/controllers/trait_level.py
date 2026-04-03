@@ -11,10 +11,10 @@ from typing import List, Annotated, Optional
 class TraitLevelController(Controller):
 
     # Get All Trait Levels
-    @get(path="/all")
-    async def get_all_trait_levels(self) -> List[TraitLevelOutput]:
+    @get(path="/all", sync_to_thread=True)
+    def get_all_trait_levels(self, limit: int = 100, offset: int = 0) -> List[TraitLevelOutput]:
         try:
-            trait_levels = TraitLevel.get_all()
+            trait_levels = TraitLevel.get_all(limit=limit, offset=offset)
             if trait_levels is None:
                 error = RESTAPIError(
                     error="No trait levels found",
@@ -30,8 +30,8 @@ class TraitLevelController(Controller):
             return Response(content=error, status_code=500)
         
     # Get all Trait Levels
-    @get()
-    async def get_trait_levels(
+    @get(sync_to_thread=True)
+    def get_trait_levels(
         self,
         trait_level_name: Optional[str] = None,
         trait_level_info: Optional[JSONB] = None
@@ -60,8 +60,8 @@ class TraitLevelController(Controller):
             return Response(content=error_message, status_code=500)
 
     # Get Trait Level by ID
-    @get(path="/id/{trait_level_id:int}")
-    async def get_trait_level_by_id(
+    @get(path="/id/{trait_level_id:int}", sync_to_thread=True)
+    def get_trait_level_by_id(
         self, trait_level_id: int
     ) -> TraitLevelOutput:
         try:
@@ -81,8 +81,8 @@ class TraitLevelController(Controller):
             return Response(content=error_message, status_code=500)
 
     # Create Trait Level
-    @post()
-    async def create_trait_level(
+    @post(sync_to_thread=True)
+    def create_trait_level(
         self,
         data: Annotated[TraitLevelInput, Body]
     ) -> TraitLevelOutput:
@@ -106,8 +106,8 @@ class TraitLevelController(Controller):
             return Response(content=error_message, status_code=500)
         
     # Update Trait Level
-    @patch(path="/id/{trait_level_id:int}")
-    async def update_trait_level(
+    @patch(path="/id/{trait_level_id:int}", sync_to_thread=True)
+    def update_trait_level(
         self,
         trait_level_id: int,
         data: Annotated[TraitLevelUpdate, Body]
@@ -139,8 +139,8 @@ class TraitLevelController(Controller):
             return Response(content=error_message, status_code=500)
         
     # Delete Trait Level
-    @delete(path="/id/{trait_level_id:int}")
-    async def delete_trait_level(
+    @delete(path="/id/{trait_level_id:int}", sync_to_thread=True)
+    def delete_trait_level(
         self, trait_level_id: int
     ) -> None:
         try:

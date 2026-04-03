@@ -85,6 +85,7 @@ nav:
       - Sensor Types: rest_api/sensor_types.md
       - Sensor Platforms: rest_api/sensor_platforms.md
       - Traits: rest_api/traits.md
+  - Testing: testing.md
   - CLI: cli.md
   - Database:
     - Scripts: database/scripts.md

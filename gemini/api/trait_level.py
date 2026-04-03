@@ -23,10 +23,13 @@ from typing import Optional, List
 from uuid import UUID
 
 from pydantic import Field, AliasChoices
+import logging
 from gemini.api.types import ID
 from gemini.api.base import APIBase
 
 from gemini.db.models.trait_levels import TraitLevelModel
+
+logger = logging.getLogger(__name__)
 
 class TraitLevel(APIBase):
     """
@@ -75,14 +78,14 @@ class TraitLevel(APIBase):
             exists = TraitLevelModel.exists(trait_level_name=trait_level_name)
             return exists
         except Exception as e:
-            print(f"Error checking existence of trait level: {e}")
+            logger.error(f"Error checking existence of trait level: {e}")
             return False
 
     @classmethod
     def create(
         cls,
         trait_level_name: str,
-        trait_level_info: dict = {},
+        trait_level_info: dict = None,
     ) -> Optional["TraitLevel"]:
         """
         Create a new trait level.
@@ -106,7 +109,7 @@ class TraitLevel(APIBase):
             instance = cls.model_validate(db_instance)
             return instance
         except Exception as e:
-            print(f"Error creating trait level: {e}")
+            logger.error(f"Error creating trait level: {e}")
             return None
 
     @classmethod
@@ -126,12 +129,12 @@ class TraitLevel(APIBase):
         try:
             db_instance = TraitLevelModel.get_by_parameters(trait_level_name=trait_level_name)
             if not db_instance:
-                print(f"Trait level with name {trait_level_name} not found.")
+                logger.debug(f"Trait level with name {trait_level_name} not found.")
                 return None
             instance = cls.model_validate(db_instance)
             return instance
         except Exception as e:
-            print(f"Error getting trait level: {e}")
+            logger.error(f"Error getting trait level: {e}")
             return None
 
     @classmethod
@@ -151,16 +154,16 @@ class TraitLevel(APIBase):
         try:
             db_instance = TraitLevelModel.get(id)
             if not db_instance:
-                print(f"Trait level with ID {id} does not exist.")
+                logger.warning(f"Trait level with ID {id} does not exist.")
                 return None
             instance = cls.model_validate(db_instance)
             return instance
         except Exception as e:
-            print(f"Error getting trait level by ID: {e}")
+            logger.error(f"Error getting trait level by ID: {e}")
             return None
 
     @classmethod
-    def get_all(cls) -> Optional[List["TraitLevel"]]:
+    def get_all(cls, limit: int = None, offset: int = None) -> Optional[List["TraitLevel"]]:
         """
         Retrieve all trait levels.
 
@@ -173,14 +176,14 @@ class TraitLevel(APIBase):
             Optional[List[TraitLevel]]: List of all trait levels, or None if not found.
         """
         try:
-            instances = TraitLevelModel.all()
+            instances = TraitLevelModel.all(limit=limit, offset=offset)
             if not instances or len(instances) == 0:
-                print("No trait levels found.")
+                logger.info("No trait levels found.")
                 return None
             instances = [cls.model_validate(instance) for instance in instances]
             return instances
         except Exception as e:
-            print(f"Error getting all trait levels: {e}")
+            logger.error(f"Error getting all trait levels: {e}")
             return None
 
     @classmethod
@@ -204,7 +207,7 @@ class TraitLevel(APIBase):
         """
         try:
             if not any([trait_level_name, trait_level_info]):
-                print("At least one search parameter must be provided.")
+                logger.warning("At least one search parameter must be provided.")
                 return None
 
             instances = TraitLevelModel.search(
@@ -212,12 +215,12 @@ class TraitLevel(APIBase):
                 trait_level_info=trait_level_info
             )
             if not instances or len(instances) == 0:
-                print("No trait levels found with the provided search parameters.")
+                logger.info("No trait levels found with the provided search parameters.")
                 return None
             instances = [cls.model_validate(instance) for instance in instances]
             return instances
         except Exception as e:
-            print(f"Error searching trait levels: {e}")
+            logger.error(f"Error searching trait levels: {e}")
             return None
 
     def update(
@@ -242,13 +245,13 @@ class TraitLevel(APIBase):
         """
         try:
             if not any([trait_level_name, trait_level_info]):
-                print("At least one parameter must be provided for update.")
+                logger.warning("At least one parameter must be provided for update.")
                 return None
 
             current_id = self.id
             trait_level = TraitLevelModel.get(current_id)
             if not trait_level:
-                 print(f"Trait level with ID {current_id} does not exist.")
+                 logger.warning(f"Trait level with ID {current_id} does not exist.")
                  return None
 
             trait_level = TraitLevelModel.update(
@@ -260,7 +263,7 @@ class TraitLevel(APIBase):
             self.refresh()
             return instance
         except Exception as e:
-            print(f"Error updating trait level: {e}")
+            logger.error(f"Error updating trait level: {e}")
             return None
 
     def delete(self) -> bool:
@@ -280,12 +283,12 @@ class TraitLevel(APIBase):
             current_id = self.id
             trait_level = TraitLevelModel.get(current_id)
             if not trait_level:
-                 print(f"Trait level with ID {current_id} does not exist.")
+                 logger.warning(f"Trait level with ID {current_id} does not exist.")
                  return False
             TraitLevelModel.delete(trait_level)
             return True
         except Exception as e:
-            print(f"Error deleting trait level: {e}")
+            logger.error(f"Error deleting trait level: {e}")
             return False
 
     def refresh(self) -> Optional["TraitLevel"]:
@@ -304,7 +307,7 @@ class TraitLevel(APIBase):
         try:
             db_instance = TraitLevelModel.get(self.id)
             if not db_instance:
-                print(f"Trait level with ID {self.id} does not exist.")
+                logger.warning(f"Trait level with ID {self.id} does not exist.")
                 return self
             instance = self.model_validate(db_instance)
             for key, value in instance.model_dump().items():
@@ -312,7 +315,7 @@ class TraitLevel(APIBase):
                     setattr(self, key, value)
             return self
         except Exception as e:
-            print(f"Error refreshing trait level: {e}")
+            logger.error(f"Error refreshing trait level: {e}")
             return None
 
     def get_info(self) -> Optional[dict]:
@@ -332,15 +335,15 @@ class TraitLevel(APIBase):
             current_id = self.id
             trait_level = TraitLevelModel.get(current_id)
             if not trait_level:
-                print(f"Trait level with ID {current_id} does not exist.")
+                logger.warning(f"Trait level with ID {current_id} does not exist.")
                 return None
             trait_level_info = trait_level.trait_level_info
             if not trait_level_info:
-                print("TraitLevel info is empty.")
+                logger.info("TraitLevel info is empty.")
                 return None
             return trait_level_info
         except Exception as e:
-            print(f"Error getting trait level info: {e}")
+            logger.error(f"Error getting trait level info: {e}")
             return None
 
     def set_info(self, trait_level_info: dict) -> Optional["TraitLevel"]:
@@ -362,7 +365,7 @@ class TraitLevel(APIBase):
             current_id = self.id
             trait_level = TraitLevelModel.get(current_id)
             if not trait_level:
-                print(f"Trait level with ID {current_id} does not exist.")
+                logger.warning(f"Trait level with ID {current_id} does not exist.")
                 return None
             trait_level = TraitLevelModel.update(
                 trait_level,
@@ -372,5 +375,5 @@ class TraitLevel(APIBase):
             self.refresh()
             return instance
         except Exception as e:
-            print(f"Error setting trait level info: {e}")
+            logger.error(f"Error setting trait level info: {e}")
             return None

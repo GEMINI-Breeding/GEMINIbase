@@ -54,10 +54,10 @@ class ProcedureDatasetInput(BaseModel):
 class ProcedureController(Controller):
 
     # Get All Procedures
-    @get(path="/all")
-    async def get_all_procedures(self) -> List[ProcedureOutput]:
+    @get(path="/all", sync_to_thread=True)
+    def get_all_procedures(self, limit: int = 100, offset: int = 0) -> List[ProcedureOutput]:
         try:
-            procedures = Procedure.get_all()
+            procedures = Procedure.get_all(limit=limit, offset=offset)
             if procedures is None:
                 error = RESTAPIError(
                     error="No Procedures Found",
@@ -73,8 +73,8 @@ class ProcedureController(Controller):
             return Response(content=error, status_code=500)
 
     # Get Procedures
-    @get()
-    async def get_procedures(
+    @get(sync_to_thread=True)
+    def get_procedures(
         self,
         procedure_name: Optional[str] = None,
         procedure_info: Optional[JSONB] = None,
@@ -105,8 +105,8 @@ class ProcedureController(Controller):
         
 
     # Get Procedure by ID
-    @get(path="/id/{procedure_id:str}")
-    async def get_procedure_by_id(
+    @get(path="/id/{procedure_id:str}", sync_to_thread=True)
+    def get_procedure_by_id(
         self, procedure_id: str
     ) -> ProcedureOutput:
         try:
@@ -127,8 +127,8 @@ class ProcedureController(Controller):
         
 
     # Create Procedure
-    @post()
-    async def create_procedure(
+    @post(sync_to_thread=True)
+    def create_procedure(
         self,
         data: Annotated[ProcedureInput, Body]
     ) -> ProcedureOutput:
@@ -153,8 +153,8 @@ class ProcedureController(Controller):
             return Response(content=error, status_code=500)
         
     # Update Procedure
-    @patch(path="/id/{procedure_id:str}")
-    async def update_procedure(
+    @patch(path="/id/{procedure_id:str}", sync_to_thread=True)
+    def update_procedure(
         self,
         procedure_id: str,
         data: Annotated[ProcedureUpdate, Body]
@@ -187,8 +187,8 @@ class ProcedureController(Controller):
         
 
     # Delete Procedure
-    @delete(path="/id/{procedure_id:str}")
-    async def delete_procedure(
+    @delete(path="/id/{procedure_id:str}", sync_to_thread=True)
+    def delete_procedure(
         self, procedure_id: str
     ) -> None:
         try:
@@ -215,8 +215,8 @@ class ProcedureController(Controller):
             return Response(content=error, status_code=500)
         
     # Get Procedure Runs
-    @get(path="/id/{procedure_id:str}/runs")
-    async def get_procedure_runs(
+    @get(path="/id/{procedure_id:str}/runs", sync_to_thread=True)
+    def get_procedure_runs(
         self, procedure_id: str
     ) -> List[ProcedureRunOutput]:
         try:
@@ -244,8 +244,8 @@ class ProcedureController(Controller):
         
     
     # Get Procedure Experiments
-    @get(path="/id/{procedure_id:str}/experiments")
-    async def get_procedure_experiments(
+    @get(path="/id/{procedure_id:str}/experiments", sync_to_thread=True)
+    def get_procedure_experiments(
         self, procedure_id: str
     ) -> List[str]:
         try:
@@ -272,8 +272,8 @@ class ProcedureController(Controller):
             return Response(content=error, status_code=500)
 
     # Get Procedure Datasets
-    @get(path="/id/{procedure_id:str}/datasets")
-    async def get_procedure_datasets(
+    @get(path="/id/{procedure_id:str}/datasets", sync_to_thread=True)
+    def get_procedure_datasets(
         self, procedure_id: str
     ) -> List[DatasetOutput]:
         try:
@@ -300,8 +300,8 @@ class ProcedureController(Controller):
             return Response(content=error, status_code=500)
         
     # Create Procedure Run
-    @post(path="/id/{procedure_id:str}/runs")
-    async def create_procedure_run(
+    @post(path="/id/{procedure_id:str}/runs", sync_to_thread=True)
+    def create_procedure_run(
         self,
         procedure_id: str,
         data: Annotated[ProcedureProcedureRunInput, Body]
@@ -330,8 +330,8 @@ class ProcedureController(Controller):
             return Response(content=error, status_code=500)
         
     # Create Procedure Dataset
-    @post(path="/id/{procedure_id:str}/datasets")
-    async def create_procedure_dataset(
+    @post(path="/id/{procedure_id:str}/datasets", sync_to_thread=True)
+    def create_procedure_dataset(
         self,
         procedure_id: str,
         data: Annotated[ProcedureDatasetInput, Body]
@@ -416,8 +416,8 @@ class ProcedureController(Controller):
             return Response(content=error, status_code=500)
         
     # Get Procedure Records
-    @get(path="/id/{procedure_id:str}/records")
-    async def search_procedure_records(
+    @get(path="/id/{procedure_id:str}/records", sync_to_thread=True)
+    def search_procedure_records(
         self,
         procedure_id: str,
         experiment_name: Optional[str] = None,
@@ -447,8 +447,8 @@ class ProcedureController(Controller):
             )
             return Response(content=error, status_code=500)
         
-    @get(path="/id/{procedure_id:str}/records/filter")
-    async def filter_procedure_records(
+    @get(path="/id/{procedure_id:str}/records/filter", sync_to_thread=True)
+    def filter_procedure_records(
         self,
         procedure_id: str,
         start_timestamp: Optional[str] = None,
@@ -483,8 +483,8 @@ class ProcedureController(Controller):
             return Response(content=error, status_code=500)
         
     # Get Procedure Record by ID
-    @get(path="/records/id/{procedure_record_id:str}")
-    async def get_procedure_record_by_id(
+    @get(path="/records/id/{procedure_record_id:str}", sync_to_thread=True)
+    def get_procedure_record_by_id(
         self, procedure_record_id: str
     ) -> ProcedureRecordOutput:
         try:
@@ -504,8 +504,8 @@ class ProcedureController(Controller):
             return Response(content=error, status_code=500)
         
     # Get Procedure Record File
-    @get(path="/records/id/{record_id:str}/download")
-    async def download_procedure_record_file(
+    @get(path="/records/id/{record_id:str}/download", sync_to_thread=True)
+    def download_procedure_record_file(
         self, record_id: str
     ) -> Redirect:
         try:
@@ -536,8 +536,8 @@ class ProcedureController(Controller):
     
             
     # Update Procedure Record
-    @patch(path="/records/id/{procedure_record_id:str}")
-    async def update_procedure_record(
+    @patch(path="/records/id/{procedure_record_id:str}", sync_to_thread=True)
+    def update_procedure_record(
         self,
         procedure_record_id: str,
         data: Annotated[ProcedureRecordUpdate, Body]
@@ -569,8 +569,8 @@ class ProcedureController(Controller):
             return Response(content=error, status_code=500)
         
     # Delete Procedure Record
-    @delete(path="/records/id/{procedure_record_id:str}")
-    async def delete_procedure_record(
+    @delete(path="/records/id/{procedure_record_id:str}", sync_to_thread=True)
+    def delete_procedure_record(
         self, procedure_record_id: str
     ) -> None:
         try:

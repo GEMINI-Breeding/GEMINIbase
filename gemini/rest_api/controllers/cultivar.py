@@ -21,10 +21,10 @@ from typing import List, Annotated, Optional
 class CultivarController(Controller):
 
     # Get All Cultivars
-    @get(path="/all")
-    async def get_all_cultivars(self) -> List[CultivarOutput]:
+    @get(path="/all", sync_to_thread=True)
+    def get_all_cultivars(self, limit: int = 100, offset: int = 0) -> List[CultivarOutput]:
         try:
-            cultivars = Cultivar.get_all()
+            cultivars = Cultivar.get_all(limit=limit, offset=offset)
             if cultivars is None:
                 error = RESTAPIError(
                     error="No cultivars found in the database",
@@ -40,8 +40,8 @@ class CultivarController(Controller):
             return Response(content=error, status_code=500)
 
     # Get Cultivars
-    @get()
-    async def get_cultivars(
+    @get(sync_to_thread=True)
+    def get_cultivars(
         self,
         cultivar_population: Optional[str] = None,
         cultivar_accession: Optional[str] = None,
@@ -74,8 +74,8 @@ class CultivarController(Controller):
         
         
     # Get Cultivar by ID
-    @get(path="/id/{cultivar_id:str}")
-    async def get_cultivar_by_id(
+    @get(path="/id/{cultivar_id:str}", sync_to_thread=True)
+    def get_cultivar_by_id(
         self, cultivar_id: str
     ) -> CultivarOutput:
         try:
@@ -95,8 +95,8 @@ class CultivarController(Controller):
             return Response(content=error, status_code=500)
         
     # Create a new Cultivar
-    @post()
-    async def create_cultivar(
+    @post(sync_to_thread=True)
+    def create_cultivar(
         self, data: Annotated[CultivarInput, Body]
     ) -> CultivarOutput:
         try:
@@ -121,8 +121,8 @@ class CultivarController(Controller):
             return Response(content=error, status_code=500)
         
     # Update Existing Cultivar
-    @patch(path="/id/{cultivar_id:str}")
-    async def update_cultivar(
+    @patch(path="/id/{cultivar_id:str}", sync_to_thread=True)
+    def update_cultivar(
         self, cultivar_id: str, data: Annotated[CultivarUpdate, Body]
     ) -> CultivarOutput:
         try:
@@ -153,8 +153,8 @@ class CultivarController(Controller):
             return Response(content=error, status_code=500)
         
     # Delete Cultivar
-    @delete(path="/id/{cultivar_id:str}")
-    async def delete_cultivar(
+    @delete(path="/id/{cultivar_id:str}", sync_to_thread=True)
+    def delete_cultivar(
         self, cultivar_id: str
     ) -> None:
         try:
@@ -181,8 +181,8 @@ class CultivarController(Controller):
             return Response(content=error_message, status_code=500)
         
     # Get Associated Experiments
-    @get(path="/id/{cultivar_id:str}/experiments")
-    async def get_associated_experiments(
+    @get(path="/id/{cultivar_id:str}/experiments", sync_to_thread=True)
+    def get_associated_experiments(
         self, cultivar_id: str
     ) -> List[ExperimentOutput]:
         try:
@@ -209,8 +209,8 @@ class CultivarController(Controller):
             return Response(content=error, status_code=500)
         
     # Get Associated Plots
-    @get(path="/id/{cultivar_id:str}/plots")
-    async def get_associated_plots(
+    @get(path="/id/{cultivar_id:str}/plots", sync_to_thread=True)
+    def get_associated_plots(
         self, cultivar_id: str
     ) -> List[PlotOutput]:
         try:
@@ -237,8 +237,8 @@ class CultivarController(Controller):
             return Response(content=error, status_code=500)
         
     # Get Associated Plants
-    @get(path="/id/{cultivar_id:str}/plants")
-    async def get_associated_plants(
+    @get(path="/id/{cultivar_id:str}/plants", sync_to_thread=True)
+    def get_associated_plants(
         self, cultivar_id: str
     ) -> List[PlantOutput]:
         try:

@@ -18,10 +18,10 @@ class PlantCultivarInput(BaseModel):
 class PlantController(Controller):
 
     # Get All Plants
-    @get(path="/all")
-    async def get_all_plants(self) -> List[PlantOutput]:
+    @get(path="/all", sync_to_thread=True)
+    def get_all_plants(self, limit: int = 100, offset: int = 0) -> List[PlantOutput]:
         try:
-            plants = Plant.get_all()
+            plants = Plant.get_all(limit=limit, offset=offset)
             if plants is None:
                 error = RESTAPIError(
                     error="No plants found",
@@ -37,8 +37,8 @@ class PlantController(Controller):
             return Response(content=error, status_code=500)
 
     # Get all Plants
-    @get()
-    async def get_plants(
+    @get(sync_to_thread=True)
+    def get_plants(
         self,
         plant_number: Optional[int] = None,
         plot_number: Optional[int] = None,
@@ -82,8 +82,8 @@ class PlantController(Controller):
             return Response(content=error, status_code=500)
         
     # Get Plant by ID
-    @get(path="/id/{plant_id:str}")
-    async def get_plant_by_id(
+    @get(path="/id/{plant_id:str}", sync_to_thread=True)
+    def get_plant_by_id(
             self, plant_id: str
     ) -> PlantOutput:
         try:
@@ -103,8 +103,8 @@ class PlantController(Controller):
             return Response(content=error, status_code=500)
         
     # Create a new Plant
-    @post()
-    async def create_plant(
+    @post(sync_to_thread=True)
+    def create_plant(
         self,
         data: Annotated[PlantInput, Body]
     ) -> PlantOutput:
@@ -139,8 +139,8 @@ class PlantController(Controller):
             return Response(content=error, status_code=500)
         
     # Update a Plant
-    @patch(path="/id/{plant_id:str}")
-    async def update_plant(
+    @patch(path="/id/{plant_id:str}", sync_to_thread=True)
+    def update_plant(
         self,
         plant_id: str,
         data: Annotated[PlantUpdate, Body]
@@ -172,8 +172,8 @@ class PlantController(Controller):
             return Response(content=error, status_code=500)
         
     # Delete a Plant
-    @delete(path="/id/{plant_id:str}")
-    async def delete_plant(
+    @delete(path="/id/{plant_id:str}", sync_to_thread=True)
+    def delete_plant(
         self,
         plant_id: str
     ) -> None:
@@ -201,8 +201,8 @@ class PlantController(Controller):
             return Response(content=error, status_code=500)
         
     # Get Plant Cultivar
-    @get(path="/id/{plant_id:str}/cultivar")
-    async def get_plant_cultivar(
+    @get(path="/id/{plant_id:str}/cultivar", sync_to_thread=True)
+    def get_plant_cultivar(
         self,
         plant_id: str
     ) -> CultivarOutput:
@@ -230,8 +230,8 @@ class PlantController(Controller):
             return Response(content=error, status_code=500)
         
     # Get Associated Plots
-    @get(path="/id/{plant_id:str}/plot")
-    async def get_associated_plot(
+    @get(path="/id/{plant_id:str}/plot", sync_to_thread=True)
+    def get_associated_plot(
         self,
         plant_id: str
     ) -> List[PlotOutput]:
