@@ -1,0 +1,88 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  unit:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -e ".[test]"
+
+      - name: Run unit tests
+        run: pytest tests/unit/ -v --tb=short
+
+  integration:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: gemini_test
+          POSTGRES_PASSWORD: gemini_test
+          POSTGRES_DB: gemini_test
+        ports:
+          - 15432:5432
+        options: >-
+          --health-cmd "pg_isready -U gemini_test -d gemini_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+      minio:
+        image: minio/minio:latest
+        env:
+          MINIO_ROOT_USER: minioadmin
+          MINIO_ROOT_PASSWORD: minioadmin
+        ports:
+          - 19000:9000
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 16379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -e ".[test]"
+
+      - name: Initialize test database schema
+        env:
+          PGPASSWORD: gemini_test
+        run: psql -h localhost -p 15432 -U gemini_test -d gemini_test -f tests/init_sql/01_init.sql
+
+      - name: Run integration tests
+        env:
+          GEMINI_TEST_DB_HOST: localhost
+          GEMINI_TEST_DB_PORT: "15432"
+          GEMINI_TEST_STORAGE_HOST: localhost
+          GEMINI_TEST_STORAGE_PORT: "19000"
+          GEMINI_TEST_LOGGER_HOST: localhost
+          GEMINI_TEST_LOGGER_PORT: "16379"
+        run: pytest tests/integration/ -v --tb=short
