@@ -4,6 +4,8 @@
 
 Back-end data management framework for the [GEMINI Breeding project](https://projectgemini.ucdavis.edu/) (UC Davis). Manages field phenotyping data — sensor imagery, trait measurements, genomics, weather — across experiments, sites, seasons, plots, and cultivars.
 
+[Documentation](https://gemini-breeding.github.io/gemini-framework/)
+
 ## Requirements
 
 - **Python 3.12**
@@ -32,7 +34,7 @@ pytest tests/integration/ -v
 docker compose -f tests/docker-compose.test.yaml down -v
 ```
 
-See [Testing documentation](docs/testing.md) for details.
+See [Testing documentation](https://gemini-breeding.github.io/gemini-framework/testing/) for details.
 
 ### Run the full pipeline
 
@@ -53,9 +55,3 @@ Three-layer design:
 3. **`gemini/rest_api/`** — Litestar REST API with 19 controllers
 
 Supporting modules: storage (MinIO/S3/local), logging (Redis), CLI (Click), configuration (pydantic-settings).
-
-## Documentation
-
-```bash
-mkdocs serve    # http://localhost:8000
-```
