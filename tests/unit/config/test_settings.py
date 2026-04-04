@@ -41,7 +41,7 @@ class TestGEMINISettingsDefaults:
     def test_rest_api_defaults(self):
         s = GEMINISettings()
         assert s.GEMINI_REST_API_CONTAINER_NAME == "gemini-rest-api"
-        assert s.GEMINI_REST_API_IMAGE_NAME == "gemini-rest-api"
+        assert s.GEMINI_REST_API_IMAGE_NAME == "gemini/rest-api"
         assert s.GEMINI_REST_API_PORT == 7777
 
     def test_scheduler_db_defaults(self):
@@ -59,7 +59,7 @@ class TestGEMINISettingsDefaults:
     def test_reverse_proxy_defaults(self):
         s = GEMINISettings()
         assert s.GEMINI_REVERSE_PROXY_CONTAINER_NAME == "gemini-reverse-proxy"
-        assert s.GEMINI_REVERSE_PROXY_IMAGE_NAME == "gemini/caddy-reverse-proxy"
+        assert s.GEMINI_REVERSE_PROXY_IMAGE_NAME == "gemini/reverse-proxy"
         assert s.GEMINI_REVERSE_PROXY_HOSTNAME == "gemini-reverse-proxy"
 
 

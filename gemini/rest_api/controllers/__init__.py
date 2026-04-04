@@ -17,6 +17,8 @@ from gemini.rest_api.controllers.trait_level import TraitLevelController
 from gemini.rest_api.controllers.trait import TraitController
 from gemini.rest_api.controllers.procedure import ProcedureController
 from gemini.rest_api.controllers.files import FileController
+from gemini.rest_api.controllers.geojson import GeoJsonController
+from gemini.rest_api.controllers.csv_data import CsvController
 
 controllers = {
     "populations": PopulationController,
@@ -37,6 +39,8 @@ controllers = {
     "sites": SiteController,
     "trait_levels": TraitLevelController,
     "traits": TraitController,
-    "files": FileController
+    "files": FileController,
+    "geojson": GeoJsonController,
+    "csv": CsvController,
 }
 
