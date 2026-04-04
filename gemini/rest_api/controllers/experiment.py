@@ -234,7 +234,7 @@ class ExperimentController(Controller):
         try:
             experiment = Experiment.get_by_id(id=experiment_id)
             if experiment is None:
-                error_ = RESTAPIError(
+                error = RESTAPIError(
                     error="Experiment not found",
                     error_description="No experiment was found with the given ID"
                 )
@@ -877,7 +877,7 @@ class ExperimentController(Controller):
             if experiment is None:
                 error = RESTAPIError(
                     error="Experiment not found",
-                    error_descripion="No experiment was found with the given ID"
+                    error_description="No experiment was found with the given ID"
                 )
                 return Response(content=error, status_code=404)
             dataset = experiment.create_new_dataset(

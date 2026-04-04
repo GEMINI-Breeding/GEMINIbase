@@ -130,9 +130,7 @@ class TestUpdateExperiment:
         response = test_client.patch("/api/experiments/id/missing", json={
             "experiment_name": "Updated",
         })
-        # Note: Controller has a bug (uses undefined 'error' instead of 'error_'),
-        # causing a NameError that triggers the 500 handler instead of 404
-        assert response.status_code == 500
+        assert response.status_code == 404
 
 
 class TestDeleteExperiment:
@@ -468,3 +466,68 @@ class TestExperimentAssociations:
         mock_cls.get_by_id.side_effect = Exception("DB error")
         response = test_client.get("/api/experiments/id/exp-uuid/datasets")
         assert response.status_code == 500
+
+
+class TestGetExperimentHierarchy:
+
+    @patch(EXP_API_PATH)
+    def test_success(self, mock_cls, test_client, mock_exp_output):
+        mock_exp = MagicMock()
+        mock_exp.__iter__ = MagicMock(return_value=iter(mock_exp_output.items()))
+        mock_exp.id = mock_exp_output["id"]
+        mock_exp.experiment_name = mock_exp_output["experiment_name"]
+        mock_exp.experiment_info = mock_exp_output["experiment_info"]
+        mock_exp.experiment_start_date = mock_exp_output["experiment_start_date"]
+        mock_exp.experiment_end_date = mock_exp_output["experiment_end_date"]
+        mock_exp.get_associated_seasons.return_value = []
+        mock_exp.get_associated_sites.return_value = []
+        mock_exp.get_associated_populations.return_value = []
+        mock_exp.get_associated_sensor_platforms.return_value = []
+        mock_exp.get_associated_sensors.return_value = []
+        mock_exp.get_associated_datasets.return_value = []
+        mock_cls.get_by_id.return_value = mock_exp
+        response = test_client.get("/api/experiments/id/exp-uuid/hierarchy")
+        assert response.status_code == 200
+        data = response.json()
+        assert "experiment" in data
+        assert "seasons" in data
+        assert "sites" in data
+        assert "populations" in data
+        assert "sensor_platforms" in data
+        assert "sensors" in data
+        assert "datasets" in data
+        assert isinstance(data["seasons"], list)
+
+    @patch(EXP_API_PATH)
+    def test_not_found(self, mock_cls, test_client):
+        mock_cls.get_by_id.return_value = None
+        response = test_client.get("/api/experiments/id/missing/hierarchy")
+        assert response.status_code == 404
+
+    @patch(EXP_API_PATH)
+    def test_error(self, mock_cls, test_client):
+        mock_cls.get_by_id.side_effect = Exception("DB error")
+        response = test_client.get("/api/experiments/id/exp-uuid/hierarchy")
+        assert response.status_code == 500
+
+    @patch(EXP_API_PATH)
+    def test_null_associations_default_to_empty_lists(self, mock_cls, test_client, mock_exp_output):
+        mock_exp = MagicMock()
+        mock_exp.id = mock_exp_output["id"]
+        mock_exp.experiment_name = mock_exp_output["experiment_name"]
+        mock_exp.experiment_info = mock_exp_output["experiment_info"]
+        mock_exp.experiment_start_date = mock_exp_output["experiment_start_date"]
+        mock_exp.experiment_end_date = mock_exp_output["experiment_end_date"]
+        mock_exp.get_associated_seasons.return_value = None
+        mock_exp.get_associated_sites.return_value = None
+        mock_exp.get_associated_populations.return_value = None
+        mock_exp.get_associated_sensor_platforms.return_value = None
+        mock_exp.get_associated_sensors.return_value = None
+        mock_exp.get_associated_datasets.return_value = None
+        mock_cls.get_by_id.return_value = mock_exp
+        response = test_client.get("/api/experiments/id/exp-uuid/hierarchy")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["seasons"] == []
+        assert data["sites"] == []
+        assert data["populations"] == []

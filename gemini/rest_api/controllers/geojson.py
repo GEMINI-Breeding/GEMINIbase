@@ -4,8 +4,7 @@ GeoJSON controller for loading and saving GeoJSON data via MinIO storage.
 import json
 
 from litestar import Response
-from litestar.handlers import get, post
-from litestar.params import Body
+from litestar.handlers import post
 from litestar.controller import Controller
 
 from gemini.rest_api.models import RESTAPIError

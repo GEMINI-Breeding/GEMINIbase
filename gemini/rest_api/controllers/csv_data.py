@@ -6,7 +6,6 @@ import io
 
 from litestar import Response
 from litestar.handlers import get, post
-from litestar.params import Body
 from litestar.controller import Controller
 from litestar.response import Stream
 
@@ -54,8 +53,8 @@ class CsvController(Controller):
     def download_csv(self, file_path: str) -> Stream:
         """Download a CSV file from MinIO storage."""
         try:
-            bucket_name = file_path.split('/')[0]
-            object_name = '/'.join(file_path.split('/')[1:])
+            bucket_name = file_path.split('/')[1]
+            object_name = '/'.join(file_path.split('/')[2:])
             file_stream = minio_storage_provider.download_file_stream(
                 object_name=object_name,
                 bucket_name=bucket_name,

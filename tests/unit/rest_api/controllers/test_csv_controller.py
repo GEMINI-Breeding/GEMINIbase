@@ -56,6 +56,7 @@ class TestDownloadCsv:
         mock_minio.download_file_stream.return_value = mock_stream
 
         response = test_client.get("/api/csv/download/test-bucket/output/traits.csv")
+        # Path pattern matches FileController: [1]=bucket, [2:]=object
         assert response.status_code == 200
         assert "text/csv" in response.headers.get("content-type", "")
 
