@@ -64,6 +64,24 @@ class UploadFileRequest(RESTAPIBase):
     bucket_name: Optional[str] = None
     object_name: Optional[str] = None
 
+class ChunkUploadRequest(RESTAPIBase):
+    file_chunk: UploadFile
+    chunk_index: int
+    total_chunks: int
+    file_identifier: str
+    object_name: str
+    bucket_name: Optional[str] = None
+
+class ChunkStatusResponse(RESTAPIBase):
+    file_identifier: str
+    uploaded_chunks: int
+    total_chunks: int
+    complete: bool
+
+class PresignedUrlResponse(RESTAPIBase):
+    url: str
+    expires_in_seconds: int
+
 
 # --------------------------------
 # Experiment Classes

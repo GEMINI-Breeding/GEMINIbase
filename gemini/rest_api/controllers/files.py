@@ -1,3 +1,6 @@
+import os
+import tempfile
+
 from litestar import Response
 from litestar.handlers import get, post, patch, delete
 from litestar.params import Body
@@ -11,7 +14,10 @@ from mimetypes import guess_type
 from gemini.rest_api.models import (
     RESTAPIError,
     FileMetadata,
-    UploadFileRequest
+    UploadFileRequest,
+    ChunkUploadRequest,
+    ChunkStatusResponse,
+    PresignedUrlResponse,
 )
 
 from gemini.manager import GEMINIManager, GEMINIComponentType
@@ -19,6 +25,9 @@ from gemini.storage.providers.minio_storage import MinioStorageProvider
 from gemini.storage.config.storage_config import MinioStorageConfig
 
 from typing import Annotated, List
+
+# In-memory tracking of chunked uploads: { file_identifier: { chunk_index: temp_path, ... } }
+_chunk_uploads: dict[str, dict[int, str]] = {}
 
 manager = GEMINIManager()
 minio_storage_settings = manager.get_component_settings(GEMINIComponentType.STORAGE)
@@ -242,5 +251,128 @@ class FileController(Controller):
                 error_description="An error occurred while deleting the file"
             )
             return Response(content=error_message, status_code=500)
+
+    @post(path="/upload_chunk", sync_to_thread=True)
+    def upload_chunk(
+        self,
+        data: Annotated[ChunkUploadRequest, Body(media_type=RequestEncodingType.MULTI_PART)]
+    ) -> ChunkStatusResponse:
+        """Receive a single chunk of a multi-part file upload.
+        When all chunks are received, assembles and uploads to MinIO."""
+        try:
+            file_id = data.file_identifier
+            chunk_idx = data.chunk_index
+            total = data.total_chunks
+
+            # Save chunk to temp file
+            if file_id not in _chunk_uploads:
+                _chunk_uploads[file_id] = {}
+
+            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=f".chunk{chunk_idx}")
+            chunk_data = data.file_chunk.file.read()
+            tmp.write(chunk_data)
+            tmp.close()
+            _chunk_uploads[file_id][chunk_idx] = tmp.name
+
+            uploaded = len(_chunk_uploads[file_id])
+
+            # If all chunks received, assemble and upload
+            if uploaded == total:
+                bucket_name = data.bucket_name or minio_storage_config.bucket_name
+                assembled = tempfile.NamedTemporaryFile(delete=False, suffix=".assembled")
+                for i in range(total):
+                    chunk_path = _chunk_uploads[file_id][i]
+                    with open(chunk_path, 'rb') as cf:
+                        assembled.write(cf.read())
+                    os.unlink(chunk_path)
+                assembled.close()
+
+                minio_storage_provider.upload_file(
+                    bucket_name=bucket_name,
+                    object_name=data.object_name,
+                    input_file_path=assembled.name,
+                )
+                os.unlink(assembled.name)
+                del _chunk_uploads[file_id]
+
+                return ChunkStatusResponse(
+                    file_identifier=file_id,
+                    uploaded_chunks=total,
+                    total_chunks=total,
+                    complete=True,
+                )
+
+            return ChunkStatusResponse(
+                file_identifier=file_id,
+                uploaded_chunks=uploaded,
+                total_chunks=total,
+                complete=False,
+            )
+        except Exception as e:
+            # Clean up temp files on error
+            if data.file_identifier in _chunk_uploads:
+                for path in _chunk_uploads[data.file_identifier].values():
+                    try:
+                        os.unlink(path)
+                    except OSError:
+                        pass
+                del _chunk_uploads[data.file_identifier]
+            return Response(
+                content=RESTAPIError(error=str(e), error_description="Chunk upload failed"),
+                status_code=500,
+            )
+
+    @post(path="/check_uploaded_chunks", sync_to_thread=True)
+    def check_uploaded_chunks(
+        self,
+        data: dict,
+    ) -> ChunkStatusResponse:
+        """Check how many chunks have been uploaded for a given file identifier."""
+        file_id = data.get("file_identifier", "")
+        total = data.get("total_chunks", 0)
+        chunks = _chunk_uploads.get(file_id, {})
+        return ChunkStatusResponse(
+            file_identifier=file_id,
+            uploaded_chunks=len(chunks),
+            total_chunks=total,
+            complete=False,
+        )
+
+    @post(path="/clear_upload_cache", sync_to_thread=True)
+    def clear_upload_cache(
+        self,
+        data: dict,
+    ) -> dict:
+        """Clear cached chunks for a file identifier."""
+        file_id = data.get("file_identifier", "")
+        if file_id in _chunk_uploads:
+            for path in _chunk_uploads[file_id].values():
+                try:
+                    os.unlink(path)
+                except OSError:
+                    pass
+            del _chunk_uploads[file_id]
+        return {"status": "ok", "file_identifier": file_id}
+
+    @get(path="/presign/{file_path:path}", sync_to_thread=True)
+    def presign_url(
+        self,
+        file_path: str,
+        expires_seconds: int = 3600,
+    ) -> PresignedUrlResponse:
+        """Generate a presigned URL for direct file access from MinIO."""
+        try:
+            bucket_name = file_path.split('/')[1]
+            object_name = '/'.join(file_path.split('/')[2:])
+            url = minio_storage_provider.get_download_url(
+                object_name=object_name,
+                bucket_name=bucket_name,
+            )
+            return PresignedUrlResponse(url=url, expires_in_seconds=expires_seconds)
+        except Exception as e:
+            return Response(
+                content=RESTAPIError(error=str(e), error_description="Failed to generate presigned URL"),
+                status_code=500,
+            )
 
 
