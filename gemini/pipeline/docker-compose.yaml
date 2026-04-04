@@ -11,17 +11,16 @@ services:
     ports:
       - "${GEMINI_DB_PORT}:5432"
     environment:
+      # Official postgres image env vars
+      - "POSTGRES_USER=${GEMINI_DB_USER}"
+      - "POSTGRES_PASSWORD=${GEMINI_DB_PASSWORD}"
+      - "POSTGRES_DB=${GEMINI_DB_NAME}"
+      # Also set Bitnami-style names for init scripts that reference them
       - "POSTGRESQL_USERNAME=${GEMINI_DB_USER}"
       - "POSTGRESQL_PASSWORD=${GEMINI_DB_PASSWORD}"
-      - "POSTGRESQL_INITSCRIPTS_USERNAME=${GEMINI_DB_USER}"
-      - "POSTGRESQL_INITSCRIPTS_PASSWORD=${GEMINI_DB_PASSWORD}"
-      - "POSTGRESQL_POSTGRES_PASSWORD=${GEMINI_DB_PASSWORD}"
       - "POSTGRESQL_DATABASE=${GEMINI_DB_NAME}"
-      - "POSTGRESQL_REPLICATION_USER=${GEMINI_DB_USER}"
-      - "POSTGRESQL_REPLICATION_PASSWORD=${GEMINI_DB_PASSWORD}"
-      - "POSTGRESQL_REPLICATION_USE_PASSFILE=false"
     volumes:
-      - gemini_db_data:/bitnami/postgresql
+      - gemini_db_data:/var/lib/postgresql/data
     networks:
       - gemini_network
 
@@ -50,7 +49,7 @@ services:
       - db
     
   storage-init:
-    image: bitnami/minio-client:2024
+    image: minio/mc:latest
     networks:
       - gemini_network
     depends_on:
@@ -115,6 +114,14 @@ services:
       - "GEMINI_STORAGE_BUCKET_NAME=${GEMINI_STORAGE_BUCKET_NAME}"
       - "GEMINI_STORAGE_PORT=${GEMINI_STORAGE_PORT}"
       - "GEMINI_STORAGE_API_PORT=${GEMINI_STORAGE_API_PORT}"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:7777/schema')"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
     networks:
       - gemini_network
 
