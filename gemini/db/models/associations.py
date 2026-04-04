@@ -102,21 +102,21 @@ class ExperimentTraitModel(BaseModel):
         UniqueConstraint("experiment_id", "trait_id", name="experiment_trait_unique"),
     )
 
-class ExperimentCultivarModel(BaseModel):
+class ExperimentPopulationModel(BaseModel):
     """
-    Represents the association between an experiment and a cultivar.
+    Represents the association between an experiment and a population.
     """
-    __tablename__ = "experiment_cultivars"
+    __tablename__ = "experiment_populations"
 
     experiment_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=False), ForeignKey("gemini.experiments.id", ondelete="CASCADE"), primary_key=True)
-    cultivar_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=False), ForeignKey("gemini.cultivars.id", ondelete="CASCADE"), primary_key=True)
+    population_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=False), ForeignKey("gemini.populations.id", ondelete="CASCADE"), primary_key=True)
     info: Mapped[dict] = mapped_column(JSONB, default={})
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP, default=datetime.now)
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP, default=datetime.now, onupdate=datetime.now)
 
 
     __table_args__ = (
-        UniqueConstraint("experiment_id", "cultivar_id", name="experiment_cultivar_unique"),
+        UniqueConstraint("experiment_id", "population_id", name="experiment_population_unique"),
     )
 
 
@@ -188,21 +188,21 @@ class ExperimentDatasetModel(BaseModel):
         UniqueConstraint("experiment_id", "dataset_id", name="experiment_dataset_unique"),
     )
 
-class PlotCultivarModel(BaseModel):
+class PlotPopulationModel(BaseModel):
     """
-    Represents the association between a plot and a cultivar.
+    Represents the association between a plot and a population.
     """
-    __tablename__ = "plot_cultivars"
+    __tablename__ = "plot_populations"
 
     plot_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=False), ForeignKey("gemini.plots.id", ondelete="CASCADE"), primary_key=True)
-    cultivar_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=False), ForeignKey("gemini.cultivars.id", ondelete="CASCADE"), primary_key=True)
+    population_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=False), ForeignKey("gemini.populations.id", ondelete="CASCADE"), primary_key=True)
     info: Mapped[dict] = mapped_column(JSONB, default={})
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP, default=datetime.now)
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP, default=datetime.now, onupdate=datetime.now)
 
 
     __table_args__ = (
-        UniqueConstraint("plot_id", "cultivar_id", name="plot_cultivar_unique"),
+        UniqueConstraint("plot_id", "population_id", name="plot_population_unique"),
     )
 
 class TraitSensorModel(BaseModel):

@@ -166,31 +166,31 @@ class SiteOutput(RESTAPIBase):
     site_info: Optional[JSONB] = None
 
 # --------------------------------
-# Cultivar Classes
+# Population Classes
 # --------------------------------
 
-class CultivarInput(RESTAPIBase):
-    cultivar_population: str
-    cultivar_accession: Optional[str] = None
-    cultivar_info: Optional[JSONB] = {}
+class PopulationInput(RESTAPIBase):
+    population_name: str
+    population_accession: Optional[str] = None
+    population_info: Optional[JSONB] = {}
     experiment_name: Optional[str] = None
 
-class CultivarUpdate(RESTAPIBase):
-    cultivar_population: Optional[str] = None
-    cultivar_accession: Optional[str] = None
-    cultivar_info: Optional[JSONB] = None
+class PopulationUpdate(RESTAPIBase):
+    population_name: Optional[str] = None
+    population_accession: Optional[str] = None
+    population_info: Optional[JSONB] = None
 
-class CultivarSearch(RESTAPIBase):
-    cultivar_population: Optional[str] = None
-    cultivar_accession: Optional[str] = None
-    cultivar_info: Optional[JSONB] = None
+class PopulationSearch(RESTAPIBase):
+    population_name: Optional[str] = None
+    population_accession: Optional[str] = None
+    population_info: Optional[JSONB] = None
     experiment_name: Optional[str] = None
 
-class CultivarOutput(RESTAPIBase):
+class PopulationOutput(RESTAPIBase):
     id: Optional[ID] = None
-    cultivar_population: Optional[str] = None
-    cultivar_accession: Optional[str] = None
-    cultivar_info: Optional[JSONB] = None
+    population_name: Optional[str] = None
+    population_accession: Optional[str] = None
+    population_info: Optional[JSONB] = None
 
 
 
@@ -352,8 +352,8 @@ class ModelRunOutput(RESTAPIBase):
 class PlantInput(RESTAPIBase):
     plant_number: int
     plant_info: Optional[JSONB] = {}
-    cultivar_accession: Optional[str] = None
-    cultivar_population: Optional[str] = None
+    population_accession: Optional[str] = None
+    population_name: Optional[str] = None
     experiment_name: Optional[str] = None
     season_name: Optional[str] = None
     site_name: Optional[str] = None
@@ -368,8 +368,8 @@ class PlantUpdate(RESTAPIBase):
 
 class PlantSearch(RESTAPIBase):
     plant_number: Optional[int] = None
-    cultivar_accession: Optional[str] = None
-    cultivar_population: Optional[str] = None
+    population_accession: Optional[str] = None
+    population_name: Optional[str] = None
     experiment_name: Optional[str] = None
     season_name: Optional[str] = None
     site_name: Optional[str] = None
@@ -380,7 +380,7 @@ class PlantSearch(RESTAPIBase):
 class PlantOutput(RESTAPIBase):
     id: Optional[ID] = None
     plot_id: Optional[ID] = None
-    cultivar_id: Optional[ID] = None
+    population_id: Optional[ID] = None
     plant_number: int
     plant_info: Optional[JSONB] = None
 
@@ -397,8 +397,8 @@ class PlotInput(RESTAPIBase):
     experiment_name: Optional[str] = None
     season_name: Optional[str] = None
     site_name: Optional[str] = None
-    cultivar_accession: Optional[str] = None
-    cultivar_population: Optional[str] = None
+    population_accession: Optional[str] = None
+    population_name: Optional[str] = None
 
 class PlotUpdate(RESTAPIBase):
     plot_number: Optional[int] = None

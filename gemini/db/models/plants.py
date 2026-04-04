@@ -30,7 +30,7 @@ class PlantModel(BaseModel):
         plot_id (uuid.UUID): Foreign key referencing the plot where the plant is located.
         plant_number (int): The number of the plant within the plot.
         plant_info (dict): Additional JSONB data for the plant.
-        cultivar_id (uuid.UUID): Foreign key referencing the cultivar of the plant.
+        population_id (uuid.UUID): Foreign key referencing the population of the plant.
         created_at (datetime): Timestamp when the record was created.
         updated_at (datetime): Timestamp when the record was last updated.
     """
@@ -40,7 +40,7 @@ class PlantModel(BaseModel):
     plot_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("gemini.plots.id"))
     plant_number: Mapped[int] = mapped_column(Integer)
     plant_info: Mapped[dict] = mapped_column(JSONB, default={})
-    cultivar_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("gemini.cultivars.id"))
+    population_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("gemini.populations.id"))
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP, default=datetime.now)
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP, default=datetime.now, onupdate=datetime.now)
 

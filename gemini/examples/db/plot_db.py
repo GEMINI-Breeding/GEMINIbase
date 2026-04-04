@@ -8,9 +8,9 @@ print("Plots:")
 for plot in plots:
     print(f"{plot.id}: {plot.plot_number}")
 
-    # Print Cultivars of Plot
-    for cultivar in plot.cultivars:
-        print(f"Cultivar: {cultivar.cultivar_accession} {cultivar.cultivar_population}")
+    # Print Populations of Plot
+    for population in plot.populations:
+        print(f"Population: {population.population_accession} {population.population_name}")
 
 
     # Print Plants of Plot

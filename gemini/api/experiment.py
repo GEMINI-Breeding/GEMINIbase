@@ -1,5 +1,5 @@
 """
-This module defines the Experiment class, which represents an experiment entity, including its metadata and associations to seasons, cultivars, procedures, scripts, models, sensors, sites, datasets, traits, and plots.
+This module defines the Experiment class, which represents an experiment entity, including its metadata and associations to seasons, populations, procedures, scripts, models, sensors, sites, datasets, traits, and plots.
 
 It includes methods for creating, retrieving, updating, and deleting experiments, as well as methods for checking existence, searching, and managing associations with related entities.
 
@@ -16,7 +16,7 @@ This module includes the following methods:
 - `refresh`: Refresh the experiment's data from the database.
 - `get_info`: Get the additional information of the experiment.
 - `set_info`: Set the additional information of the experiment.
-- Association methods for seasons, cultivars, procedures, scripts, models, sensors, sensor platforms, sites, datasets, traits, and plots.
+- Association methods for seasons, populations, procedures, scripts, models, sensors, sensor platforms, sites, datasets, traits, and plots.
 
 """
 
@@ -38,7 +38,7 @@ from gemini.api.enums import (
 
 from gemini.db.models.experiments import ExperimentModel
 from gemini.db.models.views.experiment_views import (
-    ExperimentCultivarsViewModel,
+    ExperimentPopulationsViewModel,
     ExperimentProceduresViewModel,
     ExperimentScriptsViewModel,
     ExperimentModelsViewModel,
@@ -54,7 +54,7 @@ from gemini.db.models.views.plot_view import PlotViewModel
 from datetime import date
 
 if TYPE_CHECKING:
-    from gemini.api.cultivar import Cultivar
+    from gemini.api.population import Population
     from gemini.api.procedure import Procedure
     from gemini.api.script import Script
     from gemini.api.model import Model
@@ -71,7 +71,7 @@ logger = logging.getLogger(__name__)
 
 class Experiment(APIBase):
     """
-    Represents an experiment entity, including its metadata and associations to seasons, cultivars, procedures, scripts, models, sensors, sites, datasets, traits, and plots.
+    Represents an experiment entity, including its metadata and associations to seasons, populations, procedures, scripts, models, sensors, sites, datasets, traits, and plots.
 
     Attributes:
         id (Optional[ID]): The unique identifier of the experiment.
@@ -516,165 +516,165 @@ class Experiment(APIBase):
 
     # endregion
 
-    # region Cultivar
-    def get_associated_cultivars(self) -> Optional[List["Cultivar"]]:
+    # region Population
+    def get_associated_populations(self) -> Optional[List["Population"]]:
         """
-        Get all cultivars associated with this experiment.
+        Get all populations associated with this experiment.
 
         Examples:
             >>> experiment = Experiment.get("My Experiment")
-            >>> cultivars = experiment.get_associated_cultivars()
-            >>> for cultivar in cultivars:
-            ...     print(cultivar)
-            Cultivar(cultivar_population=Population A, cultivar_accession=Accession 123, id=UUID(...))
+            >>> populations = experiment.get_associated_populations()
+            >>> for population in populations:
+            ...     print(population)
+            Population(population_name=Population A, population_accession=Accession 123, id=UUID(...))
 
         Returns:
-            Optional[List["Cultivar"]]: A list of associated cultivars, or None if not found.
+            Optional[List["Population"]]: A list of associated populations, or None if not found.
         """
         try:
-            from gemini.api.cultivar import Cultivar
-            experiment_cultivars = ExperimentCultivarsViewModel.search(experiment_id=self.id)
-            if not experiment_cultivars or len(experiment_cultivars) == 0:
-                logger.info("No cultivars found for this experiment.")
+            from gemini.api.population import Population
+            experiment_populations = ExperimentPopulationsViewModel.search(experiment_id=self.id)
+            if not experiment_populations or len(experiment_populations) == 0:
+                logger.info("No populations found for this experiment.")
                 return None
-            cultivars = [Cultivar.model_validate(cultivar) for cultivar in experiment_cultivars]
-            return cultivars
+            populations = [Population.model_validate(population) for population in experiment_populations]
+            return populations
         except Exception as e:
-            logger.error(f"Error getting associated cultivars: {e}")
+            logger.error(f"Error getting associated populations: {e}")
             return None
 
-    def create_new_cultivar(
+    def create_new_population(
         self,
-        cultivar_population: str,
-        cultivar_accession: str,
-        cultivar_info: dict = None,
-    ) -> Optional["Cultivar"]:
+        population_name: str,
+        population_accession: str,
+        population_info: dict = None,
+    ) -> Optional["Population"]:
         """
-        Create and associate a new cultivar with this experiment.
+        Create and associate a new population with this experiment.
 
         Examples:
             >>> experiment = Experiment.get("My Experiment")
-            >>> new_cultivar = experiment.create_new_cultivar("Population A", "Accession 123", {"description": "New cultivar"})
-            >>> print(new_cultivar)
-            Cultivar(cultivar_population=Population A, cultivar_accession=Accession 123, id=UUID(...))
+            >>> new_population = experiment.create_new_population("Population A", "Accession 123", {"description": "New population"})
+            >>> print(new_population)
+            Population(population_name=Population A, population_accession=Accession 123, id=UUID(...))
 
         Args:
-            cultivar_population (str): The population of the new cultivar.
-            cultivar_accession (str): The accession of the new cultivar.
-            cultivar_info (dict, optional): Additional information about the cultivar. Defaults to {{}}.
+            population_name (str): The population of the new population.
+            population_accession (str): The accession of the new population.
+            population_info (dict, optional): Additional information about the population. Defaults to {{}}.
         Returns:
-            Optional["Cultivar"]: The created and associated cultivar, or None if an error occurred.
+            Optional["Population"]: The created and associated population, or None if an error occurred.
         """
         try:
-            from gemini.api.cultivar import Cultivar
-            new_cultivar = Cultivar.create(
-                cultivar_population=cultivar_population,
-                cultivar_accession=cultivar_accession,
-                cultivar_info=cultivar_info,
+            from gemini.api.population import Population
+            new_population = Population.create(
+                population_name=population_name,
+                population_accession=population_accession,
+                population_info=population_info,
                 experiment_name=self.experiment_name
             )
-            if not new_cultivar:
-                logger.error("Error creating new cultivar.")
+            if not new_population:
+                logger.error("Error creating new population.")
                 return None
-            return new_cultivar
+            return new_population
         except Exception as e:
-            logger.error(f"Error creating new cultivar: {e}")
+            logger.error(f"Error creating new population: {e}")
             return None
 
-    def associate_cultivar(
+    def associate_population(
         self,
-        cultivar_population: str,
-        cultivar_accession: str,
-    ) -> Optional["Cultivar"]:
+        population_name: str,
+        population_accession: str,
+    ) -> Optional["Population"]:
         """
-        Associate an existing cultivar with this experiment.
+        Associate an existing population with this experiment.
 
         Examples:
             >>> experiment = Experiment.get("My Experiment")
-            >>> cultivar = experiment.associate_cultivar("Population A", "Accession 123")
-            >>> print(cultivar)
-            Cultivar(cultivar_population=Population A, cultivar_accession=Accession 123, id=UUID(...))
+            >>> population = experiment.associate_population("Population A", "Accession 123")
+            >>> print(population)
+            Population(population_name=Population A, population_accession=Accession 123, id=UUID(...))
 
         Args:
-            cultivar_population (str): The population of the cultivar.
-            cultivar_accession (str): The accession of the cultivar.
+            population_name (str): The population of the population.
+            population_accession (str): The accession of the population.
         Returns:
-            Optional["Cultivar"]: The associated cultivar, or None if an error occurred.
+            Optional["Population"]: The associated population, or None if an error occurred.
         """
         try:
-            from gemini.api.cultivar import Cultivar
-            cultivar = Cultivar.get(cultivar_population=cultivar_population, cultivar_accession=cultivar_accession)
-            if not cultivar:
-                logger.debug("Cultivar not found.")
+            from gemini.api.population import Population
+            population = Population.get(population_name=population_name, population_accession=population_accession)
+            if not population:
+                logger.debug("Population not found.")
                 return None
-            cultivar.associate_experiment(experiment_name=self.experiment_name)
-            return cultivar
+            population.associate_experiment(experiment_name=self.experiment_name)
+            return population
         except Exception as e:
-            logger.error(f"Error associating cultivar: {e}")
+            logger.error(f"Error associating population: {e}")
             return None
 
-    def unassociate_cultivar(
+    def unassociate_population(
         self,
-        cultivar_population: str,
-        cultivar_accession: str,
-    ) -> Optional["Cultivar"]:
+        population_name: str,
+        population_accession: str,
+    ) -> Optional["Population"]:
         """
-        Unassociate a cultivar from this experiment.
+        Unassociate a population from this experiment.
 
         Examples:
             >>> experiment = Experiment.get("My Experiment")
-            >>> cultivar = experiment.unassociate_cultivar("Population A", "Accession 123")
-            >>> print(cultivar)
-            Cultivar(cultivar_population=Population A, cultivar_accession=Accession 123, id=UUID(...))
+            >>> population = experiment.unassociate_population("Population A", "Accession 123")
+            >>> print(population)
+            Population(population_name=Population A, population_accession=Accession 123, id=UUID(...))
 
         Args:
-            cultivar_population (str): The population of the cultivar.
-            cultivar_accession (str): The accession of the cultivar.
+            population_name (str): The population of the population.
+            population_accession (str): The accession of the population.
         Returns:
-            Optional["Cultivar"]: The unassociated cultivar, or None if an error occurred.
+            Optional["Population"]: The unassociated population, or None if an error occurred.
         """
         try:
-            from gemini.api.cultivar import Cultivar
-            cultivar = Cultivar.get(cultivar_population=cultivar_population, cultivar_accession=cultivar_accession)
-            if not cultivar:
-                logger.debug("Cultivar not found.")
+            from gemini.api.population import Population
+            population = Population.get(population_name=population_name, population_accession=population_accession)
+            if not population:
+                logger.debug("Population not found.")
                 return None
-            cultivar.unassociate_experiment(experiment_name=self.experiment_name)
-            return cultivar
+            population.unassociate_experiment(experiment_name=self.experiment_name)
+            return population
         except Exception as e:
-            logger.error(f"Error unassociating cultivar: {e}")
+            logger.error(f"Error unassociating population: {e}")
             return None
 
-    def belongs_to_cultivar(
+    def belongs_to_population(
         self,
-        cultivar_population: str,
-        cultivar_accession: str,
+        population_name: str,
+        population_accession: str,
     ) -> bool:
         """
-        Check if the experiment is associated with a specific cultivar.
+        Check if the experiment is associated with a specific population.
 
         Examples:
             >>> experiment = Experiment.get("My Experiment")
-            >>> is_associated = experiment.belongs_to_cultivar("Population A", "Accession 123")
+            >>> is_associated = experiment.belongs_to_population("Population A", "Accession 123")
             >>> print(is_associated)
             True
 
         Args:
-            cultivar_population (str): The population of the cultivar.
-            cultivar_accession (str): The accession of the cultivar.
+            population_name (str): The population of the population.
+            population_accession (str): The accession of the population.
         Returns:
             bool: True if associated, False otherwise.
         """
         try:
-            from gemini.api.cultivar import Cultivar
-            cultivar = Cultivar.get(cultivar_population=cultivar_population, cultivar_accession=cultivar_accession)
-            if not cultivar:
-                logger.debug("Cultivar not found.")
+            from gemini.api.population import Population
+            population = Population.get(population_name=population_name, population_accession=population_accession)
+            if not population:
+                logger.debug("Population not found.")
                 return False
-            association_exists = cultivar.belongs_to_experiment(experiment_name=self.experiment_name)
+            association_exists = population.belongs_to_experiment(experiment_name=self.experiment_name)
             return association_exists
         except Exception as e:
-            logger.error(f"Error checking if belongs to cultivar: {e}")
+            logger.error(f"Error checking if belongs to population: {e}")
             return False
 
     # endregion

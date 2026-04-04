@@ -20,9 +20,9 @@ GET {{apiUrl}}/id/{{plantId}}
 # @name GetPlotsByPlantId
 GET {{apiUrl}}/id/{{plantId}}/plot
 
-### Get associated cultivar by plant ID
-# @name GetCultivarByPlantId
-GET {{apiUrl}}/id/{{plantId}}/cultivar
+### Get associated population by plant ID
+# @name GetPopulationByPlantId
+GET {{apiUrl}}/id/{{plantId}}/population
 
 ### Create a new plant
 # @name CreatePlant
@@ -35,8 +35,8 @@ Content-Type: application/json
         "plant_description": "Test Description",
         "plant_notes": "Test Notes"
     },
-    "cultivar_accession": "Accession A1",
-    "cultivar_population": "Population A",
+    "population_accession": "Accession A1",
+    "population_name": "Population A",
     "experiment_name": "Experiment A",
     "season_name": "Season 1A",
     "site_name": "Site A1",

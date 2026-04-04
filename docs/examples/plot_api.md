@@ -21,8 +21,8 @@ new_plot = Plot.create(
     experiment_name="Experiment A",
     season_name="Season 1A",
     site_name="Site A1",
-    cultivar_accession="Accession A1",
-    cultivar_population="Population A"
+    population_accession="Accession A1",
+    population_name="Population A"
 )
 print(f"Created New Plot: {new_plot}")
 
@@ -101,7 +101,7 @@ print(f"Plot exists after deletion: {exists_after_deletion}")
 
 This example demonstrates the basic operations for managing plots using the Gemini API:
 
-*   **Creating a plot:** The `Plot.create()` method is used to create a new plot with a plot number, row number, column number, additional information, geometry information, and associated experiment, season, site, and cultivar.
+*   **Creating a plot:** The `Plot.create()` method is used to create a new plot with a plot number, row number, column number, additional information, geometry information, and associated experiment, season, site, and population.
 *   **Getting a plot:** The `Plot.get_by_id()` method retrieves a plot by its unique ID. The `Plot.get()` method retrieves a plot by its plot number, row number, column number, and associated experiment, season, and site.
 *   **Getting all plots:** The `Plot.get_all()` method retrieves all plots in the database.
 *   **Searching for plots:** The `Plot.search()` method finds plots based on specified criteria, such as the experiment name.

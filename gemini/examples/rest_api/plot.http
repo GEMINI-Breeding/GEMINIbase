@@ -16,9 +16,9 @@ GET {{apiUrl}}/?experiment_name=Experiment+A
 # @name GetPlotById
 GET {{apiUrl}}/id/{{plotId}}
 
-### Get all associated cultivars by plot ID
-# @name GetCultivarsByPlotId
-GET {{apiUrl}}/id/{{plotId}}/cultivars
+### Get all associated populations by plot ID
+# @name GetPopulationsByPlotId
+GET {{apiUrl}}/id/{{plotId}}/populations
 
 ### Get associated experiment by plot ID
 # @name GetExperimentByPlotId
@@ -45,8 +45,8 @@ Content-Type: application/json
         "plot_description": "Test Description",
         "plot_notes": "Test Notes"
     },
-    "cultivar_accession": "Accession A1",
-    "cultivar_population": "Population A",
+    "population_accession": "Accession A1",
+    "population_name": "Population A",
     "experiment_name": "Experiment A",
     "season_name": "Season 1A",
     "site_name": "Site A1"

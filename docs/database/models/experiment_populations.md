@@ -1,10 +1,10 @@
-# Experiment Cultivars
+# Experiment Populations
 
-The `experiment_cultivars` table links experiments with the cultivars being studied.
+The `experiment_populations` table links experiments with the populations being studied.
 
 ## Table Schema
 
 | Column Name     | Data Type | Description                                             |
 | --------------- | --------- | ------------------------------------------------------- |
 | `experiment_id` | `UUID`    | **Primary Key, Foreign Key.** Links to `experiments.id`. |
-| `cultivar_id`   | `UUID`    | **Primary Key, Foreign Key.** Links to `cultivars.id`.   |
+| `population_id`   | `UUID`    | **Primary Key, Foreign Key.** Links to `populations.id`.   |

@@ -35,9 +35,9 @@ def make_trait(name="Assoc Trait"):
     from gemini.db.models.traits import TraitModel
     return TraitModel.get_or_create(trait_name=name)
 
-def make_cultivar(acc="AACC", pop="APOP"):
-    from gemini.db.models.cultivars import CultivarModel
-    return CultivarModel.get_or_create(cultivar_accession=acc, cultivar_population=pop)
+def make_population(acc="AACC", pop="APOP"):
+    from gemini.db.models.populations import PopulationModel
+    return PopulationModel.get_or_create(population_accession=acc, population_name=pop)
 
 def make_dataset(name="Assoc Dataset"):
     from gemini.db.models.datasets import DatasetModel
@@ -119,12 +119,12 @@ class TestExperimentTraitAssociation:
         assert ExperimentTraitModel.exists(experiment_id=exp.id, trait_id=trait.id)
 
 
-class TestExperimentCultivarAssociation:
+class TestExperimentPopulationAssociation:
     def test_create_and_exists(self, setup_real_db):
-        from gemini.db.models.associations import ExperimentCultivarModel
-        exp, cult = make_experiment("EC1"), make_cultivar("EC1", "P")
-        ExperimentCultivarModel.create(experiment_id=exp.id, cultivar_id=cult.id)
-        assert ExperimentCultivarModel.exists(experiment_id=exp.id, cultivar_id=cult.id)
+        from gemini.db.models.associations import ExperimentPopulationModel
+        exp, cult = make_experiment("EC1"), make_population("EC1", "P")
+        ExperimentPopulationModel.create(experiment_id=exp.id, population_id=cult.id)
+        assert ExperimentPopulationModel.exists(experiment_id=exp.id, population_id=cult.id)
 
 
 class TestExperimentDatasetAssociation:
@@ -163,16 +163,16 @@ class TestExperimentScriptAssociation:
 # Non-experiment associations (9 types)
 # ============================================================
 
-class TestPlotCultivarAssociation:
+class TestPlotPopulationAssociation:
     def test_create_and_exists(self, setup_real_db):
-        from gemini.db.models.associations import PlotCultivarModel
+        from gemini.db.models.associations import PlotPopulationModel
         exp = make_experiment("PC1")
         season = make_season(exp.id, "PC1")
         site = make_site("PC1")
         plot = make_plot(exp.id, season.id, site.id)
-        cult = make_cultivar("PC1", "P")
-        PlotCultivarModel.create(plot_id=plot.id, cultivar_id=cult.id)
-        assert PlotCultivarModel.exists(plot_id=plot.id, cultivar_id=cult.id)
+        cult = make_population("PC1", "P")
+        PlotPopulationModel.create(plot_id=plot.id, population_id=cult.id)
+        assert PlotPopulationModel.exists(plot_id=plot.id, population_id=cult.id)
 
 
 class TestSensorDatasetAssociation:

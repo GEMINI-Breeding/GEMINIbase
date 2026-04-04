@@ -212,15 +212,15 @@ SELECT
     pl.id as plant_id,
     pl.plant_number,
     pl.plant_info,
-    pl.cultivar_id,
-    c.cultivar_accession,
-    c.cultivar_population,
-    c.cultivar_info
+    pl.population_id,
+    c.population_accession,
+    c.population_name,
+    c.population_info
 FROM gemini.plots AS p
 LEFT JOIN gemini.plants AS pl
     ON p.id = pl.plot_id
-LEFT JOIN gemini.cultivars AS c
-    ON pl.cultivar_id = c.id;
+LEFT JOIN gemini.populations AS c
+    ON pl.population_id = c.id;
 
 -------------------------------------------------------------------------------
 -- Materialized View for Plot Information
@@ -247,9 +247,9 @@ LEFT JOIN gemini.seasons s ON p.season_id = s.id
 LEFT JOIN gemini.sites si ON p.site_id = si.id;
 
 -------------------------------------------------------------------------------
--- Materialized view that shows plot cultivar information
+-- Materialized view that shows plot population information
 
-CREATE OR REPLACE VIEW gemini.plot_cultivar_view
+CREATE OR REPLACE VIEW gemini.plot_population_view
 AS
 SELECT
     pv.plot_id AS plot_id,
@@ -264,14 +264,14 @@ SELECT
     pv.season_name AS season_name,
     pv.site_id AS site_id,
     pv.site_name AS site_name,
-    c.id AS cultivar_id,
-    c.cultivar_accession AS cultivar_accession,
-    c.cultivar_population AS cultivar_population,
-    c.cultivar_info AS cultivar_info
+    c.id AS population_id,
+    c.population_accession AS population_accession,
+    c.population_name AS population_name,
+    c.population_info AS population_info
 FROM
     gemini.plot_view pv
-LEFT JOIN gemini.plot_cultivars pc ON pv.plot_id = pc.plot_id
-LEFT JOIN gemini.cultivars c ON pc.cultivar_id = c.id;
+LEFT JOIN gemini.plot_populations pc ON pv.plot_id = pc.plot_id
+LEFT JOIN gemini.populations c ON pc.population_id = c.id;
 
 
 -------------------------------------------------------------------------------
@@ -284,10 +284,10 @@ SELECT
     p.plot_id AS plot_id,
     p.plant_number AS plant_number,
     p.plant_info AS plant_info,
-    p.cultivar_id AS cultivar_id,
-    ppv.cultivar_accession AS cultivar_accession,
-    ppv.cultivar_population AS cultivar_population,
-    ppv.cultivar_info AS cultivar_info,
+    p.population_id AS population_id,
+    ppv.population_accession AS population_accession,
+    ppv.population_name AS population_name,
+    ppv.population_info AS population_info,
     pv.plot_number AS plot_number,
     pv.plot_row_number AS plot_row_number,
     pv.plot_column_number AS plot_column_number,
@@ -410,8 +410,8 @@ LEFT JOIN gemini.experiments e ON es.experiment_id = e.id;
 
 
 -------------------------------------------------------------------------------
--- Materialized View to show Experiment Cultivars
-CREATE OR REPLACE VIEW gemini.experiment_cultivars_view
+-- Materialized View to show Experiment Populations
+CREATE OR REPLACE VIEW gemini.experiment_populations_view
 AS
 SELECT
     e.id AS experiment_id,
@@ -419,13 +419,13 @@ SELECT
     e.experiment_info AS experiment_info,
     e.experiment_start_date AS experiment_start_date,
     e.experiment_end_date AS experiment_end_date,
-    c.id AS cultivar_id,
-    c.cultivar_accession AS cultivar_accession,
-    c.cultivar_population AS cultivar_population,
-    c.cultivar_info AS cultivar_info
+    c.id AS population_id,
+    c.population_accession AS population_accession,
+    c.population_name AS population_name,
+    c.population_info AS population_info
 FROM
-    gemini.cultivars c -- Start from cultivars
-LEFT JOIN gemini.experiment_cultivars ec ON c.id = ec.cultivar_id
+    gemini.populations c -- Start from populations
+LEFT JOIN gemini.experiment_populations ec ON c.id = ec.population_id
 LEFT JOIN gemini.experiments e ON ec.experiment_id = e.id;
 
 

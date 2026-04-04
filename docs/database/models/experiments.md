@@ -22,4 +22,4 @@ The `experiments` table stores information about the experiments conducted.
 
 ## Relationships
 
-The `experiments` table is a central entity and is linked to many other tables through association tables, such as `experiment_sites`, `experiment_sensors`, `experiment_cultivars`, etc., to define the scope and components of each experiment.
+The `experiments` table is a central entity and is linked to many other tables through association tables, such as `experiment_sites`, `experiment_sensors`, `experiment_populations`, etc., to define the scope and components of each experiment.

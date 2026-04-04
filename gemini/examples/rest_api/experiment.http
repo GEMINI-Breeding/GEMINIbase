@@ -55,24 +55,24 @@ Content-Type: application/json
     }
 }
 
-### Get all associated cultivars by experiment ID
-# @name GetCultivarsByExperimentId
-GET {{apiUrl}}/id/{{experimentId}}/cultivars
+### Get all associated populations by experiment ID
+# @name GetPopulationsByExperimentId
+GET {{apiUrl}}/id/{{experimentId}}/populations
 
-### Create a new cultivar for an experiment
-# @name CreateExperimentCultivar
-POST {{apiUrl}}/id/{{experimentId}}/cultivars
+### Create a new population for an experiment
+# @name CreateExperimentPopulation
+POST {{apiUrl}}/id/{{experimentId}}/populations
 Content-Type: application/json
 
 {
-    "cultivar_accession": "Test Accession A",
-    "cultivar_population": "Test Population A",
-    "cultivar_info": {
-        "cultivar_name": "Test Cultivar A",
-        "cultivar_description": "Test Description A",
-        "cultivar_origin": "Test Origin A",
-        "cultivar_usage": "Test Usage A",
-        "cultivar_notes": "Test Notes A"
+    "population_accession": "Test Accession A",
+    "population_name": "Test Population A",
+    "population_info": {
+        "population_name": "Test Population A",
+        "population_description": "Test Description A",
+        "population_origin": "Test Origin A",
+        "population_usage": "Test Usage A",
+        "population_notes": "Test Notes A"
     }
 }
 

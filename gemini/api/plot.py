@@ -1,7 +1,7 @@
 """
-This module defines the Plot class, which represents a plot entity, including its metadata, associations to experiments, seasons, sites, cultivars, and plants, and related operations.
+This module defines the Plot class, which represents a plot entity, including its metadata, associations to experiments, seasons, sites, populations, and plants, and related operations.
 
-It includes methods for creating, retrieving, updating, and deleting plots, as well as methods for checking existence, searching, and managing associations with experiments, seasons, sites, cultivars, and plants.
+It includes methods for creating, retrieving, updating, and deleting plots, as well as methods for checking existence, searching, and managing associations with experiments, seasons, sites, populations, and plants.
 
 This module includes the following methods:
 
@@ -16,7 +16,7 @@ This module includes the following methods:
 - `refresh`: Refresh the plot's data from the database.
 - `get_info`: Get the additional information of the plot.
 - `set_info`: Set the additional information of the plot.
-- Association methods for experiments, seasons, sites, cultivars, and plants.
+- Association methods for experiments, seasons, sites, populations, and plants.
 
 """
 
@@ -27,10 +27,10 @@ from pydantic import Field, AliasChoices
 import logging
 from gemini.api.types import ID
 from gemini.api.base import APIBase
-from gemini.api.cultivar import Cultivar
+from gemini.api.population import Population
 from gemini.db.models.plots import PlotModel
-from gemini.db.models.associations import PlotCultivarModel
-from gemini.db.models.views.plot_cultivar_view import PlotCultivarViewModel
+from gemini.db.models.associations import PlotPopulationModel
+from gemini.db.models.views.plot_population_view import PlotPopulationViewModel
 from gemini.db.models.views.plot_view import PlotViewModel
 
 
@@ -38,13 +38,13 @@ if TYPE_CHECKING:
     from gemini.api.experiment import Experiment
     from gemini.api.season import Season
     from gemini.api.site import Site
-    from gemini.api.cultivar import Cultivar
+    from gemini.api.population import Population
 
 logger = logging.getLogger(__name__)
 
 class Plot(APIBase):
     """
-    Represents a plot entity, including its metadata, associations to experiments, seasons, sites, cultivars, and plants, and related operations.
+    Represents a plot entity, including its metadata, associations to experiments, seasons, sites, populations, and plants, and related operations.
 
     Attributes:
         id (Optional[ID]): The unique identifier of the plot.
@@ -137,11 +137,11 @@ class Plot(APIBase):
         experiment_name: str = None,
         season_name: str = None,
         site_name: str = None,
-        cultivar_accession: str = None,
-        cultivar_population: str = None
+        population_accession: str = None,
+        population_name: str = None
     ) -> Optional["Plot"]:
         """
-        Create a new plot and associate it with experiment, season, site, and cultivar if provided.
+        Create a new plot and associate it with experiment, season, site, and population if provided.
 
         Examples:
             >>> plot = Plot.create(plot_number=1, plot_row_number=2, plot_column_number=3)
@@ -157,8 +157,8 @@ class Plot(APIBase):
             experiment_name (str, optional): The name of the experiment. Defaults to None.
             season_name (str, optional): The name of the season. Defaults to None.
             site_name (str, optional): The name of the site. Defaults to None.
-            cultivar_accession (str, optional): The accession of the cultivar. Defaults to None.
-            cultivar_population (str, optional): The population of the cultivar. Defaults to None.
+            population_accession (str, optional): The accession of the population. Defaults to None.
+            population_name (str, optional): The population of the population. Defaults to None.
         Returns:
             Optional[Plot]: The created plot instance, or None if an error occurred.
         """
@@ -177,8 +177,8 @@ class Plot(APIBase):
                 plot.associate_season(season_name, experiment_name)
             if site_name:
                 plot.associate_site(site_name)
-            if cultivar_accession and cultivar_population:
-                plot.associate_cultivar(cultivar_accession, cultivar_population)
+            if population_accession and population_name:
+                plot.associate_population(population_accession, population_name)
             return plot
         except Exception as e:
             logger.error(f"Error creating plot: {e}")
@@ -292,8 +292,8 @@ class Plot(APIBase):
         experiment_name: str = None,
         season_name: str = None,
         site_name: str = None,
-        cultivar_accession: str = None,
-        cultivar_population: str = None
+        population_accession: str = None,
+        population_name: str = None
     ) -> Optional[List["Plot"]]:
         """
         Search for plots based on various criteria.
@@ -311,8 +311,8 @@ class Plot(APIBase):
             experiment_name (str, optional): The name of the experiment. Defaults to None.
             season_name (str, optional): The name of the season. Defaults to None.
             site_name (str, optional): The name of the site. Defaults to None.
-            cultivar_accession (str, optional): The accession of the cultivar. Defaults to None.
-            cultivar_population (str, optional): The population of the cultivar. Defaults to None.
+            population_accession (str, optional): The accession of the population. Defaults to None.
+            population_name (str, optional): The population of the population. Defaults to None.
         Returns:
             Optional[List[Plot]]: A list of matching plots, or None if not found.
         """
@@ -328,8 +328,8 @@ class Plot(APIBase):
                 experiment_name=experiment_name,
                 season_name=season_name,
                 site_name=site_name,
-                cultivar_accession=cultivar_accession,
-                cultivar_population=cultivar_population
+                population_accession=population_accession,
+                population_name=population_name
             )
             if not plots or len(plots) == 0:
                 logger.info("No plots found with the provided search parameters.")
@@ -900,161 +900,161 @@ class Plot(APIBase):
             logger.error(f"Error unassigning site from plot: {e}")
             return None
 
-    def get_associated_cultivars(self) -> Optional[List["Cultivar"]]:
+    def get_associated_populations(self) -> Optional[List["Population"]]:
         """
-        Get all cultivars associated with this plot.
+        Get all populations associated with this plot.
 
         Examples:
             >>> plot = Plot.get_by_id(UUID('...'))
-            >>> cultivars = plot.get_associated_cultivars()
-            >>> for cultivar in cultivars:
-            ...     print(cultivar)
-            Cultivar(cultivar_accession='Accession 1', cultivar_population='Population 1', id=UUID(...))
+            >>> populations = plot.get_associated_populations()
+            >>> for population in populations:
+            ...     print(population)
+            Population(population_accession='Accession 1', population_name='Population 1', id=UUID(...))
 
         Returns:
-            Optional[List[Cultivar]]: A list of associated cultivars, or None if not found.
+            Optional[List[Population]]: A list of associated populations, or None if not found.
         """
         try:
-            from gemini.api.cultivar import Cultivar
-            cultivars = PlotCultivarViewModel.search(plot_id=self.id)
-            if not cultivars or len(cultivars) == 0:
-                logger.info("No associated cultivars found for this plot.")
+            from gemini.api.population import Population
+            populations = PlotPopulationViewModel.search(plot_id=self.id)
+            if not populations or len(populations) == 0:
+                logger.info("No associated populations found for this plot.")
                 return None
-            cultivars = [Cultivar.model_validate(cultivar) for cultivar in cultivars]
-            return cultivars
+            populations = [Population.model_validate(population) for population in populations]
+            return populations
         except Exception as e:
-            logger.error(f"Error getting associated cultivars: {e}")
+            logger.error(f"Error getting associated populations: {e}")
             return None
 
-    def associate_cultivar(
+    def associate_population(
         self,
-        cultivar_accession: str,
-        cultivar_population: str
-    ) -> Optional["Cultivar"]:
+        population_accession: str,
+        population_name: str
+    ) -> Optional["Population"]:
         """
-        Associate this plot with a cultivar.
+        Associate this plot with a population.
 
         Examples:
             >>> plot = Plot.get_by_id(UUID('...'))
-            >>> cultivar = plot.associate_cultivar("Accession 1", "Population 1")
-            >>> print(cultivar)
-            Cultivar(cultivar_accession='Accession 1', cultivar_population='Population 1', id=UUID(...))
+            >>> population = plot.associate_population("Accession 1", "Population 1")
+            >>> print(population)
+            Population(population_accession='Accession 1', population_name='Population 1', id=UUID(...))
 
         Args:
-            cultivar_accession (str): The accession of the cultivar.
-            cultivar_population (str): The population of the cultivar.
+            population_accession (str): The accession of the population.
+            population_name (str): The population of the population.
         Returns:
-            Optional[Cultivar]: The associated cultivar, or None if an error occurred.
+            Optional[Population]: The associated population, or None if an error occurred.
         """
         try:
-            from gemini.api.cultivar import Cultivar
-            cultivar = Cultivar.get(
-                cultivar_accession=cultivar_accession,
-                cultivar_population=cultivar_population
+            from gemini.api.population import Population
+            population = Population.get(
+                population_accession=population_accession,
+                population_name=population_name
             )
-            if not cultivar:
-                logger.warning(f"Cultivar {cultivar_accession} {cultivar_population} does not exist.")
+            if not population:
+                logger.warning(f"Population {population_accession} {population_name} does not exist.")
                 return None
-            existing_association = PlotCultivarViewModel.get_by_parameters(
+            existing_association = PlotPopulationViewModel.get_by_parameters(
                 plot_id=self.id,
-                cultivar_id=cultivar.id
+                population_id=population.id
             )
             if existing_association:
-                logger.info(f"Cultivar {cultivar_accession} {cultivar_population} is already assigned to this plot.")
+                logger.info(f"Population {population_accession} {population_name} is already assigned to this plot.")
                 return self
-            new_association = PlotCultivarModel.get_or_create(
+            new_association = PlotPopulationModel.get_or_create(
                 plot_id=self.id,
-                cultivar_id=cultivar.id
+                population_id=population.id
             )
             if not new_association:
-                logger.info(f"Failed to assign cultivar {cultivar_accession} {cultivar_population} to plot {self.id}.")
+                logger.info(f"Failed to assign population {population_accession} {population_name} to plot {self.id}.")
                 return None
             self.refresh()
-            return cultivar
+            return population
         except Exception as e:
-            logger.error(f"Error assigning cultivar to plot: {e}")
+            logger.error(f"Error assigning population to plot: {e}")
             return None
 
-    def unassociate_cultivar(
+    def unassociate_population(
         self,
-        cultivar_accession: str,
-        cultivar_population: str
-    ) -> Optional["Cultivar"]:
+        population_accession: str,
+        population_name: str
+    ) -> Optional["Population"]:
         """
-        Unassociate this plot from a cultivar.
+        Unassociate this plot from a population.
 
         Examples:
             >>> plot = Plot.get_by_id(UUID('...'))
-            >>> cultivar = plot.unassociate_cultivar("Accession 1", "Population 1")
-            >>> print(cultivar)
-            Cultivar(cultivar_accession='Accession 1', cultivar_population='Population 1', id=UUID(...))
+            >>> population = plot.unassociate_population("Accession 1", "Population 1")
+            >>> print(population)
+            Population(population_accession='Accession 1', population_name='Population 1', id=UUID(...))
 
         Args:
-            cultivar_accession (str): The accession of the cultivar.
-            cultivar_population (str): The population of the cultivar.
+            population_accession (str): The accession of the population.
+            population_name (str): The population of the population.
         Returns:
-            Optional[Cultivar]: The unassociated cultivar, or None if an error occurred.
+            Optional[Population]: The unassociated population, or None if an error occurred.
         """
         try:
-            from gemini.api.cultivar import Cultivar
-            cultivar = Cultivar.get(
-                cultivar_accession=cultivar_accession,
-                cultivar_population=cultivar_population
+            from gemini.api.population import Population
+            population = Population.get(
+                population_accession=population_accession,
+                population_name=population_name
             )
-            if not cultivar:
-                logger.warning(f"Cultivar {cultivar_accession} {cultivar_population} does not exist.")
+            if not population:
+                logger.warning(f"Population {population_accession} {population_name} does not exist.")
                 return None
-            existing_association = PlotCultivarModel.get_by_parameters(
+            existing_association = PlotPopulationModel.get_by_parameters(
                 plot_id=self.id,
-                cultivar_id=cultivar.id
+                population_id=population.id
             )
             if not existing_association:
-                logger.info(f"Cultivar {cultivar_accession} {cultivar_population} is not assigned to this plot.")
+                logger.info(f"Population {population_accession} {population_name} is not assigned to this plot.")
                 return None
-            is_deleted = PlotCultivarModel.delete(existing_association)
+            is_deleted = PlotPopulationModel.delete(existing_association)
             if not is_deleted:
-                logger.info(f"Failed to unassign cultivar {cultivar_accession} {cultivar_population} from plot {self.id}.")
+                logger.info(f"Failed to unassign population {population_accession} {population_name} from plot {self.id}.")
                 return None
             self.refresh()
-            return cultivar
+            return population
         except Exception as e:
-            logger.error(f"Error unassigning cultivar from plot: {e}")
+            logger.error(f"Error unassigning population from plot: {e}")
             return None
 
-    def belongs_to_cultivar(
+    def belongs_to_population(
         self,
-        cultivar_accession: str,
-        cultivar_population: str
+        population_accession: str,
+        population_name: str
     ) -> bool:
         """
-        Check if this plot is associated with a specific cultivar.
+        Check if this plot is associated with a specific population.
 
         Examples:
             >>> plot = Plot.get_by_id(UUID('...'))
-            >>> is_associated = plot.belongs_to_cultivar("Accession 1", "Population 1")
+            >>> is_associated = plot.belongs_to_population("Accession 1", "Population 1")
             >>> print(is_associated)
             True
 
         Args:
-            cultivar_accession (str): The accession of the cultivar.
-            cultivar_population (str): The population of the cultivar.
+            population_accession (str): The accession of the population.
+            population_name (str): The population of the population.
         Returns:
             bool: True if associated, False otherwise.
         """
         try:
-            from gemini.api.cultivar import Cultivar
-            cultivar = Cultivar.get(
-                cultivar_accession=cultivar_accession,
-                cultivar_population=cultivar_population
+            from gemini.api.population import Population
+            population = Population.get(
+                population_accession=population_accession,
+                population_name=population_name
             )
-            if not cultivar:
-                logger.warning(f"Cultivar {cultivar_accession} {cultivar_population} does not exist.")
+            if not population:
+                logger.warning(f"Population {population_accession} {population_name} does not exist.")
                 return False
-            association_exists = PlotCultivarViewModel.exists(
+            association_exists = PlotPopulationViewModel.exists(
                 plot_id=self.id,
-                cultivar_id=cultivar.id
+                population_id=population.id
             )
             return association_exists
         except Exception as e:
-            logger.error(f"Error checking if plot has cultivar: {e}")
+            logger.error(f"Error checking if plot has population: {e}")
             return False

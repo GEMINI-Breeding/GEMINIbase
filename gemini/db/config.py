@@ -3,19 +3,21 @@ Configuration for the database connection.
 """
 
 import os
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator
 from sqlalchemy.pool import QueuePool, AsyncAdaptedQueuePool
 
 class DatabaseConfig(BaseModel):
     """
     Database configuration settings.
-    
+
     Features:
     - Environment variable-based configuration
     - Validation and parsing of database URLs
     - Support for both sync and async database URLs
     - Configurable connection pool settings
     """
+
+    model_config = ConfigDict(env_file=".env", env_file_encoding="utf-8")
 
     database_url: str
     pool_size: int = 10
@@ -33,7 +35,3 @@ class DatabaseConfig(BaseModel):
         if not v:
             raise ValueError("Database URL must be provided")
         return v
-
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"

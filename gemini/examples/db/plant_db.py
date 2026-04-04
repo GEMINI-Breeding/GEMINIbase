@@ -8,7 +8,7 @@ print("Plants:")
 for plant in plants:
     print(f"{plant.id}: {plant.plant_number}")
 
-    # Print Cultivar
-    print(f"Cultivar: {plant.cultivar.cultivar_accession} {plant.cultivar.cultivar_population}")
+    # Print Population
+    print(f"Population: {plant.population.population_accession} {plant.population.population_name}")
 
 

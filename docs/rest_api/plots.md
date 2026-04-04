@@ -54,8 +54,8 @@ The Plots API provides endpoints for managing and retrieving plot data and their
   - `experiment_name`: The name of the associated experiment.
   - `season_name`: The name of the season.
   - `site_name`: The name of the site.
-  - `cultivar_accession`: The accession number of the associated cultivar.
-  - `cultivar_population`: The population of the associated cultivar.
+  - `population_accession`: The accession number of the associated population.
+  - `population_name`: The population of the associated population.
 - **Responses:**
   - `200 OK`: The newly created plot object.
   - `500 Internal Server Error`: If the plot cannot be created.
@@ -90,14 +90,14 @@ The Plots API provides endpoints for managing and retrieving plot data and their
   - `404 Not Found`: If the plot with the given ID is not found.
   - `500 Internal Server Error`: If the plot cannot be deleted.
 
-## Get Plot Cultivars
+## Get Plot Populations
 
-- **Endpoint:** `/id/{plot_id}/cultivars`
+- **Endpoint:** `/id/{plot_id}/populations`
 - **Method:** `GET`
-- **Description:** Retrieves all cultivars associated with a specific plot.
+- **Description:** Retrieves all populations associated with a specific plot.
 - **Responses:**
-  - `200 OK`: A list of associated cultivar objects.
-  - `404 Not Found`: If the plot is not found or has no associated cultivars.
+  - `200 OK`: A list of associated population objects.
+  - `404 Not Found`: If the plot is not found or has no associated populations.
   - `500 Internal Server Error`: If an error occurs during the process.
 
 ## Get Plot Experiment

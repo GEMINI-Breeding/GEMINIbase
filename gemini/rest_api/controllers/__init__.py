@@ -1,4 +1,4 @@
-from gemini.rest_api.controllers.cultivar import CultivarController
+from gemini.rest_api.controllers.population import PopulationController
 from gemini.rest_api.controllers.data_format import DataFormatController
 from gemini.rest_api.controllers.data_type import DataTypeController
 from gemini.rest_api.controllers.dataset_type import DatasetTypeController
@@ -19,7 +19,7 @@ from gemini.rest_api.controllers.procedure import ProcedureController
 from gemini.rest_api.controllers.files import FileController
 
 controllers = {
-    "cultivars": CultivarController,
+    "populations": PopulationController,
     "data_formats": DataFormatController,
     "data_types": DataTypeController,
     "dataset_types": DatasetTypeController,

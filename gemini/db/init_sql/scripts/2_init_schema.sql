@@ -59,20 +59,20 @@ CREATE INDEX IF NOT EXISTS idx_sites_info ON gemini.sites USING GIN (site_info);
 ALTER TABLE gemini.sites ADD CONSTRAINT site_unique UNIQUE (site_name, site_city, site_state, site_country);
 
 -------------------------------------------------------------------------------
--- Cultivars Table
--- Each experiment can have multiple cultivars, and they are a combination of accession and population
-CREATE TABLE IF NOT EXISTS gemini.cultivars (
+-- Populations Table
+-- Each experiment can have multiple populations, and they are a combination of accession and population
+CREATE TABLE IF NOT EXISTS gemini.populations (
     id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
-    cultivar_accession VARCHAR(255) NOT NULL,
-    cultivar_population VARCHAR(255) NOT NULL,
-    cultivar_info JSONB DEFAULT '{}',
+    population_accession VARCHAR(255) NOT NULL,
+    population_name VARCHAR(255) NOT NULL,
+    population_info JSONB DEFAULT '{}',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_cultivars_info ON gemini.cultivars USING GIN (cultivar_info);
+CREATE INDEX IF NOT EXISTS idx_populations_info ON gemini.populations USING GIN (population_info);
 
-ALTER TABLE gemini.cultivars ADD CONSTRAINT cultivar_unique UNIQUE (cultivar_accession, cultivar_population);
+ALTER TABLE gemini.populations ADD CONSTRAINT population_unique UNIQUE (population_accession, population_name);
 
 -------------------------------------------------------------------------------
 -- Plots Table
@@ -104,7 +104,7 @@ CREATE TABLE IF NOT EXISTS gemini.plants (
     plot_id uuid REFERENCES gemini.plots(id) ON DELETE CASCADE,
     plant_number INTEGER,
     plant_info JSONB DEFAULT '{}',
-    cultivar_id uuid REFERENCES gemini.cultivars(id) ON DELETE SET NULL,
+    population_id uuid REFERENCES gemini.populations(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

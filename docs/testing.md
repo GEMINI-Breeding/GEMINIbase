@@ -89,7 +89,7 @@ Environment variables are set to test defaults (localhost, test credentials).
 
 | Area | What is tested |
 |------|---------------|
-| **Entity CRUD** | Create, read, update, delete, search, exists, count for all entity types (Experiment, Site, Season, Cultivar, Plot, Plant, Sensor, Trait, Dataset, Model, Script, Procedure, and their runs) |
+| **Entity CRUD** | Create, read, update, delete, search, exists, count for all entity types (Experiment, Site, Season, Population, Plot, Plant, Sensor, Trait, Dataset, Model, Script, Procedure, and their runs) |
 | **Associations** | All 18 association table types — create, exists, cascade delete |
 | **Record tables** | Insert, bulk insert, search, stream, pagination for all 6 record types (sensor, trait, dataset, model, procedure, script) |
 | **REST API** | CRUD endpoints for all 18 controllers, pagination, search, seed data verification, error responses |

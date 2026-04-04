@@ -22,8 +22,8 @@ The Plants API provides endpoints for managing and retrieving plant data.
   - `plot_number` (optional): The number of the plot.
   - `plot_row_number` (optional): The row number of the plot.
   - `plot_column_number` (optional): The column number of the plot.
-  - `cultivar_accession` (optional): The accession number of the cultivar.
-  - `cultivar_population` (optional): The population of the cultivar.
+  - `population_accession` (optional): The accession number of the population.
+  - `population_name` (optional): The population of the population.
   - `experiment_name` (optional): The name of the associated experiment.
   - `season_name` (optional): The name of the season.
   - `site_name` (optional): The name of the site.
@@ -53,8 +53,8 @@ The Plants API provides endpoints for managing and retrieving plant data.
 - **Request Body:**
   - `plant_number`: The number of the plant.
   - `plant_info`: Additional information about the plant.
-  - `cultivar_accession`: The accession number of the cultivar.
-  - `cultivar_population`: The population of the cultivar.
+  - `population_accession`: The accession number of the population.
+  - `population_name`: The population of the population.
   - `experiment_name`: The name of the associated experiment.
   - `season_name`: The name of the season.
   - `site_name`: The name of the site.
@@ -92,14 +92,14 @@ The Plants API provides endpoints for managing and retrieving plant data.
   - `404 Not Found`: If the plant with the given ID is not found.
   - `500 Internal Server Error`: If the plant cannot be deleted.
 
-## Get Plant Cultivar
+## Get Plant Population
 
-- **Endpoint:** `/id/{plant_id}/cultivar`
+- **Endpoint:** `/id/{plant_id}/population`
 - **Method:** `GET`
-- **Description:** Retrieves the cultivar associated with a specific plant.
+- **Description:** Retrieves the population associated with a specific plant.
 - **Responses:**
-  - `200 OK`: The associated cultivar object.
-  - `404 Not Found`: If the plant or its associated cultivar is not found.
+  - `200 OK`: The associated population object.
+  - `404 Not Found`: If the plant or its associated population is not found.
   - `500 Internal Server Error`: If an error occurs during the process.
 
 ## Get Associated Plot

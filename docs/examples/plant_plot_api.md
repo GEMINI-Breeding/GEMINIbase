@@ -29,8 +29,8 @@ new_plot = Plot.create(
     experiment_name="Experiment A",
     season_name="Season 1A",
     site_name="Site A1",
-    cultivar_accession="Accession A1",
-    cultivar_population="Population A"
+    population_accession="Accession A1",
+    population_name="Population A"
 )
 print(f"Created New Plot: {new_plot}")
 
@@ -77,7 +77,7 @@ print(f"Is Plant unassociated from Plot: {is_unassociated_plot}")
 This example demonstrates how to manage the association between plots and plants:
 
 *   **Creating a plant:** The `Plant.create()` method is used to create a new plant with a plant number and additional information.
-*   **Creating a plot:** The `Plot.create()` method is used to create a new plot with plot information, additional information, and associated experiment, season, site, and cultivar.
+*   **Creating a plot:** The `Plot.create()` method is used to create a new plot with plot information, additional information, and associated experiment, season, site, and population.
 *   **Associating with a plot:** The `associate_plot()` method associates the plant with the created plot.
 *   **Checking association:** The `belongs_to_plot()` method verifies if the plant is associated with a specific plot.
 *   **Unassociating from a plot:** The `unassociate_plot()` method removes the association between the plant and the plot.

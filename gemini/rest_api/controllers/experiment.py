@@ -11,7 +11,7 @@ from gemini.rest_api.models import ExperimentInput, ExperimentOutput, Experiment
 from gemini.rest_api.models import (
     SeasonOutput,
     SiteOutput,
-    CultivarOutput,
+    PopulationOutput,
     SensorPlatformOutput,
     TraitOutput,
     SensorOutput,
@@ -35,10 +35,10 @@ class ExperimentSiteInput(BaseModel):
     site_state: Optional[str] = None
     site_country: Optional[str] = None
 
-class ExperimentCultivarInput(BaseModel):
-    cultivar_population: str
-    cultivar_accession: Optional[str] = None
-    cultivar_info: Optional[JSONB] = {}
+class ExperimentPopulationInput(BaseModel):
+    population_name: str
+    population_accession: Optional[str] = None
+    population_info: Optional[JSONB] = {}
 
 class ExperimentSensorPlatformInput(BaseModel):
     sensor_platform_name: str
@@ -362,11 +362,11 @@ class ExperimentController(Controller):
             return Response(content=error, status_code=500)
         
 
-    # Get Experiment Cultivars
-    @get(path="/id/{experiment_id:str}/cultivars", sync_to_thread=True)
-    def get_experiment_cultivars(
+    # Get Experiment Populations
+    @get(path="/id/{experiment_id:str}/populations", sync_to_thread=True)
+    def get_experiment_populations(
         self, experiment_id: str
-    ) -> List[CultivarOutput]:
+    ) -> List[PopulationOutput]:
         try:
             experiment = Experiment.get_by_id(id=experiment_id)
             if experiment is None:
@@ -375,27 +375,27 @@ class ExperimentController(Controller):
                     error_description="No experiment was found with the given ID"
                 ).to_html()
                 return Response(content=error, status_code=404)
-            cultivars = experiment.get_associated_cultivars()
-            if cultivars is None:
+            populations = experiment.get_associated_populations()
+            if populations is None:
                 error = RESTAPIError(
-                    error="No cultivars found",
-                    error_description="No cultivars were found for the given experiment"
+                    error="No populations found",
+                    error_description="No populations were found for the given experiment"
                 )
                 return Response(content=error, status_code=404)
-            return cultivars
+            return populations
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),
-                error_description="An error occurred while retrieving the experiment cultivars"
+                error_description="An error occurred while retrieving the experiment populations"
             )
             return Response(content=error, status_code=500)
 
     
-    # Create Cultivar for Experiment
-    @post(path="/id/{experiment_id:str}/cultivars", sync_to_thread=True)
-    def create_experiment_cultivar(
-        self, experiment_id: str, data: Annotated[ExperimentCultivarInput, Body]
-    ) -> CultivarOutput:
+    # Create Population for Experiment
+    @post(path="/id/{experiment_id:str}/populations", sync_to_thread=True)
+    def create_experiment_population(
+        self, experiment_id: str, data: Annotated[ExperimentPopulationInput, Body]
+    ) -> PopulationOutput:
         try:
             experiment = Experiment.get_by_id(id=experiment_id)
             if experiment is None:
@@ -404,22 +404,22 @@ class ExperimentController(Controller):
                     error_description="No experiment was found with the given ID"
                 )
                 return Response(content=error, status_code=404)
-            cultivar = experiment.create_new_cultivar(
-                cultivar_population=data.cultivar_population,
-                cultivar_accession=data.cultivar_accession,
-                cultivar_info=data.cultivar_info
+            population = experiment.create_new_population(
+                population_name=data.population_name,
+                population_accession=data.population_accession,
+                population_info=data.population_info
             )
-            if not cultivar:
+            if not population:
                 error = RESTAPIError(
-                    error="Cultivar not created",
-                    error_description="The cultivar could not be created"
+                    error="Population not created",
+                    error_description="The population could not be created"
                 )
                 return Response(content=error, status_code=500)
-            return cultivar
+            return population
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),
-                error_description="An error occurred while creating the experiment cultivar"
+                error_description="An error occurred while creating the experiment population"
             )
             return Response(content=error, status_code=500)
         

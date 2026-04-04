@@ -1,5 +1,5 @@
 from gemini.api.plot import Plot
-from gemini.api.cultivar import Cultivar
+from gemini.api.population import Population
 
 # Create a plot object
 new_plot = Plot.create(
@@ -17,21 +17,21 @@ new_plot = Plot.create(
 )
 print(f"Plot created: {new_plot}")
 
-# Create a new cultivar for Experiment A
-new_cultivar = Cultivar.create(
-    cultivar_accession="Test Cultivar",
-    cultivar_population="Test Population",
+# Create a new population for Experiment A
+new_population = Population.create(
+    population_accession="Test Population",
+    population_name="Test Population",
     experiment_name="Experiment A",
-    cultivar_info={
-        "cultivar_type": "test",
-        "cultivar_size": 100,
-        "cultivar_location": "test_location",
+    population_info={
+        "population_type": "test",
+        "population_size": 100,
+        "population_location": "test_location",
     }
 )
-print(f"Cultivar created: {new_cultivar}")
+print(f"Population created: {new_population}")
 
-# Associate the plot with the cultivar
-new_cultivar.associate_plot(
+# Associate the plot with the population
+new_population.associate_plot(
     plot_number=new_plot.plot_number,
     plot_row_number=new_plot.plot_row_number,
     plot_column_number=new_plot.plot_column_number,
@@ -39,15 +39,15 @@ new_cultivar.associate_plot(
     season_name=new_plot.season_name,
     site_name=new_plot.site_name
 )
-print(f"Plot {new_plot.plot_number} associated with Cultivar {new_cultivar.cultivar_accession}")
+print(f"Plot {new_plot.plot_number} associated with Population {new_population.population_accession}")
 
-# Get all the plots associated with the cultivar
-associated_plots = new_cultivar.get_associated_plots()
+# Get all the plots associated with the population
+associated_plots = new_population.get_associated_plots()
 for plot in associated_plots:
     print(f"Associated Plot: {plot.plot_number}, Row: {plot.plot_row_number}, Column: {plot.plot_column_number}")
 
-# Check association of plot with cultivar
-is_associated = new_cultivar.belongs_to_plot(
+# Check association of plot with population
+is_associated = new_population.belongs_to_plot(
     plot_number=new_plot.plot_number,
     plot_row_number=new_plot.plot_row_number,
     plot_column_number=new_plot.plot_column_number,
@@ -55,10 +55,10 @@ is_associated = new_cultivar.belongs_to_plot(
     season_name=new_plot.season_name,
     site_name=new_plot.site_name
 )
-print(f"Is Plot {new_plot.plot_number} associated with Cultivar {new_cultivar.cultivar_accession}? {is_associated}")
+print(f"Is Plot {new_plot.plot_number} associated with Population {new_population.population_accession}? {is_associated}")
 
 # Remove the association
-new_cultivar.unassociate_plot(
+new_population.unassociate_plot(
     plot_number=new_plot.plot_number,
     plot_row_number=new_plot.plot_row_number,
     plot_column_number=new_plot.plot_column_number,
@@ -66,10 +66,10 @@ new_cultivar.unassociate_plot(
     season_name=new_plot.season_name,
     site_name=new_plot.site_name
 )
-print(f"Plot {new_plot.plot_number} unassociated from Cultivar {new_cultivar.cultivar_accession}")
+print(f"Plot {new_plot.plot_number} unassociated from Population {new_population.population_accession}")
 
 # Check if the plot is still associated
-is_associated = new_cultivar.belongs_to_plot(
+is_associated = new_population.belongs_to_plot(
     plot_number=new_plot.plot_number,
     plot_row_number=new_plot.plot_row_number,
     plot_column_number=new_plot.plot_column_number,
@@ -77,4 +77,4 @@ is_associated = new_cultivar.belongs_to_plot(
     season_name=new_plot.season_name,
     site_name=new_plot.site_name
 )
-print(f"Is Plot {new_plot.plot_number} associated with Cultivar {new_cultivar.cultivar_accession}? {is_associated}")
+print(f"Is Plot {new_plot.plot_number} associated with Population {new_population.population_accession}? {is_associated}")

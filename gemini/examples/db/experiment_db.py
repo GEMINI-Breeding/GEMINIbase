@@ -14,8 +14,8 @@ for experiment in experiments:
         print(f"Site: {site.site_name}")
     for sensor in experiment.sensors:
         print(f"Sensor: {sensor.sensor_name}")
-    for cultivar in experiment.cultivars:
-        print(f"Cultivar: {cultivar.cultivar_accession} {cultivar.cultivar_population}")
+    for population in experiment.populations:
+        print(f"Population: {population.population_accession} {population.population_name}")
     for dataset in experiment.datasets:
         print(f"Dataset: {dataset.dataset_name}")
     for trait in experiment.traits:

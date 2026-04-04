@@ -10,9 +10,9 @@ The `plot_plant_view` table combines information from plots and plants.
 | `plot_id`             | `UUID`         |  Unique identifier for the plot where the plant is located.                                             |
 | `plant_number`        | `Integer`      | The number of the plant within the plot.                                                         |
 | `plant_info`          | `JSONB`        | Additional JSONB data for the plant.                                                             |
-| `cultivar_id`         | `UUID`         |  Unique identifier for the cultivar of the plant.                                                               |
-| `cultivar_accession`  | `String`       | The accession identifier for the cultivar.                                                       |
-| `cultivar_population` | `String`       | The population name of the cultivar.                                                             |
+| `population_id`         | `UUID`         |  Unique identifier for the population of the plant.                                                               |
+| `population_accession`  | `String`       | The accession identifier for the population.                                                       |
+| `population_name` | `String`       | The population name of the population.                                                             |
 | `plot_id`             | `UUID`         |  Unique identifier for the plot.                                                                  |
 | `plot_number`        | `Integer`      | The number of the plot.                                                                          |
 | `plot_row_number`    | `Integer`      | The row number of the plot in a grid layout.                                                     |

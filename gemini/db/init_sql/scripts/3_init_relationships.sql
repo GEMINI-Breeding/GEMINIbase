@@ -76,18 +76,18 @@ CREATE TABLE IF NOT EXISTS gemini.experiment_traits (
 ALTER TABLE gemini.experiment_traits ADD CONSTRAINT experiment_trait_unique UNIQUE (experiment_id, trait_id);
 
 -------------------------------------------------------------------------------
--- Experiment Cultivars Table
+-- Experiment Populations Table
 
-CREATE TABLE IF NOT EXISTS gemini.experiment_cultivars (
+CREATE TABLE IF NOT EXISTS gemini.experiment_populations (
     experiment_id UUID REFERENCES gemini.experiments(id) ON DELETE CASCADE,
-    cultivar_id UUID REFERENCES gemini.cultivars(id) ON DELETE CASCADE,
+    population_id UUID REFERENCES gemini.populations(id) ON DELETE CASCADE,
     info JSONB DEFAULT '{}',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (experiment_id, cultivar_id)
+    PRIMARY KEY (experiment_id, population_id)
 );
 
-ALTER TABLE gemini.experiment_cultivars ADD CONSTRAINT experiment_cultivar_unique UNIQUE (experiment_id, cultivar_id);
+ALTER TABLE gemini.experiment_populations ADD CONSTRAINT experiment_population_unique UNIQUE (experiment_id, population_id);
 
 -------------------------------------------------------------------------------
 -- Experiment Datasets Table
@@ -146,18 +146,18 @@ CREATE TABLE IF NOT EXISTS gemini.experiment_scripts (
 ALTER TABLE gemini.experiment_scripts ADD CONSTRAINT experiment_script_unique UNIQUE (experiment_id, script_id);
 
 -------------------------------------------------------------------------------
--- Plot Cultivars Table
+-- Plot Populations Table
 
-CREATE TABLE IF NOT EXISTS gemini.plot_cultivars (
+CREATE TABLE IF NOT EXISTS gemini.plot_populations (
     plot_id UUID REFERENCES gemini.plots(id) ON DELETE CASCADE,
-    cultivar_id UUID REFERENCES gemini.cultivars(id) ON DELETE CASCADE,
+    population_id UUID REFERENCES gemini.populations(id) ON DELETE CASCADE,
     info JSONB DEFAULT '{}',
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (plot_id, cultivar_id)
+    PRIMARY KEY (plot_id, population_id)
 );
 
-ALTER TABLE gemini.plot_cultivars ADD CONSTRAINT plot_cultivar_unique UNIQUE (plot_id, cultivar_id);
+ALTER TABLE gemini.plot_populations ADD CONSTRAINT plot_population_unique UNIQUE (plot_id, population_id);
 
 -------------------------------------------------------------------------------
 -- Trait Sensors Table

@@ -21,8 +21,8 @@ new_plant = Plant.create(
     experiment_name="Experiment A",
     season_name="Season 1A",
     site_name="Site A1",
-    cultivar_accession="Accession A1",
-    cultivar_population="Population A"
+    population_accession="Accession A1",
+    population_name="Population A"
 )
 print(f"Created New Plant: {new_plant}")
 
@@ -101,7 +101,7 @@ print(f"Does the plant exist after deletion? {exists_after_deletion}")
 
 This example demonstrates the basic operations for managing plants using the Gemini API:
 
-*   **Creating a plant:** The `Plant.create()` method is used to create a new plant with a plant number, plot information, additional information, and associated experiment, season, site, and cultivar.
+*   **Creating a plant:** The `Plant.create()` method is used to create a new plant with a plant number, plot information, additional information, and associated experiment, season, site, and population.
 *   **Getting a plant:** The `Plant.get_by_id()` method retrieves a plant by its unique ID. The `Plant.get()` method retrieves a plant by its plant number, plot information, and associated experiment, season, and site.
 *   **Getting all plants:** The `Plant.get_all()` method retrieves all plants in the database.
 *   **Searching for plants:** The `Plant.search()` method finds plants based on specified criteria, such as the experiment name.

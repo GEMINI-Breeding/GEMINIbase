@@ -1,10 +1,10 @@
-# Plot Cultivars
+# Plot Populations
 
-The `plot_cultivars` table links plots to the cultivars planted in them.
+The `plot_populations` table links plots to the populations planted in them.
 
 ## Table Schema
 
 | Column Name   | Data Type | Description                                           |
 | ------------- | --------- | ----------------------------------------------------- |
 | `plot_id`     | `UUID`    | **Primary Key, Foreign Key.** Links to `plots.id`.     |
-| `cultivar_id` | `UUID`    | **Primary Key, Foreign Key.** Links to `cultivars.id`. |
+| `population_id` | `UUID`    | **Primary Key, Foreign Key.** Links to `populations.id`. |

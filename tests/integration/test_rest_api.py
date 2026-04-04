@@ -116,12 +116,12 @@ class TestSiteEndpoints:
         assert resp3.status_code in (404, 500)
 
 
-class TestCultivarEndpoints:
+class TestPopulationEndpoints:
 
-    def test_create_cultivar(self, client, setup_real_db):
-        resp = client.post("/api/cultivars", json={
-            "cultivar_population": "Pop A",
-            "cultivar_accession": "Acc 001",
+    def test_create_population(self, client, setup_real_db):
+        resp = client.post("/api/populations", json={
+            "population_name": "Pop A",
+            "population_accession": "Acc 001",
         })
         assert resp.status_code in (200, 201), resp.text
 

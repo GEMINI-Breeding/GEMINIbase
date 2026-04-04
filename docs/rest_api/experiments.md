@@ -131,28 +131,28 @@ The Experiments API provides endpoints for managing and retrieving experiment da
   - `200 OK`: The newly created site object.
   - `500 Internal Server Error`: If the site cannot be created.
 
-## Get Experiment Cultivars
+## Get Experiment Populations
 
-- **Endpoint:** `/id/{experiment_id}/cultivars`
+- **Endpoint:** `/id/{experiment_id}/populations`
 - **Method:** `GET`
-- **Description:** Retrieves all cultivars associated with a specific experiment.
+- **Description:** Retrieves all populations associated with a specific experiment.
 - **Responses:**
-  - `200 OK`: A list of associated cultivar objects.
-  - `404 Not Found`: If the experiment is not found or has no associated cultivars.
+  - `200 OK`: A list of associated population objects.
+  - `404 Not Found`: If the experiment is not found or has no associated populations.
   - `500 Internal Server Error`: If an error occurs during the process.
 
-## Create Cultivar for Experiment
+## Create Population for Experiment
 
-- **Endpoint:** `/id/{experiment_id}/cultivars`
+- **Endpoint:** `/id/{experiment_id}/populations`
 - **Method:** `POST`
-- **Description:** Creates a new cultivar for a specific experiment.
+- **Description:** Creates a new population for a specific experiment.
 - **Request Body:**
-  - `cultivar_population`: The population of the cultivar.
-  - `cultivar_accession`: The accession number of the cultivar.
-  - `cultivar_info`: Additional information about the cultivar.
+  - `population_name`: The population of the population.
+  - `population_accession`: The accession number of the population.
+  - `population_info`: Additional information about the population.
 - **Responses:**
-  - `200 OK`: The newly created cultivar object.
-  - `500 Internal Server Error`: If the cultivar cannot be created.
+  - `200 OK`: The newly created population object.
+  - `500 Internal Server Error`: If the population cannot be created.
 
 ## Get Experiment Sensor Platforms
 

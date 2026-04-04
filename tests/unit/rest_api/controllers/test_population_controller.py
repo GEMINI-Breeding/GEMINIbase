@@ -1,128 +1,128 @@
-"""Tests for the Cultivar controller."""
+"""Tests for the Population controller."""
 import types
 import pytest
 from unittest.mock import patch, MagicMock
-from gemini.rest_api.models import CultivarOutput, ExperimentOutput, PlotOutput, PlantOutput
+from gemini.rest_api.models import PopulationOutput, ExperimentOutput, PlotOutput, PlantOutput
 
 
-API_PATH = "gemini.rest_api.controllers.cultivar.Cultivar"
+API_PATH = "gemini.rest_api.controllers.population.Population"
 
 
 @pytest.fixture
 def mock_output():
     return {
         "id": "cult-uuid",
-        "cultivar_population": "Population A",
-        "cultivar_accession": "Accession 1",
-        "cultivar_info": {},
+        "population_name": "Population A",
+        "population_accession": "Accession 1",
+        "population_info": {},
     }
 
 
-class TestGetAllCultivars:
+class TestGetAllPopulations:
 
     @patch(API_PATH)
     def test_success(self, mock_cls, test_client, mock_output):
-        mock_cls.get_all.return_value = [CultivarOutput(**mock_output)]
-        response = test_client.get("/api/cultivars/all")
+        mock_cls.get_all.return_value = [PopulationOutput(**mock_output)]
+        response = test_client.get("/api/populations/all")
         assert response.status_code == 200
 
     @patch(API_PATH)
     def test_not_found(self, mock_cls, test_client):
         mock_cls.get_all.return_value = None
-        response = test_client.get("/api/cultivars/all")
+        response = test_client.get("/api/populations/all")
         assert response.status_code == 404
 
     @patch(API_PATH)
     def test_error(self, mock_cls, test_client):
         mock_cls.get_all.side_effect = Exception("DB error")
-        response = test_client.get("/api/cultivars/all")
+        response = test_client.get("/api/populations/all")
         assert response.status_code == 500
 
 
-class TestGetCultivars:
+class TestGetPopulations:
 
     @patch(API_PATH)
     def test_search_success(self, mock_cls, test_client, mock_output):
-        mock_cls.search.return_value = [CultivarOutput(**mock_output)]
-        response = test_client.get("/api/cultivars", params={"cultivar_population": "Pop A"})
+        mock_cls.search.return_value = [PopulationOutput(**mock_output)]
+        response = test_client.get("/api/populations", params={"population_name": "Pop A"})
         assert response.status_code == 200
 
     @patch(API_PATH)
     def test_search_not_found(self, mock_cls, test_client):
         mock_cls.search.return_value = None
-        response = test_client.get("/api/cultivars", params={"cultivar_population": "Missing"})
+        response = test_client.get("/api/populations", params={"population_name": "Missing"})
         assert response.status_code == 404
 
 
-class TestGetCultivarById:
+class TestGetPopulationById:
 
     @patch(API_PATH)
     def test_success(self, mock_cls, test_client, mock_output):
-        mock_cls.get_by_id.return_value = CultivarOutput(**mock_output)
-        response = test_client.get("/api/cultivars/id/cult-uuid")
+        mock_cls.get_by_id.return_value = PopulationOutput(**mock_output)
+        response = test_client.get("/api/populations/id/cult-uuid")
         assert response.status_code == 200
 
     @patch(API_PATH)
     def test_not_found(self, mock_cls, test_client):
         mock_cls.get_by_id.return_value = None
-        response = test_client.get("/api/cultivars/id/missing")
+        response = test_client.get("/api/populations/id/missing")
         assert response.status_code == 404
 
 
-class TestCreateCultivar:
+class TestCreatePopulation:
 
     @patch(API_PATH)
     def test_success(self, mock_cls, test_client, mock_output):
-        mock_cls.create.return_value = CultivarOutput(**mock_output)
-        response = test_client.post("/api/cultivars", json={
-            "cultivar_population": "Population A",
+        mock_cls.create.return_value = PopulationOutput(**mock_output)
+        response = test_client.post("/api/populations", json={
+            "population_name": "Population A",
         })
         assert response.status_code == 201
 
     @patch(API_PATH)
     def test_create_returns_none(self, mock_cls, test_client):
         mock_cls.create.return_value = None
-        response = test_client.post("/api/cultivars", json={
-            "cultivar_population": "Population A",
+        response = test_client.post("/api/populations", json={
+            "population_name": "Population A",
         })
         assert response.status_code == 500
 
 
-class TestUpdateCultivar:
+class TestUpdatePopulation:
 
     @patch(API_PATH)
     def test_success(self, mock_cls, test_client, mock_output):
         mock_obj = MagicMock()
-        mock_obj.update.return_value = CultivarOutput(**mock_output)
+        mock_obj.update.return_value = PopulationOutput(**mock_output)
         mock_cls.get_by_id.return_value = mock_obj
-        response = test_client.patch("/api/cultivars/id/cult-uuid", json={
-            "cultivar_population": "Updated",
+        response = test_client.patch("/api/populations/id/cult-uuid", json={
+            "population_name": "Updated",
         })
         assert response.status_code == 200
 
     @patch(API_PATH)
     def test_not_found(self, mock_cls, test_client):
         mock_cls.get_by_id.return_value = None
-        response = test_client.patch("/api/cultivars/id/missing", json={
-            "cultivar_population": "Updated",
+        response = test_client.patch("/api/populations/id/missing", json={
+            "population_name": "Updated",
         })
         assert response.status_code == 404
 
 
-class TestDeleteCultivar:
+class TestDeletePopulation:
 
     @patch(API_PATH)
     def test_success(self, mock_cls, test_client):
         mock_obj = MagicMock()
         mock_obj.delete.return_value = True
         mock_cls.get_by_id.return_value = mock_obj
-        response = test_client.delete("/api/cultivars/id/cult-uuid")
+        response = test_client.delete("/api/populations/id/cult-uuid")
         assert response.status_code in (200, 204)
 
     @patch(API_PATH)
     def test_not_found(self, mock_cls, test_client):
         mock_cls.get_by_id.return_value = None
-        response = test_client.delete("/api/cultivars/id/missing")
+        response = test_client.delete("/api/populations/id/missing")
         assert response.status_code == 404
 
     @patch(API_PATH)
@@ -130,11 +130,11 @@ class TestDeleteCultivar:
         mock_obj = MagicMock()
         mock_obj.delete.return_value = False
         mock_cls.get_by_id.return_value = mock_obj
-        response = test_client.delete("/api/cultivars/id/cult-uuid")
+        response = test_client.delete("/api/populations/id/cult-uuid")
         assert response.status_code == 500
 
 
-class TestCultivarAssociations:
+class TestPopulationAssociations:
 
     @patch(API_PATH)
     def test_get_experiments(self, mock_cls, test_client):
@@ -144,7 +144,7 @@ class TestCultivarAssociations:
             experiment_start_date=None, experiment_end_date=None
         )]
         mock_cls.get_by_id.return_value = mock_obj
-        response = test_client.get("/api/cultivars/id/cult-uuid/experiments")
+        response = test_client.get("/api/populations/id/cult-uuid/experiments")
         assert response.status_code == 200
 
     @patch(API_PATH)
@@ -156,22 +156,22 @@ class TestCultivarAssociations:
             plot_info={}, plot_geometry_info={}
         )]
         mock_cls.get_by_id.return_value = mock_obj
-        response = test_client.get("/api/cultivars/id/cult-uuid/plots")
+        response = test_client.get("/api/populations/id/cult-uuid/plots")
         assert response.status_code == 200
 
     @patch(API_PATH)
     def test_get_plants(self, mock_cls, test_client):
         mock_obj = MagicMock()
         mock_obj.get_associated_plants.return_value = [PlantOutput(
-            id="pl1", plot_id="p1", cultivar_id="c1",
+            id="pl1", plot_id="p1", population_id="c1",
             plant_number=1, plant_info={}
         )]
         mock_cls.get_by_id.return_value = mock_obj
-        response = test_client.get("/api/cultivars/id/cult-uuid/plants")
+        response = test_client.get("/api/populations/id/cult-uuid/plants")
         assert response.status_code == 200
 
     @patch(API_PATH)
-    def test_get_experiments_cultivar_not_found(self, mock_cls, test_client):
+    def test_get_experiments_population_not_found(self, mock_cls, test_client):
         mock_cls.get_by_id.return_value = None
-        response = test_client.get("/api/cultivars/id/missing/experiments")
+        response = test_client.get("/api/populations/id/missing/experiments")
         assert response.status_code == 404

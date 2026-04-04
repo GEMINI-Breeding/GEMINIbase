@@ -18,8 +18,8 @@ new_plot = Plot.create(
     experiment_name="Experiment A",
     season_name="Season 1A",
     site_name="Site A1",
-    cultivar_accession="Accession A1",
-    cultivar_population="Population A"
+    population_accession="Accession A1",
+    population_name="Population A"
 )
 print(f"Created New Plot: {new_plot}")
 

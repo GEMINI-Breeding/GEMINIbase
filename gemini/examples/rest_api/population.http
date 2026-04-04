@@ -1,0 +1,72 @@
+@baseUrl = http://localhost:8000
+@apiUrl = {{baseUrl}}/api/populations
+
+### Get all the populations
+# @name GetAllPopulations
+GET {{apiUrl}}/all
+
+### Get a specific population
+# @name GetPopulation
+GET {{apiUrl}}/?experiment_name=Experiment+A
+
+### Select a population
+@populationId = {{GetPopulation.response.body.$.0.id}}
+
+### Select a population by ID
+# @name GetPopulationById
+GET {{apiUrl}}/id/{{populationId}}
+
+### Get all associated experiments by population ID
+# @name GetExperimentsByPopulationId
+GET {{apiUrl}}/id/{{populationId}}/experiments
+
+### Get all associated plots by population ID
+# @name GetPlotsByPopulationId
+GET {{apiUrl}}/id/{{populationId}}/plots
+
+### Get all associated plants by population ID
+# @name GetPlantsByPopulationId
+GET {{apiUrl}}/id/{{populationId}}/plants
+
+### Create a new population
+# @name CreatePopulation
+POST {{apiUrl}}
+Content-Type: application/json
+
+{
+    "population_accession": "Test Accession Z",
+    "population_name": "Test Population Z",
+    "population_info": {
+        "population_name": "Test Population Z",
+        "population_description": "Test Description Z",
+        "population_origin": "Test Origin Z",
+        "population_usage": "Test Usage Z",
+        "population_notes": "Test Notes Z"
+    },
+    "experiment_name": "Experiment B"
+}
+
+###
+@createdPopulationId = {{CreatePopulation.response.body.id}}
+
+### Update a population
+# @name UpdatePopulation
+PATCH {{apiUrl}}/id/{{createdPopulationId}}
+Content-Type: application/json
+
+{
+    "population_accession": "Updated Accession Z",
+    "population_name": "Updated Population Z",
+    "population_info": {
+        "population_name": "Updated Population Z",
+        "population_description": "Updated Description Z",
+        "population_origin": "Updated Origin Z",
+        "population_usage": "Updated Usage Z",
+        "population_notes": "Updated Notes Z"
+    },
+    "experiment_name": "Experiment B"
+}
+
+### Delete a population
+# @name DeletePopulation
+DELETE {{apiUrl}}/id/{{createdPopulationId}}

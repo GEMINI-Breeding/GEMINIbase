@@ -98,9 +98,9 @@ This view combines information from experiments and sensor platforms.
 | `sensor_platform_name`| `String`       | The name of the sensor platform.                                                                 |
 | `sensor_platform_info`| `JSONB`         | Additional JSONB data for the sensor platform.                                                       |
 
-## Experiment Cultivars View (`experiment_cultivars_view`)
+## Experiment Populations View (`experiment_populations_view`)
 
-This view combines information from experiments and cultivars.
+This view combines information from experiments and populations.
 
 ### View Schema
 
@@ -111,10 +111,10 @@ This view combines information from experiments and cultivars.
 | `experiment_info`       | `JSONB`         | Additional JSONB data for the experiment.                                                            |
 | `experiment_start_date` | `String`       | The start date of the experiment.                                                                |
 | `experiment_end_date`   | `String`       | The end date of the experiment.                                                                  |
-| `cultivar_id`         | `UUID`         | Unique identifier for the cultivar.                                                              |
-| `cultivar_accession`  | `String`       | The accession identifier for the cultivar.                                                       |
-| `cultivar_population` | `String`       | The population name of the cultivar.                                                             |
-| `cultivar_info`       | `JSONB`         | Additional JSONB data for the cultivar.                                                              |
+| `population_id`         | `UUID`         | Unique identifier for the population.                                                              |
+| `population_accession`  | `String`       | The accession identifier for the population.                                                       |
+| `population_name` | `String`       | The population name of the population.                                                             |
+| `population_info`       | `JSONB`         | Additional JSONB data for the population.                                                              |
 
 ## Experiment Procedures View (`experiment_procedures_view`)
 

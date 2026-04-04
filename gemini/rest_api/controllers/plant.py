@@ -7,12 +7,12 @@ from pydantic import BaseModel
 
 from gemini.api.plant import Plant
 from gemini.rest_api.models import PlantInput, PlantOutput, PlantUpdate, RESTAPIError, JSONB, str_to_dict
-from gemini.rest_api.models import CultivarOutput, PlotOutput 
+from gemini.rest_api.models import PopulationOutput, PlotOutput 
 from typing import List, Annotated, Optional
 
-class PlantCultivarInput(BaseModel):
-    cultivar_accession: str
-    cultivar_population: str
+class PlantPopulationInput(BaseModel):
+    population_accession: str
+    population_name: str
 
 
 class PlantController(Controller):
@@ -44,8 +44,8 @@ class PlantController(Controller):
         plot_number: Optional[int] = None,
         plot_row_number: Optional[int] = None,
         plot_column_number: Optional[int] = None,
-        cultivar_accession: Optional[str] = None,
-        cultivar_population: Optional[str] = None,
+        population_accession: Optional[str] = None,
+        population_name: Optional[str] = None,
         experiment_name: Optional[str] = None,
         season_name: Optional[str] = None,
         site_name: Optional[str] = None,
@@ -57,8 +57,8 @@ class PlantController(Controller):
 
             plants = Plant.search(
                 plant_number=plant_number,
-                cultivar_accession=cultivar_accession,
-                cultivar_population=cultivar_population,
+                population_accession=population_accession,
+                population_name=population_name,
                 experiment_name=experiment_name,
                 season_name=season_name,
                 site_name=site_name,
@@ -115,8 +115,8 @@ class PlantController(Controller):
             plant = Plant.create(
                 plant_number=data.plant_number,
                 plant_info=data.plant_info,
-                cultivar_accession=data.cultivar_accession,
-                cultivar_population=data.cultivar_population,
+                population_accession=data.population_accession,
+                population_name=data.population_name,
                 experiment_name=data.experiment_name,
                 season_name=data.season_name,
                 site_name=data.site_name,
@@ -200,12 +200,12 @@ class PlantController(Controller):
             )
             return Response(content=error, status_code=500)
         
-    # Get Plant Cultivar
-    @get(path="/id/{plant_id:str}/cultivar", sync_to_thread=True)
-    def get_plant_cultivar(
+    # Get Plant Population
+    @get(path="/id/{plant_id:str}/population", sync_to_thread=True)
+    def get_plant_population(
         self,
         plant_id: str
-    ) -> CultivarOutput:
+    ) -> PopulationOutput:
         try:
             plant = Plant.get_by_id(id=plant_id)
             if plant is None:
@@ -214,18 +214,18 @@ class PlantController(Controller):
                     error_description="The plant with the given ID was not found"
                 )
                 return Response(content=error, status_code=404)
-            cultivar = plant.get_associated_cultivar()
-            if cultivar is None:
+            population = plant.get_associated_population()
+            if population is None:
                 error = RESTAPIError(
-                    error="Cultivar not found",
-                    error_description="The cultivar for the given plant was not found"
+                    error="Population not found",
+                    error_description="The population for the given plant was not found"
                 )
                 return Response(content=error, status_code=404)
-            return cultivar
+            return population
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),
-                error_description="An error occurred while retrieving the cultivar"
+                error_description="An error occurred while retrieving the population"
             )
             return Response(content=error, status_code=500)
         

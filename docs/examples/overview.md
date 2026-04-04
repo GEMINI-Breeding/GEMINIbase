@@ -2,10 +2,10 @@
 
 This page provides an overview of the available API examples. Each example demonstrates how to use a specific API in the Gemini framework.
 
-## Cultivar
-- [Cultivar API](./cultivar_api.md)
-- [Cultivar Experiment API](./cultivar_experiment_api.md)
-- [Cultivar Plot API](./cultivar_plot_api.md)
+## Population
+- [Population API](./population_api.md)
+- [Population Experiment API](./population_experiment_api.md)
+- [Population Plot API](./population_plot_api.md)
 
 ## Data Format
 - [Data Format API](./data_format_api.md)
@@ -23,7 +23,7 @@ This page provides an overview of the available API examples. Each example demon
 
 ## Experiment
 - [Experiment API](./experiment_api.md)
-- [Experiment Cultivars API](./experiment_cultivars_api.md)
+- [Experiment Populations API](./experiment_populations_api.md)
 - [Experiment Datasets API](./experiment_datasets_api.md)
 - [Experiment Model API](./experiment_model_api.md)
 - [Experiment Plots API](./experiment_plots_api.md)
@@ -44,12 +44,12 @@ This page provides an overview of the available API examples. Each example demon
 
 ## Plant
 - [Plant API](./plant_api.md)
-- [Plant Cultivar API](./plant_cultivar_api.md)
+- [Plant Population API](./plant_population_api.md)
 - [Plant Plot API](./plant_plot_api.md)
 
 ## Plot
 - [Plot API](./plot_api.md)
-- [Plot Cultivar API](./plot_cultivar_api.md)
+- [Plot Population API](./plot_population_api.md)
 - [Plot Experiment API](./plot_experiment_api.md)
 - [Plot Site API](./site_plots_api.md)
 

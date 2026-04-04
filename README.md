@@ -2,7 +2,7 @@
 
 ![GEMINI Logo](docs/assets/logo_large.png "GEMINI Project")
 
-Back-end data management framework for the [GEMINI Breeding project](https://projectgemini.ucdavis.edu/) (UC Davis). Manages field phenotyping data — sensor imagery, trait measurements, genomics, weather — across experiments, sites, seasons, plots, and cultivars.
+Back-end data management framework for the [GEMINI Breeding project](https://projectgemini.ucdavis.edu/) (UC Davis). Manages field phenotyping data — sensor imagery, trait measurements, genomics, weather — across experiments, sites, seasons, plots, and populations.
 
 [Documentation](https://gemini-breeding.github.io/gemini-framework/)
 

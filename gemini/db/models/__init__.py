@@ -26,7 +26,7 @@ from gemini.db.models.sensors import SensorModel
 from gemini.db.models.traits import TraitModel
 from gemini.db.models.seasons import SeasonModel
 from gemini.db.models.sites import SiteModel
-from gemini.db.models.cultivars import CultivarModel
+from gemini.db.models.populations import PopulationModel
 from gemini.db.models.experiments import ExperimentModel
 from gemini.db.models.plots import PlotModel
 from gemini.db.models.plants import PlantModel
@@ -44,7 +44,7 @@ from gemini.db.models.columnar.trait_records import TraitRecordModel
 
 # Views
 from gemini.db.models.views.plot_view import PlotViewModel
-from gemini.db.models.views.plot_cultivar_view import PlotCultivarViewModel
+from gemini.db.models.views.plot_population_view import PlotPopulationViewModel
 
 # Dataset Views
 from gemini.db.models.views.dataset_views import (
@@ -60,7 +60,7 @@ from gemini.db.models.views.experiment_views import (
     ExperimentSitesViewModel,
     ExperimentTraitsViewModel,
     ExperimentSensorsViewModel,
-    ExperimentCultivarsViewModel,
+    ExperimentPopulationsViewModel,
     ExperimentProceduresViewModel,
     ExperimentScriptsViewModel,
     ExperimentModelsViewModel,

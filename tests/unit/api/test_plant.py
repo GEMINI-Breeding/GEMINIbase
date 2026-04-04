@@ -9,7 +9,7 @@ MODULE = "gemini.api.plant"
 
 
 def _make_db(**overrides):
-    defaults = {"id": uuid4(), "plant_number": 1, "plant_info": {"k": "v"}, "plot_id": uuid4(), "cultivar_id": uuid4()}
+    defaults = {"id": uuid4(), "plant_number": 1, "plant_info": {"k": "v"}, "plot_id": uuid4(), "population_id": uuid4()}
     defaults.update(overrides)
     mock = MagicMock()
     for k, v in defaults.items():
@@ -165,23 +165,23 @@ class TestPlantGetSetInfo:
 
 
 class TestPlantAssociations:
-    def test_get_associated_cultivar_success(self):
+    def test_get_associated_population_success(self):
         cult_id = uuid4()
-        p = Plant(id=uuid4(), plant_number=1, cultivar_id=cult_id)
-        with patch("gemini.api.cultivar.Cultivar") as mock_cult:
+        p = Plant(id=uuid4(), plant_number=1, population_id=cult_id)
+        with patch("gemini.api.population.Population") as mock_cult:
             mock_cult.get_by_id.return_value = MagicMock()
-            result = p.get_associated_cultivar()
+            result = p.get_associated_population()
             assert result is not None
 
-    def test_get_associated_cultivar_no_id(self):
-        p = Plant(id=uuid4(), plant_number=1, cultivar_id=None)
-        assert p.get_associated_cultivar() is None
+    def test_get_associated_population_no_id(self):
+        p = Plant(id=uuid4(), plant_number=1, population_id=None)
+        assert p.get_associated_population() is None
 
-    def test_get_associated_cultivar_not_found(self):
-        p = Plant(id=uuid4(), plant_number=1, cultivar_id=uuid4())
-        with patch("gemini.api.cultivar.Cultivar") as mock_cult:
+    def test_get_associated_population_not_found(self):
+        p = Plant(id=uuid4(), plant_number=1, population_id=uuid4())
+        with patch("gemini.api.population.Population") as mock_cult:
             mock_cult.get_by_id.return_value = None
-            assert p.get_associated_cultivar() is None
+            assert p.get_associated_population() is None
 
     def test_get_associated_plot_success(self):
         plot_id = uuid4()
@@ -196,53 +196,53 @@ class TestPlantAssociations:
         assert p.get_associated_plot() is None
 
     @patch(f"{MODULE}.PlantModel")
-    def test_associate_cultivar_success(self, m_model):
+    def test_associate_population_success(self, m_model):
         m_model.exists.return_value = False
         m_model.get.return_value = MagicMock()
         m_model.update_parameter.return_value = MagicMock()
         p = Plant(id=uuid4(), plant_number=1)
-        with patch("gemini.api.cultivar.Cultivar") as mock_cult:
+        with patch("gemini.api.population.Population") as mock_cult:
             mock_cult.get.return_value = MagicMock(id=uuid4())
             with patch.object(Plant, "refresh"):
-                result = p.associate_cultivar("Pop1", "Acc1")
+                result = p.associate_population("Pop1", "Acc1")
                 assert result is not None
 
-    def test_associate_cultivar_not_found(self):
+    def test_associate_population_not_found(self):
         p = Plant(id=uuid4(), plant_number=1)
-        with patch("gemini.api.cultivar.Cultivar") as mock_cult:
+        with patch("gemini.api.population.Population") as mock_cult:
             mock_cult.get.return_value = None
-            assert p.associate_cultivar("Pop1", "Acc1") is None
+            assert p.associate_population("Pop1", "Acc1") is None
 
     @patch(f"{MODULE}.PlantModel")
-    def test_unassociate_cultivar_success(self, m_model):
+    def test_unassociate_population_success(self, m_model):
         m_model.get.return_value = MagicMock()
         m_model.update_parameter.return_value = MagicMock()
         cult_id = uuid4()
-        p = Plant(id=uuid4(), plant_number=1, cultivar_id=cult_id)
-        with patch("gemini.api.cultivar.Cultivar") as mock_cult:
+        p = Plant(id=uuid4(), plant_number=1, population_id=cult_id)
+        with patch("gemini.api.population.Population") as mock_cult:
             mock_cult.get_by_id.return_value = MagicMock()
             with patch.object(p, "refresh"):
-                result = p.unassociate_cultivar()
+                result = p.unassociate_population()
                 assert result is not None
 
-    def test_unassociate_cultivar_no_id(self):
-        p = Plant(id=uuid4(), plant_number=1, cultivar_id=None)
-        assert p.unassociate_cultivar() is False
+    def test_unassociate_population_no_id(self):
+        p = Plant(id=uuid4(), plant_number=1, population_id=None)
+        assert p.unassociate_population() is False
 
     @patch(f"{MODULE}.PlantModel")
-    def test_belongs_to_cultivar_true(self, m):
+    def test_belongs_to_population_true(self, m):
         m.exists.return_value = True
         p = Plant(id=uuid4(), plant_number=1)
-        with patch("gemini.api.cultivar.Cultivar") as mock_cult:
+        with patch("gemini.api.population.Population") as mock_cult:
             mock_cult.get.return_value = MagicMock(id=uuid4())
-            assert p.belongs_to_cultivar("Pop1", "Acc1") is True
+            assert p.belongs_to_population("Pop1", "Acc1") is True
 
     @patch(f"{MODULE}.PlantViewModel")
-    def test_belongs_to_cultivar_not_found(self, m):
+    def test_belongs_to_population_not_found(self, m):
         p = Plant(id=uuid4(), plant_number=1)
-        with patch("gemini.api.cultivar.Cultivar") as mock_cult:
+        with patch("gemini.api.population.Population") as mock_cult:
             mock_cult.get.return_value = None
-            assert p.belongs_to_cultivar("Pop1", "Acc1") is False
+            assert p.belongs_to_population("Pop1", "Acc1") is False
 
     @patch(f"{MODULE}.PlantModel")
     def test_associate_plot_success(self, m_model):

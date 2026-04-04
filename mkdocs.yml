@@ -37,7 +37,7 @@ nav:
     - Examples: 
       - Overview: examples/overview.md
     - Classes:
-      - Cultivars: api/cultivars.md
+      - Populations: api/populations.md
       - Data Formats: api/data_formats.md
       - Data Types: api/data_types.md
       - Datasets: api/datasets.md
@@ -67,7 +67,7 @@ nav:
   - REST API:
     - Overview: rest_api/overview.md
     - Endpoints:
-      - Cultivars: rest_api/cultivars.md
+      - Populations: rest_api/populations.md
       - Data Formats: rest_api/data_formats.md
       - Data Types: rest_api/data_types.md
       - Datasets: rest_api/datasets.md
@@ -93,7 +93,7 @@ nav:
     - Models:
       - Overview: database/models/overview.md
       - Main Entities:
-        - Cultivars: database/models/cultivars.md
+        - Populations: database/models/populations.md
         - Data Formats: database/models/data_formats.md
         - Data Types: database/models/data_types.md
         - Dataset Types: database/models/dataset_types.md
@@ -121,12 +121,12 @@ nav:
         - Experiment Sensors: database/models/experiment_sensors.md
         - Experiment Sensor Platforms: database/models/experiment_sensor_platforms.md
         - Experiment Traits: database/models/experiment_traits.md
-        - Experiment Cultivars: database/models/experiment_cultivars.md
+        - Experiment Populations: database/models/experiment_populations.md
         - Experiment Models: database/models/experiment_models.md
         - Experiment Procedures: database/models/experiment_procedures.md
         - Experiment Scripts: database/models/experiment_scripts.md
         - Experiment Datasets: database/models/experiment_datasets.md
-        - Plot Cultivars: database/models/plot_cultivars.md
+        - Plot Populations: database/models/plot_populations.md
         - Trait Sensors: database/models/trait_sensors.md
         - Sensor Platform Sensors: database/models/sensor_platform_sensors.md
         - Sensor Datasets: database/models/sensor_datasets.md
@@ -145,7 +145,7 @@ nav:
         - Data Type Formats View: database/models/datatype_format_view.md
         - Experiment Views: database/models/experiment_views.md
         - Plant View: database/models/plant_view.md
-        - Plot Cultivar View: database/models/plot_cultivar_view.md
+        - Plot Population View: database/models/plot_population_view.md
         - Plot View: database/models/plot_view.md
         - Plot Plant View: database/models/plot_plant_view.md
         - Run Views: database/models/run_views.md

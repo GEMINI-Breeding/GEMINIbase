@@ -6,7 +6,7 @@ Welcome to the Gemini REST API documentation. This API provides a comprehensive 
 
 Below is a list of the available API endpoints, each with its own dedicated documentation page:
 
-- [Cultivars](./cultivars.md)
+- [Populations](./populations.md)
 - [Data Formats](./data_formats.md)
 - [Data Types](./data_types.md)
 - [Datasets](./datasets.md)

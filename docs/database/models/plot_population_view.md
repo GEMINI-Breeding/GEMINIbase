@@ -1,6 +1,6 @@
-# Plot Cultivar View
+# Plot Population View
 
-The `plot_cultivar_view` table combines information from plots and cultivars.
+The `plot_population_view` table combines information from plots and populations.
 
 ## Table Schema
 
@@ -18,7 +18,7 @@ The `plot_cultivar_view` table combines information from plots and cultivars.
 | `season_name`        | `String`       | The name of the season.                                                                          |
 | `site_id`            | `UUID`         |  Unique identifier for the site where the plot is located.                                        |
 | `site_name`          | `String`       | The name of the site.                                                                            |
-| `cultivar_id`         | `UUID`         |  Unique identifier for the cultivar.                                                              |
-| `cultivar_accession`  | `String`       | The accession identifier for the cultivar.                                                       |
-| `cultivar_population` | `String`       | The population name of the cultivar.                                                             |
-| `cultivar_info`       | `JSONB`         | Additional JSONB data for the cultivar.                                                              |
+| `population_id`         | `UUID`         |  Unique identifier for the population.                                                              |
+| `population_accession`  | `String`       | The accession identifier for the population.                                                       |
+| `population_name` | `String`       | The population name of the population.                                                             |
+| `population_info`       | `JSONB`         | Additional JSONB data for the population.                                                              |

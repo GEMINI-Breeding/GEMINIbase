@@ -1,7 +1,7 @@
 """Tests for the Plant controller."""
 import pytest
 from unittest.mock import patch, MagicMock
-from gemini.rest_api.models import PlantOutput, CultivarOutput, PlotOutput
+from gemini.rest_api.models import PlantOutput, PopulationOutput, PlotOutput
 
 
 API_PATH = "gemini.rest_api.controllers.plant.Plant"
@@ -12,7 +12,7 @@ def mock_output():
     return {
         "id": "plant-uuid",
         "plot_id": "plot-uuid",
-        "cultivar_id": "cult-uuid",
+        "population_id": "cult-uuid",
         "plant_number": 1,
         "plant_info": {},
     }
@@ -137,22 +137,22 @@ class TestDeletePlant:
 class TestPlantAssociations:
 
     @patch(API_PATH)
-    def test_get_cultivar(self, mock_cls, test_client):
+    def test_get_population(self, mock_cls, test_client):
         mock_obj = MagicMock()
-        mock_obj.get_associated_cultivar.return_value = CultivarOutput(
-            id="c1", cultivar_population="Pop", cultivar_accession="Acc",
-            cultivar_info={}
+        mock_obj.get_associated_population.return_value = PopulationOutput(
+            id="c1", population_name="Pop", population_accession="Acc",
+            population_info={}
         )
         mock_cls.get_by_id.return_value = mock_obj
-        response = test_client.get("/api/plants/id/plant-uuid/cultivar")
+        response = test_client.get("/api/plants/id/plant-uuid/population")
         assert response.status_code == 200
 
     @patch(API_PATH)
-    def test_get_cultivar_not_found(self, mock_cls, test_client):
+    def test_get_population_not_found(self, mock_cls, test_client):
         mock_obj = MagicMock()
-        mock_obj.get_associated_cultivar.return_value = None
+        mock_obj.get_associated_population.return_value = None
         mock_cls.get_by_id.return_value = mock_obj
-        response = test_client.get("/api/plants/id/plant-uuid/cultivar")
+        response = test_client.get("/api/plants/id/plant-uuid/population")
         assert response.status_code == 404
 
     @patch(API_PATH)
@@ -170,5 +170,5 @@ class TestPlantAssociations:
     @patch(API_PATH)
     def test_plant_not_found_for_assoc(self, mock_cls, test_client):
         mock_cls.get_by_id.return_value = None
-        response = test_client.get("/api/plants/id/missing/cultivar")
+        response = test_client.get("/api/plants/id/missing/population")
         assert response.status_code == 404

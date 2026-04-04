@@ -10,7 +10,7 @@ The `plants` table stores information about individual plants within a plot.
 | `plot_id`      | `UUID`      | **Foreign Key.** References the `id` of the plot where the plant is located.                     |
 | `plant_number` | `Integer`   | The number of the plant within the plot.                                                         |
 | `plant_info`   | `JSONB`     | A JSONB column for storing additional, unstructured information about the plant.                 |
-| `cultivar_id`  | `UUID`      | **Foreign Key.** References the `id` of the cultivar for this plant.                             |
+| `population_id`  | `UUID`      | **Foreign Key.** References the `id` of the population for this plant.                             |
 | `created_at`   | `TIMESTAMP` | The timestamp when the record was created. Defaults to the current time.                         |
 | `updated_at`   | `TIMESTAMP` | The timestamp when the record was last updated. Automatically updates on any modification.       |
 
@@ -22,4 +22,4 @@ The `plants` table stores information about individual plants within a plot.
 ## Relationships
 
 - **`plot`:** A many-to-one relationship with the `plots` table.
-- **`cultivar`:** A many-to-one relationship with the `cultivars` table.
+- **`population`:** A many-to-one relationship with the `populations` table.

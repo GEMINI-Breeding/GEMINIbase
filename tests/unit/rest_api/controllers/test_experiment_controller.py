@@ -2,7 +2,7 @@
 import pytest
 from unittest.mock import patch, MagicMock
 from gemini.rest_api.models import (
-    ExperimentOutput, SeasonOutput, SiteOutput, CultivarOutput,
+    ExperimentOutput, SeasonOutput, SiteOutput, PopulationOutput,
     SensorPlatformOutput, TraitOutput, SensorOutput, ScriptOutput,
     ProcedureOutput, ModelOutput, DatasetOutput
 )
@@ -189,14 +189,14 @@ class TestExperimentAssociations:
         assert response.status_code == 200
 
     @patch(EXP_API_PATH)
-    def test_get_cultivars_success(self, mock_cls, test_client):
+    def test_get_populations_success(self, mock_cls, test_client):
         mock_exp = MagicMock()
-        mock_exp.get_associated_cultivars.return_value = [CultivarOutput(
-            id="c1", cultivar_population="Pop A", cultivar_accession="Acc 1",
-            cultivar_info={}
+        mock_exp.get_associated_populations.return_value = [PopulationOutput(
+            id="c1", population_name="Pop A", population_accession="Acc 1",
+            population_info={}
         )]
         mock_cls.get_by_id.return_value = mock_exp
-        response = test_client.get("/api/experiments/id/exp-uuid/cultivars")
+        response = test_client.get("/api/experiments/id/exp-uuid/populations")
         assert response.status_code == 200
 
     @patch(EXP_API_PATH)
@@ -310,23 +310,23 @@ class TestExperimentAssociations:
         assert response.status_code == 500
 
     @patch(EXP_API_PATH)
-    def test_get_cultivars_not_found(self, mock_cls, test_client):
+    def test_get_populations_not_found(self, mock_cls, test_client):
         mock_cls.get_by_id.return_value = None
-        response = test_client.get("/api/experiments/id/missing/cultivars")
+        response = test_client.get("/api/experiments/id/missing/populations")
         assert response.status_code == 404
 
     @patch(EXP_API_PATH)
-    def test_get_cultivars_no_data(self, mock_cls, test_client):
+    def test_get_populations_no_data(self, mock_cls, test_client):
         mock_exp = MagicMock()
-        mock_exp.get_associated_cultivars.return_value = None
+        mock_exp.get_associated_populations.return_value = None
         mock_cls.get_by_id.return_value = mock_exp
-        response = test_client.get("/api/experiments/id/exp-uuid/cultivars")
+        response = test_client.get("/api/experiments/id/exp-uuid/populations")
         assert response.status_code == 404
 
     @patch(EXP_API_PATH)
-    def test_get_cultivars_error(self, mock_cls, test_client):
+    def test_get_populations_error(self, mock_cls, test_client):
         mock_cls.get_by_id.side_effect = Exception("DB error")
-        response = test_client.get("/api/experiments/id/exp-uuid/cultivars")
+        response = test_client.get("/api/experiments/id/exp-uuid/populations")
         assert response.status_code == 500
 
     @patch(EXP_API_PATH)

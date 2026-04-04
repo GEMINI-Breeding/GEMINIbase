@@ -13,9 +13,9 @@ from gemini.db.models.associations import (
     ExperimentSiteModel,
     ExperimentSensorModel,
     ExperimentTraitModel,
-    ExperimentCultivarModel,
+    ExperimentPopulationModel,
     ExperimentDatasetModel,
-    PlotCultivarModel,
+    PlotPopulationModel,
     TraitSensorModel,
     SensorPlatformSensorModel,
     SensorDatasetModel,
@@ -151,23 +151,23 @@ class TestExperimentTraitModel:
 
 
 # ===========================================================================
-# ExperimentCultivarModel
+# ExperimentPopulationModel
 # ===========================================================================
 
 
-class TestExperimentCultivarModel:
+class TestExperimentPopulationModel:
 
     def test_tablename(self):
-        assert ExperimentCultivarModel.__tablename__ == "experiment_cultivars"
+        assert ExperimentPopulationModel.__tablename__ == "experiment_populations"
 
     def test_foreign_keys(self):
-        targets = _get_fk_target_tables(ExperimentCultivarModel)
+        targets = _get_fk_target_tables(ExperimentPopulationModel)
         assert "gemini.experiments.id" in targets
-        assert "gemini.cultivars.id" in targets
+        assert "gemini.populations.id" in targets
 
     def test_unique_constraint(self):
         assert _has_unique_constraint(
-            ExperimentCultivarModel, "experiment_id", "cultivar_id"
+            ExperimentPopulationModel, "experiment_id", "population_id"
         )
 
 
@@ -193,22 +193,22 @@ class TestExperimentDatasetModel:
 
 
 # ===========================================================================
-# PlotCultivarModel
+# PlotPopulationModel
 # ===========================================================================
 
 
-class TestPlotCultivarModel:
+class TestPlotPopulationModel:
 
     def test_tablename(self):
-        assert PlotCultivarModel.__tablename__ == "plot_cultivars"
+        assert PlotPopulationModel.__tablename__ == "plot_populations"
 
     def test_foreign_keys(self):
-        targets = _get_fk_target_tables(PlotCultivarModel)
+        targets = _get_fk_target_tables(PlotPopulationModel)
         assert "gemini.plots.id" in targets
-        assert "gemini.cultivars.id" in targets
+        assert "gemini.populations.id" in targets
 
     def test_unique_constraint(self):
-        assert _has_unique_constraint(PlotCultivarModel, "plot_id", "cultivar_id")
+        assert _has_unique_constraint(PlotPopulationModel, "plot_id", "population_id")
 
 
 # ===========================================================================

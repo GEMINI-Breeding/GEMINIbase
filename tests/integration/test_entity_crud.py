@@ -44,9 +44,9 @@ class Fixtures:
         )
 
     @staticmethod
-    def cultivar(acc="ACC001", pop="POP_A"):
-        from gemini.db.models.cultivars import CultivarModel
-        return CultivarModel.get_or_create(cultivar_accession=acc, cultivar_population=pop)
+    def population(acc="ACC001", pop="POP_A"):
+        from gemini.db.models.populations import PopulationModel
+        return PopulationModel.get_or_create(population_accession=acc, population_name=pop)
 
     @staticmethod
     def sensor(name="Test Sensor"):
@@ -60,37 +60,37 @@ class Fixtures:
 
 
 # ============================================================
-# Cultivar
+# Population
 # ============================================================
 
-class TestCultivarCRUD:
+class TestPopulationCRUD:
 
     def test_create(self, setup_real_db):
-        from gemini.db.models.cultivars import CultivarModel
-        c = CultivarModel.create(cultivar_accession="A001", cultivar_population="Pop1")
-        assert c.cultivar_accession == "A001"
-        assert c.cultivar_population == "Pop1"
+        from gemini.db.models.populations import PopulationModel
+        c = PopulationModel.create(population_accession="A001", population_name="Pop1")
+        assert c.population_accession == "A001"
+        assert c.population_name == "Pop1"
         assert c.id is not None
 
     def test_unique_constraint(self, setup_real_db):
-        from gemini.db.models.cultivars import CultivarModel
-        CultivarModel.create(cultivar_accession="U1", cultivar_population="P1")
-        dup = CultivarModel.get_or_create(cultivar_accession="U1", cultivar_population="P1")
-        assert CultivarModel.search(cultivar_accession="U1", cultivar_population="P1")
-        assert len(CultivarModel.search(cultivar_accession="U1")) == 1
+        from gemini.db.models.populations import PopulationModel
+        PopulationModel.create(population_accession="U1", population_name="P1")
+        dup = PopulationModel.get_or_create(population_accession="U1", population_name="P1")
+        assert PopulationModel.search(population_accession="U1", population_name="P1")
+        assert len(PopulationModel.search(population_accession="U1")) == 1
 
     def test_update_info(self, setup_real_db):
-        from gemini.db.models.cultivars import CultivarModel
-        c = CultivarModel.create(cultivar_accession="UPD", cultivar_population="P")
-        CultivarModel.update(c, cultivar_info={"color": "green"})
-        fetched = CultivarModel.get(c.id)
-        assert fetched.cultivar_info["color"] == "green"
+        from gemini.db.models.populations import PopulationModel
+        c = PopulationModel.create(population_accession="UPD", population_name="P")
+        PopulationModel.update(c, population_info={"color": "green"})
+        fetched = PopulationModel.get(c.id)
+        assert fetched.population_info["color"] == "green"
 
     def test_delete(self, setup_real_db):
-        from gemini.db.models.cultivars import CultivarModel
-        c = CultivarModel.create(cultivar_accession="DEL", cultivar_population="P")
-        CultivarModel.delete(c)
-        assert CultivarModel.get(c.id) is None
+        from gemini.db.models.populations import PopulationModel
+        c = PopulationModel.create(population_accession="DEL", population_name="P")
+        PopulationModel.delete(c)
+        assert PopulationModel.get(c.id) is None
 
 
 # ============================================================
@@ -368,10 +368,10 @@ class TestPlantCRUD:
         season = Fixtures.season(exp.id)
         site = Fixtures.site("Plant Site")
         plot = Fixtures.plot(exp.id, season.id, site.id)
-        cultivar = Fixtures.cultivar("PACC", "PPOP")
+        population = Fixtures.population("PACC", "PPOP")
 
         plant = PlantModel.create(
-            plot_id=plot.id, plant_number=1, cultivar_id=cultivar.id
+            plot_id=plot.id, plant_number=1, population_id=population.id
         )
         assert plant.plot_id is not None
         assert plant.plant_number == 1
@@ -382,10 +382,10 @@ class TestPlantCRUD:
         season = Fixtures.season(exp.id, "UniSeason")
         site = Fixtures.site("PlantU Site")
         plot = Fixtures.plot(exp.id, season.id, site.id)
-        cultivar = Fixtures.cultivar("UACC", "UPOP")
+        population = Fixtures.population("UACC", "UPOP")
 
-        PlantModel.create(plot_id=plot.id, plant_number=1, cultivar_id=cultivar.id)
-        dup = PlantModel.get_or_create(plot_id=plot.id, plant_number=1, cultivar_id=cultivar.id)
+        PlantModel.create(plot_id=plot.id, plant_number=1, population_id=population.id)
+        dup = PlantModel.get_or_create(plot_id=plot.id, plant_number=1, population_id=population.id)
         assert dup is not None
         assert PlantModel.count() == 1
 

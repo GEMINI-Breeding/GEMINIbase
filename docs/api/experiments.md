@@ -4,7 +4,7 @@
 
 An experiment is the core entity of the GEMINI Framework. An experiment can have one or many of the following: 
 
-- [Cultivars](cultivars.md)
+- [Populations](populations.md)
 - [Datasets](datasets.md)
 - [Models](models.md)
 - [Plots](plots.md)

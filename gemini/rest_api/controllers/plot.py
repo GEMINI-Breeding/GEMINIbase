@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from gemini.api.plot import Plot
 from gemini.rest_api.models import PlotInput, PlotOutput, PlotUpdate, RESTAPIError, JSONB, str_to_dict
 from gemini.rest_api.models import (
-    CultivarOutput,
+    PopulationOutput,
     PlantOutput,
     ExperimentOutput,
     SeasonOutput,
@@ -27,15 +27,15 @@ class PlotSeasonInput(BaseModel):
 class PlotSiteInput(BaseModel):
     site_name: str
 
-class PlotCultivarInput(BaseModel):
-    cultivar_accession: str
-    cultivar_population: str
-    cultivar_info: Optional[JSONB] = None
+class PlotPopulationInput(BaseModel):
+    population_accession: str
+    population_name: str
+    population_info: Optional[JSONB] = None
 
 class PlotPlantInput(BaseModel):
     plant_number: int
-    cultivar_accession: str
-    cultivar_population: str
+    population_accession: str
+    population_name: str
     plant_info: Optional[JSONB] = None
 
 
@@ -132,8 +132,8 @@ class PlotController(Controller):
                 experiment_name=data.experiment_name,
                 season_name=data.season_name,
                 site_name=data.site_name,
-                cultivar_accession=data.cultivar_accession,
-                cultivar_population=data.cultivar_population,
+                population_accession=data.population_accession,
+                population_name=data.population_name,
             )
             if plot is None:
                 error = RESTAPIError(
@@ -214,11 +214,11 @@ class PlotController(Controller):
             return Response(content=error, status_code=500)
         
         
-    # Get Plot Cultivars
-    @get(path="/id/{plot_id:str}/cultivars", sync_to_thread=True)
-    def get_plot_cultivars(
+    # Get Plot Populations
+    @get(path="/id/{plot_id:str}/populations", sync_to_thread=True)
+    def get_plot_populations(
         self, plot_id: str
-    ) -> List[CultivarOutput]:
+    ) -> List[PopulationOutput]:
         try:
             plot = Plot.get_by_id(id=plot_id)
             if plot is None:
@@ -227,18 +227,18 @@ class PlotController(Controller):
                     error_description="The plot with the given ID was not found"
                 )
                 return Response(content=error, status_code=404)
-            cultivars = plot.get_associated_cultivars()
-            if cultivars is None:
+            populations = plot.get_associated_populations()
+            if populations is None:
                 error_html = RESTAPIError(
-                    error="No cultivars found",
-                    error_description="No cultivars were found for the given plot"
+                    error="No populations found",
+                    error_description="No populations were found for the given plot"
                 ).to_html()
                 return Response(content=error_html, status_code=404)
-            return cultivars
+            return populations
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),
-                error_description="An error occurred while retrieving the cultivars for the plot"
+                error_description="An error occurred while retrieving the populations for the plot"
             )
             return Response(content=error, status_code=500)
         
