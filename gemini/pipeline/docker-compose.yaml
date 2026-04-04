@@ -125,6 +125,122 @@ services:
     networks:
       - gemini_network
 
+  # ── Processing Workers (uncomment as needed) ──────────────────────
+  # Each worker polls the REST API for PENDING jobs, processes them,
+  # and reports progress back. Workers access files via MinIO.
+  #
+  # gemini-worker-ml:
+  #   container_name: gemini-worker-ml
+  #   restart: always
+  #   build:
+  #     context: ../../
+  #     dockerfile: ./gemini/workers/ml/Dockerfile
+  #   environment:
+  #     - "GEMINI_REST_API_URL=http://${GEMINI_REST_API_HOSTNAME}:7777"
+  #     - "GEMINI_LOGGER_HOSTNAME=${GEMINI_LOGGER_HOSTNAME}"
+  #     - "GEMINI_LOGGER_PORT=${GEMINI_LOGGER_PORT}"
+  #     - "GEMINI_LOGGER_PASSWORD=${GEMINI_LOGGER_PASSWORD}"
+  #     - "GEMINI_STORAGE_HOSTNAME=${GEMINI_STORAGE_HOSTNAME}"
+  #     - "GEMINI_STORAGE_PORT=${GEMINI_STORAGE_PORT}"
+  #     - "GEMINI_STORAGE_ACCESS_KEY=${GEMINI_STORAGE_ACCESS_KEY}"
+  #     - "GEMINI_STORAGE_SECRET_KEY=${GEMINI_STORAGE_SECRET_KEY}"
+  #     - "GEMINI_STORAGE_BUCKET_NAME=${GEMINI_STORAGE_BUCKET_NAME}"
+  #   depends_on:
+  #     rest-api:
+  #       condition: service_healthy
+  #   networks:
+  #     - gemini_network
+  #
+  # gemini-worker-stitch:
+  #   container_name: gemini-worker-stitch
+  #   restart: always
+  #   build:
+  #     context: ../../
+  #     dockerfile: ./gemini/workers/stitch/Dockerfile
+  #   environment:
+  #     - "GEMINI_REST_API_URL=http://${GEMINI_REST_API_HOSTNAME}:7777"
+  #     - "GEMINI_LOGGER_HOSTNAME=${GEMINI_LOGGER_HOSTNAME}"
+  #     - "GEMINI_LOGGER_PORT=${GEMINI_LOGGER_PORT}"
+  #     - "GEMINI_LOGGER_PASSWORD=${GEMINI_LOGGER_PASSWORD}"
+  #     - "GEMINI_STORAGE_HOSTNAME=${GEMINI_STORAGE_HOSTNAME}"
+  #     - "GEMINI_STORAGE_PORT=${GEMINI_STORAGE_PORT}"
+  #     - "GEMINI_STORAGE_ACCESS_KEY=${GEMINI_STORAGE_ACCESS_KEY}"
+  #     - "GEMINI_STORAGE_SECRET_KEY=${GEMINI_STORAGE_SECRET_KEY}"
+  #     - "GEMINI_STORAGE_BUCKET_NAME=${GEMINI_STORAGE_BUCKET_NAME}"
+  #   depends_on:
+  #     rest-api:
+  #       condition: service_healthy
+  #   networks:
+  #     - gemini_network
+  #
+  # gemini-worker-odm:
+  #   container_name: gemini-worker-odm
+  #   restart: always
+  #   build:
+  #     context: ../../
+  #     dockerfile: ./gemini/workers/odm/Dockerfile
+  #   environment:
+  #     - "GEMINI_REST_API_URL=http://${GEMINI_REST_API_HOSTNAME}:7777"
+  #     - "GEMINI_LOGGER_HOSTNAME=${GEMINI_LOGGER_HOSTNAME}"
+  #     - "GEMINI_LOGGER_PORT=${GEMINI_LOGGER_PORT}"
+  #     - "GEMINI_LOGGER_PASSWORD=${GEMINI_LOGGER_PASSWORD}"
+  #     - "GEMINI_STORAGE_HOSTNAME=${GEMINI_STORAGE_HOSTNAME}"
+  #     - "GEMINI_STORAGE_PORT=${GEMINI_STORAGE_PORT}"
+  #     - "GEMINI_STORAGE_ACCESS_KEY=${GEMINI_STORAGE_ACCESS_KEY}"
+  #     - "GEMINI_STORAGE_SECRET_KEY=${GEMINI_STORAGE_SECRET_KEY}"
+  #     - "GEMINI_STORAGE_BUCKET_NAME=${GEMINI_STORAGE_BUCKET_NAME}"
+  #   volumes:
+  #     - /var/run/docker.sock:/var/run/docker.sock
+  #   depends_on:
+  #     rest-api:
+  #       condition: service_healthy
+  #   networks:
+  #     - gemini_network
+  #
+  # gemini-worker-geo:
+  #   container_name: gemini-worker-geo
+  #   restart: always
+  #   build:
+  #     context: ../../
+  #     dockerfile: ./gemini/workers/geo/Dockerfile
+  #   environment:
+  #     - "GEMINI_REST_API_URL=http://${GEMINI_REST_API_HOSTNAME}:7777"
+  #     - "GEMINI_LOGGER_HOSTNAME=${GEMINI_LOGGER_HOSTNAME}"
+  #     - "GEMINI_LOGGER_PORT=${GEMINI_LOGGER_PORT}"
+  #     - "GEMINI_LOGGER_PASSWORD=${GEMINI_LOGGER_PASSWORD}"
+  #     - "GEMINI_STORAGE_HOSTNAME=${GEMINI_STORAGE_HOSTNAME}"
+  #     - "GEMINI_STORAGE_PORT=${GEMINI_STORAGE_PORT}"
+  #     - "GEMINI_STORAGE_ACCESS_KEY=${GEMINI_STORAGE_ACCESS_KEY}"
+  #     - "GEMINI_STORAGE_SECRET_KEY=${GEMINI_STORAGE_SECRET_KEY}"
+  #     - "GEMINI_STORAGE_BUCKET_NAME=${GEMINI_STORAGE_BUCKET_NAME}"
+  #   depends_on:
+  #     rest-api:
+  #       condition: service_healthy
+  #   networks:
+  #     - gemini_network
+  #
+  # gemini-worker-flir:
+  #   container_name: gemini-worker-flir
+  #   restart: always
+  #   build:
+  #     context: ../../
+  #     dockerfile: ./gemini/workers/flir/Dockerfile
+  #   environment:
+  #     - "GEMINI_REST_API_URL=http://${GEMINI_REST_API_HOSTNAME}:7777"
+  #     - "GEMINI_LOGGER_HOSTNAME=${GEMINI_LOGGER_HOSTNAME}"
+  #     - "GEMINI_LOGGER_PORT=${GEMINI_LOGGER_PORT}"
+  #     - "GEMINI_LOGGER_PASSWORD=${GEMINI_LOGGER_PASSWORD}"
+  #     - "GEMINI_STORAGE_HOSTNAME=${GEMINI_STORAGE_HOSTNAME}"
+  #     - "GEMINI_STORAGE_PORT=${GEMINI_STORAGE_PORT}"
+  #     - "GEMINI_STORAGE_ACCESS_KEY=${GEMINI_STORAGE_ACCESS_KEY}"
+  #     - "GEMINI_STORAGE_SECRET_KEY=${GEMINI_STORAGE_SECRET_KEY}"
+  #     - "GEMINI_STORAGE_BUCKET_NAME=${GEMINI_STORAGE_BUCKET_NAME}"
+  #   depends_on:
+  #     rest-api:
+  #       condition: service_healthy
+  #   networks:
+  #     - gemini_network
+
 networks:
   gemini_network:
     driver: bridge

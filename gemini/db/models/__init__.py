@@ -30,6 +30,7 @@ from gemini.db.models.populations import PopulationModel
 from gemini.db.models.experiments import ExperimentModel
 from gemini.db.models.plots import PlotModel
 from gemini.db.models.plants import PlantModel
+from gemini.db.models.jobs import JobModel
 
 # Associations
 import gemini.db.models.associations as Associations

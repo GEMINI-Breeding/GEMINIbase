@@ -19,6 +19,7 @@ from gemini.rest_api.controllers.procedure import ProcedureController
 from gemini.rest_api.controllers.files import FileController
 from gemini.rest_api.controllers.geojson import GeoJsonController
 from gemini.rest_api.controllers.csv_data import CsvController
+from gemini.rest_api.controllers.jobs import JobController
 
 controllers = {
     "populations": PopulationController,
@@ -42,5 +43,6 @@ controllers = {
     "files": FileController,
     "geojson": GeoJsonController,
     "csv": CsvController,
+    "jobs": JobController,
 }
 

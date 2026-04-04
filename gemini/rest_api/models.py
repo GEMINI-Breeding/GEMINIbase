@@ -1066,3 +1066,40 @@ class TraitRecordOutput(RESTAPIBase):
     plot_column_number: Optional[int] = None
     record_info: Optional[JSONB] = None
 
+
+# --------------------------------
+# Job Classes
+# --------------------------------
+
+class JobSubmitInput(RESTAPIBase):
+    job_type: str
+    parameters: Optional[JSONB] = {}
+    experiment_id: Optional[ID] = None
+
+class JobOutput(RESTAPIBase):
+    id: Optional[ID] = None
+    job_type: str
+    status: str = "PENDING"
+    progress: float = 0.0
+    progress_detail: Optional[dict] = None
+    parameters: Optional[dict] = None
+    result: Optional[dict] = None
+    error_message: Optional[str] = None
+    experiment_id: Optional[ID] = None
+    worker_id: Optional[str] = None
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+class JobProgressUpdate(RESTAPIBase):
+    progress: float
+    progress_detail: Optional[JSONB] = None
+
+class JobStatusUpdate(RESTAPIBase):
+    status: str
+    worker_id: Optional[str] = None
+    progress: Optional[float] = None
+    progress_detail: Optional[JSONB] = None
+    result: Optional[JSONB] = None
+    error_message: Optional[str] = None
