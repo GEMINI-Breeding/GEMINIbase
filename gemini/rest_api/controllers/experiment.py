@@ -81,7 +81,47 @@ class ExperimentDatasetInput(BaseModel):
     dataset_type_id: Optional[int] = None
 
 
+class ExperimentHierarchy(BaseModel):
+    """Full hierarchy of associated entities for an experiment, returned in a single call."""
+    experiment: ExperimentOutput
+    seasons: List[SeasonOutput]
+    sites: List[SiteOutput]
+    populations: List[PopulationOutput]
+    sensor_platforms: List[SensorPlatformOutput]
+    sensors: List[SensorOutput]
+    datasets: List[DatasetOutput]
+
+
 class ExperimentController(Controller):
+
+    # Get Experiment Hierarchy (all associated entities in one call)
+    @get(path="/id/{experiment_id:str}/hierarchy", sync_to_thread=True)
+    def get_experiment_hierarchy(
+        self, experiment_id: str
+    ) -> ExperimentHierarchy:
+        try:
+            experiment = Experiment.get_by_id(id=experiment_id)
+            if experiment is None:
+                error = RESTAPIError(
+                    error="Experiment not found",
+                    error_description="No experiment was found with the given ID"
+                )
+                return Response(content=error, status_code=404)
+            return ExperimentHierarchy(
+                experiment=experiment,
+                seasons=experiment.get_associated_seasons() or [],
+                sites=experiment.get_associated_sites() or [],
+                populations=experiment.get_associated_populations() or [],
+                sensor_platforms=experiment.get_associated_sensor_platforms() or [],
+                sensors=experiment.get_associated_sensors() or [],
+                datasets=experiment.get_associated_datasets() or [],
+            )
+        except Exception as e:
+            error = RESTAPIError(
+                error=str(e),
+                error_description="An error occurred while retrieving the experiment hierarchy"
+            )
+            return Response(content=error, status_code=500)
 
     # Get All Experiments
     @get(path="/all", sync_to_thread=True)
