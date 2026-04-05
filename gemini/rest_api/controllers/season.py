@@ -100,13 +100,16 @@ class SeasonController(Controller):
         data: Annotated[SeasonInput, Body]
     ) -> SeasonOutput:
         try:
-            season = Season.create(
-                season_name=data.season_name,
-                season_info=data.season_info,
-                season_start_date=data.season_start_date,
-                season_end_date=data.season_end_date,
-                experiment_name=data.experiment_name,
-            )
+            kwargs = dict(season_name=data.season_name)
+            if data.season_info is not None:
+                kwargs["season_info"] = data.season_info
+            if data.season_start_date is not None:
+                kwargs["season_start_date"] = data.season_start_date
+            if data.season_end_date is not None:
+                kwargs["season_end_date"] = data.season_end_date
+            if data.experiment_name is not None:
+                kwargs["experiment_name"] = data.experiment_name
+            season = Season.create(**kwargs)
             if season is None:
                 error = RESTAPIError(
                     error="Season not created",

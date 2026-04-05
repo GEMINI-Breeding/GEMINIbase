@@ -71,6 +71,9 @@ class GEMINISettings(BaseSettings):
     GEMINI_SCHEDULER_SERVER_HOSTNAME : str = "gemini-scheduler-server"
     GEMINI_SCHEDULER_SERVER_PORT : int = 4200
 
+    # TiTiler (tile server for COGs stored in MinIO)
+    GEMINI_TITILER_PORT : int = 8091
+
     # Reverse Proxy
     GEMINI_REVERSE_PROXY_CONTAINER_NAME : str = "gemini-reverse-proxy"
     GEMINI_REVERSE_PROXY_IMAGE_NAME : str = "gemini/reverse-proxy"

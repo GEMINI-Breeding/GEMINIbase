@@ -213,9 +213,17 @@ class JobController(Controller):
 
         Subscribes to Redis pub/sub channel `job:{job_id}:progress` and
         forwards messages to the connected client. The connection closes
-        when the job reaches a terminal state (COMPLETED, FAILED, CANCELLED).
+        when the job reaches a terminal state (COMPLETED, FAILED, CANCELLED)
+        or when the client disconnects.
+
+        Uses non-blocking polling with asyncio to avoid blocking the event
+        loop on synchronous Redis operations, and monitors the WebSocket
+        receive channel to detect client disconnects promptly.
         """
+        import asyncio
+
         await socket.accept()
+        pubsub = None
         try:
             redis_client = _get_redis_client()
             if redis_client is None:
@@ -236,25 +244,59 @@ class JobController(Controller):
                     "progress_detail": job.progress_detail,
                 })
                 if job.status in ("COMPLETED", "FAILED", "CANCELLED"):
-                    pubsub.unsubscribe(channel)
-                    pubsub.close()
-                    await socket.close()
                     return
 
-            # Listen for updates
-            for message in pubsub.listen():
-                if message["type"] == "message":
-                    data = json.loads(message["data"])
-                    await socket.send_json(data)
-                    if data.get("status") in ("COMPLETED", "FAILED", "CANCELLED"):
-                        break
+            async def listen_redis():
+                """Poll Redis for pub/sub messages without blocking the event loop."""
+                while True:
+                    # Use get_message with a short timeout to yield control
+                    # back to the event loop, allowing disconnect detection.
+                    message = pubsub.get_message(
+                        ignore_subscribe_messages=True, timeout=1.0
+                    )
+                    if message is not None and message["type"] == "message":
+                        data = json.loads(message["data"])
+                        await socket.send_json(data)
+                        if data.get("status") in ("COMPLETED", "FAILED", "CANCELLED"):
+                            return
+                    # Yield to the event loop between polls
+                    await asyncio.sleep(0.1)
 
-            pubsub.unsubscribe(channel)
-            pubsub.close()
+            async def listen_client():
+                """Wait for client disconnect."""
+                try:
+                    while True:
+                        await socket.receive_data(mode="text")
+                except Exception:
+                    # Any exception means the client disconnected
+                    return
+
+            redis_task = asyncio.create_task(listen_redis())
+            client_task = asyncio.create_task(listen_client())
+
+            done, pending = await asyncio.wait(
+                [redis_task, client_task],
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            for task in pending:
+                task.cancel()
+                try:
+                    await task
+                except (asyncio.CancelledError, Exception):
+                    pass
         except Exception as e:
             logger.error(f"WebSocket error for job {job_id}: {e}")
         finally:
-            await socket.close()
+            if pubsub is not None:
+                try:
+                    pubsub.unsubscribe()
+                    pubsub.close()
+                except Exception:
+                    pass
+            try:
+                await socket.close()
+            except Exception:
+                pass
 
 
 def _get_redis_client():

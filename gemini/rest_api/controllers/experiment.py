@@ -317,12 +317,14 @@ class ExperimentController(Controller):
                     error_description="No experiment was found with the given ID"
                 )
                 return Response(content=error, status_code=404)
-            season = experiment.create_new_season(
-                season_name=data.season_name,
-                season_info=data.season_info,
-                season_start_date=data.season_start_date,
-                season_end_date=data.season_end_date
-            )
+            kwargs = dict(season_name=data.season_name)
+            if data.season_info is not None:
+                kwargs["season_info"] = data.season_info
+            if data.season_start_date is not None:
+                kwargs["season_start_date"] = data.season_start_date
+            if data.season_end_date is not None:
+                kwargs["season_end_date"] = data.season_end_date
+            season = experiment.create_new_season(**kwargs)
             if not season:
                 error = RESTAPIError(
                     error="Season not created",
@@ -444,11 +446,12 @@ class ExperimentController(Controller):
                     error_description="No experiment was found with the given ID"
                 )
                 return Response(content=error, status_code=404)
-            population = experiment.create_new_population(
-                population_name=data.population_name,
-                population_accession=data.population_accession,
-                population_info=data.population_info
-            )
+            kwargs = dict(population_name=data.population_name)
+            if data.population_accession is not None:
+                kwargs["population_accession"] = data.population_accession
+            if data.population_info is not None:
+                kwargs["population_info"] = data.population_info
+            population = experiment.create_new_population(**kwargs)
             if not population:
                 error = RESTAPIError(
                     error="Population not created",
@@ -629,14 +632,18 @@ class ExperimentController(Controller):
                     error_description="No experiment was found with the given ID"
                 )
                 return Response(content=error, status_code=404)
-            sensor = experiment.create_new_sensor(
-                sensor_name=data.sensor_name,
-                sensor_data_type=GEMINIDataType(data.sensor_data_type_id),
-                sensor_data_format=GEMINIDataFormat(data.sensor_data_format_id),
-                sensor_type=GEMINISensorType(data.sensor_type_id),
-                sensor_info=data.sensor_info,
-                sensor_platform_name=data.sensor_platform_name
-            )
+            kwargs = dict(sensor_name=data.sensor_name)
+            if data.sensor_data_type_id is not None:
+                kwargs["sensor_data_type"] = GEMINIDataType(data.sensor_data_type_id)
+            if data.sensor_data_format_id is not None:
+                kwargs["sensor_data_format"] = GEMINIDataFormat(data.sensor_data_format_id)
+            if data.sensor_type_id is not None:
+                kwargs["sensor_type"] = GEMINISensorType(data.sensor_type_id)
+            if data.sensor_info is not None:
+                kwargs["sensor_info"] = data.sensor_info
+            if data.sensor_platform_name is not None:
+                kwargs["sensor_platform_name"] = data.sensor_platform_name
+            sensor = experiment.create_new_sensor(**kwargs)
             if not sensor:
                 error = RESTAPIError(
                     error="Sensor not created",
@@ -880,12 +887,14 @@ class ExperimentController(Controller):
                     error_description="No experiment was found with the given ID"
                 )
                 return Response(content=error, status_code=404)
-            dataset = experiment.create_new_dataset(
-                dataset_name=data.dataset_name,
-                dataset_info=data.dataset_info,
-                dataset_type=GEMINIDatasetType(data.dataset_type_id),
-                collection_date=data.collection_date
-            )
+            kwargs = dict(dataset_name=data.dataset_name)
+            if data.dataset_info is not None:
+                kwargs["dataset_info"] = data.dataset_info
+            if data.dataset_type_id is not None:
+                kwargs["dataset_type"] = GEMINIDatasetType(data.dataset_type_id)
+            if data.collection_date is not None:
+                kwargs["collection_date"] = data.collection_date
+            dataset = experiment.create_new_dataset(**kwargs)
             if not dataset:
                 error = RESTAPIError(
                     error="Dataset not created",
