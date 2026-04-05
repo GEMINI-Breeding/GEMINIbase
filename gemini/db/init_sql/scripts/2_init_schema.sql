@@ -472,3 +472,27 @@ VALUES
 -- Make sure the next ID is incremented from the last inserted value
 SELECT setval(pg_get_serial_sequence('gemini.dataset_types', 'id'), 6, true);
 
+-------------------------------------------------------------------------------
+-- Jobs Table
+-- Tracks long-running processing tasks (ML training, stitching, ODM, etc.)
+CREATE TABLE IF NOT EXISTS gemini.jobs (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    job_type VARCHAR(50) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+    progress FLOAT NOT NULL DEFAULT 0.0,
+    progress_detail JSONB,
+    parameters JSONB,
+    result JSONB,
+    error_message VARCHAR(2000),
+    experiment_id UUID,
+    worker_id VARCHAR(100),
+    started_at TIMESTAMPTZ,
+    completed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_jobs_status ON gemini.jobs (status);
+CREATE INDEX IF NOT EXISTS idx_jobs_type ON gemini.jobs (job_type);
+CREATE INDEX IF NOT EXISTS idx_jobs_experiment ON gemini.jobs (experiment_id);
+CREATE INDEX IF NOT EXISTS idx_jobs_detail ON gemini.jobs USING GIN (progress_detail);
