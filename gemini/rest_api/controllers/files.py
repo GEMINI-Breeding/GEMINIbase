@@ -1,3 +1,4 @@
+import io
 import os
 import tempfile
 
@@ -375,4 +376,114 @@ class FileController(Controller):
                 status_code=500,
             )
 
+    @get(path="/list_nested", sync_to_thread=True)
+    def list_dirs_nested(self) -> dict:
+        """List all directories nested under Raw/ in a tree structure.
+        Returns a dict of {year: {experiment: {location: {population: [dates]}}}}."""
+        try:
+            bucket = minio_storage_config.bucket_name
+            items = minio_storage_provider.list_files(
+                bucket_name=bucket, prefix="Raw/"
+            )
+            tree = {}
+            for item in items:
+                parts = item.object_name.split("/")
+                # Raw/{year}/{experiment}/{location}/{population}/{date}/...
+                if len(parts) >= 6:
+                    year = parts[1]
+                    experiment = parts[2]
+                    location = parts[3]
+                    population = parts[4]
+                    date = parts[5]
+                    tree.setdefault(year, {}).setdefault(experiment, {}).setdefault(
+                        location, {}
+                    ).setdefault(population, [])
+                    if date not in tree[year][experiment][location][population]:
+                        tree[year][experiment][location][population].append(date)
+            return tree
+        except Exception as e:
+            return Response(
+                content=RESTAPIError(error=str(e), error_description="Failed to list nested dirs"),
+                status_code=500,
+            )
 
+    @get(path="/list_nested_processed", sync_to_thread=True)
+    def list_dirs_nested_processed(self) -> dict:
+        """List all directories nested under Processed/ in a tree structure."""
+        try:
+            bucket = minio_storage_config.bucket_name
+            items = minio_storage_provider.list_files(
+                bucket_name=bucket, prefix="Processed/"
+            )
+            tree = {}
+            for item in items:
+                parts = item.object_name.split("/")
+                if len(parts) >= 6:
+                    year = parts[1]
+                    experiment = parts[2]
+                    location = parts[3]
+                    population = parts[4]
+                    date = parts[5]
+                    tree.setdefault(year, {}).setdefault(experiment, {}).setdefault(
+                        location, {}
+                    ).setdefault(population, [])
+                    if date not in tree[year][experiment][location][population]:
+                        tree[year][experiment][location][population].append(date)
+            return tree
+        except Exception as e:
+            return Response(
+                content=RESTAPIError(error=str(e), error_description="Failed to list nested processed dirs"),
+                status_code=500,
+            )
+
+    @post(path="/download_zip", sync_to_thread=True)
+    def download_zip(self, data: dict) -> Response:
+        """Download multiple files as a ZIP archive."""
+        import zipfile
+        try:
+            bucket = minio_storage_config.bucket_name
+            files = data.get("files", [])
+            prefix = data.get("prefix", "")
+
+            if prefix and not files:
+                # List all files under the prefix
+                items = minio_storage_provider.list_files(
+                    bucket_name=bucket, prefix=prefix
+                )
+                files = [item.object_name for item in items]
+
+            if not files:
+                return Response(
+                    content=RESTAPIError(error="No files", error_description="No files to download"),
+                    status_code=400,
+                )
+
+            # Create ZIP in memory
+            zip_buffer = io.BytesIO()
+            with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+                for file_path in files:
+                    try:
+                        stream = minio_storage_provider.download_file_stream(
+                            object_name=file_path, bucket_name=bucket
+                        )
+                        content = stream.read()
+                        stream.close()
+                        stream.release_conn()
+                        # Use just the filename in the zip
+                        arcname = file_path.split("/")[-1]
+                        zf.writestr(arcname, content)
+                    except Exception:
+                        continue
+
+            zip_buffer.seek(0)
+
+            return Stream(
+                content=zip_buffer,
+                media_type="application/zip",
+                headers={"Content-Disposition": "attachment; filename=download.zip"},
+            )
+        except Exception as e:
+            return Response(
+                content=RESTAPIError(error=str(e), error_description="Failed to create zip"),
+                status_code=500,
+            )
