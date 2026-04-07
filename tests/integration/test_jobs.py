@@ -108,6 +108,44 @@ class TestJobCRUD:
         assert updated.progress == 42.5
         assert updated.progress_detail == {"step": "alignment"}
 
+    def test_claim_job(self, setup_real_db):
+        from gemini.api.job import Job
+        Job.create(job_type="RUN_ODM", parameters={"test": True})
+        claimed = Job.claim(job_type="RUN_ODM", worker_id="worker-1")
+        assert claimed is not None
+        assert claimed.status == "RUNNING"
+        assert claimed.worker_id == "worker-1"
+        assert claimed.started_at is not None
+        assert claimed.parameters == {"test": True}
+
+    def test_claim_no_pending_returns_none(self, setup_real_db):
+        from gemini.api.job import Job
+        result = Job.claim(job_type="RUN_ODM", worker_id="worker-1")
+        assert result is None
+
+    def test_claim_is_atomic(self, setup_real_db):
+        """Two workers claiming the same job type should each get a different job."""
+        from gemini.api.job import Job
+        Job.create(job_type="RUN_ODM", parameters={"idx": 1})
+        Job.create(job_type="RUN_ODM", parameters={"idx": 2})
+
+        claimed_1 = Job.claim(job_type="RUN_ODM", worker_id="worker-A")
+        claimed_2 = Job.claim(job_type="RUN_ODM", worker_id="worker-B")
+
+        assert claimed_1 is not None
+        assert claimed_2 is not None
+        assert str(claimed_1.id) != str(claimed_2.id)
+
+        # Third claim should return None — no more pending
+        claimed_3 = Job.claim(job_type="RUN_ODM", worker_id="worker-C")
+        assert claimed_3 is None
+
+    def test_claim_only_matches_type(self, setup_real_db):
+        from gemini.api.job import Job
+        Job.create(job_type="TRAIN_MODEL", parameters={})
+        result = Job.claim(job_type="RUN_ODM", worker_id="worker-1")
+        assert result is None
+
     def test_cancel_pending_job(self, setup_real_db):
         from gemini.api.job import Job
         job = Job.create(job_type="TRAIN_MODEL", parameters={})
@@ -284,6 +322,46 @@ class TestJobRESTEndpoints:
 
         resp = client.get(f"/api/jobs/{job_id}")
         assert resp.status_code == 404
+
+    def test_claim_job_via_rest(self, client):
+        client.post("/api/jobs/submit", json={
+            "job_type": "RUN_ODM", "parameters": {"images": 5},
+        })
+        resp = client.post("/api/jobs/claim", json={
+            "job_type": "RUN_ODM", "worker_id": "rest-worker-1",
+        })
+        assert resp.status_code == 201, resp.text
+        data = resp.json()
+        assert data["status"] == "RUNNING"
+        assert data["worker_id"] == "rest-worker-1"
+        assert data["parameters"] == {"images": 5}
+
+    def test_claim_returns_404_when_empty(self, client):
+        resp = client.post("/api/jobs/claim", json={
+            "job_type": "RUN_ODM", "worker_id": "worker-1",
+        })
+        assert resp.status_code == 404
+
+    def test_claim_invalid_type(self, client):
+        resp = client.post("/api/jobs/claim", json={
+            "job_type": "BOGUS", "worker_id": "worker-1",
+        })
+        assert resp.status_code == 400
+
+    def test_claim_prevents_double_claim(self, client):
+        """Two claim requests for the same single pending job — only one succeeds."""
+        client.post("/api/jobs/submit", json={
+            "job_type": "RUN_ODM", "parameters": {},
+        })
+        resp1 = client.post("/api/jobs/claim", json={
+            "job_type": "RUN_ODM", "worker_id": "worker-A",
+        })
+        resp2 = client.post("/api/jobs/claim", json={
+            "job_type": "RUN_ODM", "worker_id": "worker-B",
+        })
+        assert resp1.status_code == 201
+        # Second claim gets 404 — no more pending
+        assert resp2.status_code == 404
 
     def test_full_lifecycle_via_rest(self, client):
         """Submit -> start -> progress updates -> complete, all via REST."""

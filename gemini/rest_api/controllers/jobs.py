@@ -16,6 +16,7 @@ from litestar.controller import Controller
 from gemini.api.job import Job
 from gemini.rest_api.models import (
     JobSubmitInput,
+    JobClaimInput,
     JobOutput,
     JobStatusUpdate,
     RESTAPIError,
@@ -71,6 +72,42 @@ class JobController(Controller):
         except Exception as e:
             return Response(
                 content=RESTAPIError(error=str(e), error_description="Failed to submit job"),
+                status_code=500,
+            )
+
+    @post(path="/claim", sync_to_thread=True)
+    def claim_job(self, data: Annotated[JobClaimInput, Body]) -> JobOutput:
+        """
+        Atomically claim the oldest PENDING job of the given type.
+
+        Uses SELECT ... FOR UPDATE SKIP LOCKED to guarantee that only one
+        worker can claim a given job, even when multiple workers poll
+        simultaneously. Returns the claimed job (now RUNNING) or 404 if
+        no PENDING jobs of this type exist.
+        """
+        try:
+            if data.job_type not in VALID_JOB_TYPES:
+                return Response(
+                    content=RESTAPIError(
+                        error="Invalid job type",
+                        error_description=f"Job type must be one of: {', '.join(sorted(VALID_JOB_TYPES))}",
+                    ),
+                    status_code=400,
+                )
+            job = Job.claim(job_type=data.job_type, worker_id=data.worker_id)
+            if job is None:
+                return Response(
+                    content=RESTAPIError(
+                        error="No jobs available",
+                        error_description=f"No PENDING jobs of type {data.job_type}",
+                    ),
+                    status_code=404,
+                )
+            _publish_job_event(str(job.id), "RUNNING", {"worker_id": data.worker_id})
+            return job
+        except Exception as e:
+            return Response(
+                content=RESTAPIError(error=str(e), error_description="Failed to claim job"),
                 status_code=500,
             )
 

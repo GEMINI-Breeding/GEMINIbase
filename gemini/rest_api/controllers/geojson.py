@@ -32,6 +32,16 @@ class GeoJsonController(Controller):
         """Load a GeoJSON file from MinIO and return its contents."""
         try:
             bucket = data.bucket_name or minio_storage_config.bucket_name
+            if not minio_storage_provider.file_exists(
+                object_name=data.file_path, bucket_name=bucket
+            ):
+                return Response(
+                    content=RESTAPIError(
+                        error="Not found",
+                        error_description=f"GeoJSON file {data.file_path} does not exist",
+                    ),
+                    status_code=404,
+                )
             stream = minio_storage_provider.download_file_stream(
                 object_name=data.file_path,
                 bucket_name=bucket,

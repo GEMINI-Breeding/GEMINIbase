@@ -122,7 +122,36 @@ class BaseWorker(ABC):
         return False
 
     def _poll_for_job(self):
-        """Poll the REST API for a pending job matching our supported types."""
+        """
+        Try to atomically claim the oldest PENDING job via /api/jobs/claim.
+        Falls back to the legacy GET+PATCH pattern if the claim endpoint
+        is not available (e.g., older REST API image).
+
+        Returns the claimed job dict (already in RUNNING status) or None.
+        """
+        for job_type in self.supported_job_types:
+            try:
+                # Try atomic claim first (prevents race conditions)
+                resp = requests.post(
+                    f"{self.api_base_url}/api/jobs/claim",
+                    json={"job_type": job_type.value, "worker_id": self.worker_id},
+                    timeout=10,
+                )
+                if resp.status_code in (200, 201):
+                    job = resp.json()
+                    job["_claimed"] = True
+                    return job
+                if resp.status_code == 404:
+                    continue  # No pending jobs of this type
+                if resp.status_code == 405:
+                    # Claim endpoint not available — fall back to legacy
+                    return self._poll_for_job_legacy()
+            except Exception as e:
+                logger.warning(f"Claim error for {job_type.value}: {e}")
+        return None
+
+    def _poll_for_job_legacy(self):
+        """Legacy polling: GET pending jobs then claim via PATCH (race-prone)."""
         for job_type in self.supported_job_types:
             try:
                 resp = requests.get(
@@ -139,26 +168,26 @@ class BaseWorker(ABC):
         return None
 
     def _execute_job(self, job: dict):
-        """Claim and execute a job."""
+        """Claim (if needed) and execute a job."""
         job_id = str(job["id"])
         job_type = job["job_type"]
         parameters = job.get("parameters") or {}
 
-        # Claim the job
-        try:
-            resp = requests.patch(
-                f"{self.api_base_url}/api/jobs/{job_id}/status",
-                json={"status": "RUNNING", "worker_id": self.worker_id},
-                timeout=10,
-            )
-            if resp.status_code != 200:
-                logger.warning(f"Failed to claim job {job_id}: {resp.status_code}")
+        # If not already claimed via atomic endpoint, claim via PATCH
+        if not job.get("_claimed"):
+            try:
+                resp = requests.patch(
+                    f"{self.api_base_url}/api/jobs/{job_id}/status",
+                    json={"status": "RUNNING", "worker_id": self.worker_id},
+                    timeout=10,
+                )
+                if resp.status_code != 200:
+                    logger.warning(f"Failed to claim job {job_id}: {resp.status_code}")
+                    return
+            except Exception as e:
+                logger.error(f"Failed to claim job {job_id}: {e}")
                 return
-        except Exception as e:
-            logger.error(f"Failed to claim job {job_id}: {e}")
-            return
 
-        # Execute
         logger.info(f"Processing job {job_id} ({job_type})")
         try:
             result = self.process(job_id, job_type, parameters)

@@ -1,12 +1,33 @@
-from pydantic import BaseModel, ValidationError, ConfigDict
+from pydantic import BaseModel, ValidationError, ConfigDict, GetCoreSchemaHandler
 from pydantic.types import UUID4
 from pydantic.functional_validators import BeforeValidator
 from litestar.datastructures import UploadFile
+from pydantic_core import core_schema
 from typing import Any, List, Union, Optional
 from typing_extensions import Annotated
 from uuid import UUID
 from datetime import datetime
 import json
+
+
+# Pydantic 2.11+ needs an explicit core schema for UploadFile
+# since it's a third-party type that Pydantic can't introspect.
+def _upload_file_get_pydantic_core_schema(
+    _source_type: Any, _handler: GetCoreSchemaHandler
+) -> core_schema.CoreSchema:
+    return core_schema.no_info_plain_validator_function(
+        lambda v: v,
+        serialization=core_schema.plain_serializer_function_ser_schema(
+            lambda v: str(v), info_arg=False
+        ),
+    )
+
+
+# Monkey-patch UploadFile so Pydantic can handle it in model fields
+if not hasattr(UploadFile, "__get_pydantic_core_schema__"):
+    UploadFile.__get_pydantic_core_schema__ = classmethod(
+        staticmethod(_upload_file_get_pydantic_core_schema)
+    )
 
 def str_to_dict(value: Any) -> dict:
     if isinstance(value, str):
@@ -1095,6 +1116,10 @@ class JobOutput(RESTAPIBase):
 class JobProgressUpdate(RESTAPIBase):
     progress: float
     progress_detail: Optional[JSONB] = None
+
+class JobClaimInput(RESTAPIBase):
+    job_type: str
+    worker_id: str
 
 class JobStatusUpdate(RESTAPIBase):
     status: str

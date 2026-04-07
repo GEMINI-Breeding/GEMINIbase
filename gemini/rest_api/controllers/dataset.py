@@ -464,4 +464,57 @@ class DatasetController(Controller):
                 error_description="An error occurred while deleting the dataset record"
             )
             return Response(content=error, status_code=500)
-    
+
+    @post(path="/update_metadata", sync_to_thread=True)
+    def update_metadata(self, data: dict) -> dict:
+        """
+        Rename/move a dataset by copying all files from the old path to the
+        new path in MinIO, then deleting the originals.
+
+        Expects: { oldData: {year, experiment, location, population, date, platform, sensor},
+                   updatedData: {year, experiment, location, population, date, platform, sensor} }
+        """
+        try:
+            from gemini.rest_api.controllers.files import minio_storage_provider, minio_storage_config
+
+            old = data.get("oldData", {})
+            new = data.get("updatedData", {})
+
+            def build_prefix(d):
+                parts = [d.get("year",""), d.get("experiment",""), d.get("location",""),
+                         d.get("population",""), d.get("date",""), d.get("platform",""),
+                         d.get("sensor","")]
+                return "/".join(p for p in parts if p)
+
+            old_prefix = build_prefix(old)
+            new_prefix = build_prefix(new)
+
+            if old_prefix == new_prefix:
+                return {"status": "no_change"}
+
+            bucket = minio_storage_config.bucket_name
+            objects = minio_storage_provider.list_files(
+                prefix=old_prefix + "/", recursive=True, bucket_name=bucket
+            )
+            if not objects:
+                return {"status": "no_files", "files_moved": 0}
+
+            from minio.commonconfig import CopySource
+
+            client = minio_storage_provider.client
+            moved = 0
+            for obj_name in objects:
+                new_obj_name = new_prefix + obj_name[len(old_prefix):]
+                client.copy_object(
+                    bucket, new_obj_name,
+                    CopySource(bucket, obj_name),
+                )
+                client.remove_object(bucket, obj_name)
+                moved += 1
+
+            return {"status": "updated", "files_moved": moved}
+        except Exception as e:
+            return Response(
+                content=RESTAPIError(error=str(e), error_description="Failed to update metadata"),
+                status_code=500,
+            )

@@ -163,6 +163,52 @@ class Job(APIBase):
             started_at=datetime.now(),
         )
 
+    @classmethod
+    def claim(cls, job_type: str, worker_id: str) -> Optional["Job"]:
+        """
+        Atomically claim the oldest PENDING job of the given type.
+
+        Uses UPDATE ... WHERE status='PENDING' ... LIMIT 1 with RETURNING
+        to ensure only one worker can claim a given job, even if multiple
+        workers poll simultaneously.
+
+        Returns the claimed Job (now in RUNNING status), or None if no
+        PENDING jobs of this type exist.
+        """
+        from sqlalchemy import text
+        from gemini.db.core.base import db_engine
+
+        try:
+            with db_engine.get_session() as session:
+                result = session.execute(
+                    text("""
+                        UPDATE gemini.jobs
+                        SET status = 'RUNNING',
+                            worker_id = :worker_id,
+                            started_at = NOW(),
+                            updated_at = NOW()
+                        WHERE id = (
+                            SELECT id FROM gemini.jobs
+                            WHERE status = 'PENDING' AND job_type = :job_type
+                            ORDER BY created_at ASC
+                            LIMIT 1
+                            FOR UPDATE SKIP LOCKED
+                        )
+                        RETURNING id, job_type, status, progress, progress_detail,
+                                  parameters, result, error_message, experiment_id,
+                                  worker_id, started_at, completed_at,
+                                  created_at, updated_at
+                    """),
+                    {"job_type": job_type, "worker_id": worker_id},
+                )
+                row = result.mappings().first()
+                if row is None:
+                    return None
+                return cls.model_validate(dict(row))
+        except Exception as e:
+            logger.error(f"Error claiming job: {e}")
+            return None
+
     def complete(self, result: dict = None) -> Optional["Job"]:
         """Mark job as successfully completed."""
         return self.update(

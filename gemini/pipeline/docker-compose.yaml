@@ -202,30 +202,49 @@ services:
   #   networks:
   #     - gemini_network
   #
-  # gemini-worker-odm:
-  #   container_name: gemini-worker-odm
-  #   restart: always
-  #   build:
-  #     context: ../../
-  #     dockerfile: ./gemini/workers/odm/Dockerfile
-  #   environment:
-  #     - "GEMINI_REST_API_URL=http://${GEMINI_REST_API_HOSTNAME}:7777"
-  #     - "GEMINI_LOGGER_HOSTNAME=${GEMINI_LOGGER_HOSTNAME}"
-  #     - "GEMINI_LOGGER_PORT=${GEMINI_LOGGER_PORT}"
-  #     - "GEMINI_LOGGER_PASSWORD=${GEMINI_LOGGER_PASSWORD}"
-  #     - "GEMINI_STORAGE_HOSTNAME=${GEMINI_STORAGE_HOSTNAME}"
-  #     - "GEMINI_STORAGE_PORT=${GEMINI_STORAGE_PORT}"
-  #     - "GEMINI_STORAGE_ACCESS_KEY=${GEMINI_STORAGE_ACCESS_KEY}"
-  #     - "GEMINI_STORAGE_SECRET_KEY=${GEMINI_STORAGE_SECRET_KEY}"
-  #     - "GEMINI_STORAGE_BUCKET_NAME=${GEMINI_STORAGE_BUCKET_NAME}"
-  #   volumes:
-  #     - /var/run/docker.sock:/var/run/docker.sock
-  #   depends_on:
-  #     rest-api:
-  #       condition: service_healthy
-  #   networks:
-  #     - gemini_network
-  #
+  gemini-nodeodm:
+    container_name: gemini-nodeodm
+    hostname: gemini-nodeodm
+    image: opendronemap/nodeodm:latest
+    ports:
+      - "${GEMINI_NODEODM_PORT:-13000}:3000"
+    volumes:
+      - nodeodm_data:/var/www/data
+    networks:
+      - gemini_network
+    restart: always
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/info"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  gemini-worker-odm:
+    container_name: gemini-worker-odm
+    restart: always
+    build:
+      context: ../../
+      dockerfile: ./gemini/workers/odm/Dockerfile
+    environment:
+      - "GEMINI_REST_API_URL=http://${GEMINI_REST_API_HOSTNAME}:7777"
+      - "GEMINI_LOGGER_HOSTNAME=${GEMINI_LOGGER_HOSTNAME}"
+      - "GEMINI_LOGGER_PORT=${GEMINI_LOGGER_PORT}"
+      - "GEMINI_LOGGER_PASSWORD=${GEMINI_LOGGER_PASSWORD}"
+      - "GEMINI_STORAGE_HOSTNAME=${GEMINI_STORAGE_HOSTNAME}"
+      - "GEMINI_STORAGE_PORT=${GEMINI_STORAGE_PORT}"
+      - "GEMINI_STORAGE_ACCESS_KEY=${GEMINI_STORAGE_ACCESS_KEY}"
+      - "GEMINI_STORAGE_SECRET_KEY=${GEMINI_STORAGE_SECRET_KEY}"
+      - "GEMINI_STORAGE_BUCKET_NAME=${GEMINI_STORAGE_BUCKET_NAME}"
+      - "GEMINI_NODEODM_URL=http://gemini-nodeodm:3000"
+    depends_on:
+      rest-api:
+        condition: service_healthy
+      gemini-nodeodm:
+        condition: service_healthy
+    networks:
+      - gemini_network
+
   gemini-worker-geo:
     container_name: gemini-worker-geo
     restart: always
@@ -280,3 +299,4 @@ volumes:
   gemini_logger_data:
   gemini_storage_data:
   gemini_scheduler_db_data:
+  nodeodm_data:
