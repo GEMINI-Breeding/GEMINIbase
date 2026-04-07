@@ -44,12 +44,17 @@ jobs:
           --health-retries 10
 
       minio:
-        image: minio/minio:latest
+        image: minio/minio:edge-cicd
         env:
           MINIO_ROOT_USER: minioadmin
           MINIO_ROOT_PASSWORD: minioadmin
         ports:
           - 19000:9000
+        options: >-
+          --health-cmd "curl -f http://localhost:9000/minio/health/live || exit 1"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
 
       redis:
         image: redis:7-alpine
