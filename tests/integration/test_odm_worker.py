@@ -227,8 +227,8 @@ def minio_client():
 
     client = Minio(
         f"{TEST_MINIO_HOST}:{TEST_MINIO_PORT}",
-        access_key="gemini_test_user",
-        secret_key="gemini_test_secret",
+        access_key="minioadmin",
+        secret_key="minioadmin",
         secure=False,
     )
     # Ensure test bucket exists
@@ -430,8 +430,8 @@ class TestOdmWorkerPipeline:
         # Override MinIO connection to test instance
         worker_module.STORAGE_HOST = TEST_MINIO_HOST
         worker_module.STORAGE_PORT = TEST_MINIO_PORT
-        worker_module.STORAGE_ACCESS_KEY = "gemini_test_user"
-        worker_module.STORAGE_SECRET_KEY = "gemini_test_secret"
+        worker_module.STORAGE_ACCESS_KEY = "minioadmin"
+        worker_module.STORAGE_SECRET_KEY = "minioadmin"
         worker_module.STORAGE_BUCKET = BUCKET
         worker_module.POLL_INTERVAL = 0.1  # fast polling for tests
 
