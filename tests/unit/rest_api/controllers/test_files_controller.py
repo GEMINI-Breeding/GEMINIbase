@@ -112,6 +112,7 @@ class TestDeleteFile:
     def test_file_not_found(self, mock_minio, test_client):
         mock_minio.bucket_exists.return_value = True
         mock_minio.file_exists.return_value = False
+        mock_minio.list_files.return_value = []
         response = test_client.delete("/api/files/delete/test-bucket/missing.txt")
         assert response.status_code == 404
 

@@ -7,16 +7,27 @@ real PostgreSQL (jobs table), and real MinIO (file storage).
 Requires: docker compose -f tests/docker-compose.test.yaml up -d
 """
 
+import importlib
 import io
 import json
 import os
 import struct
+import sys
 import threading
 import time
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from uuid import uuid4
 
 import pytest
+
+# The root conftest replaces sys.modules["minio"] with a MagicMock so that
+# unit tests can run without MinIO.  Integration tests need the *real* minio
+# library, so restore it before any worker code is imported.
+for _key in [k for k in sys.modules if k == "minio" or k.startswith("minio.")]:
+    del sys.modules[_key]
+import minio as _real_minio  # noqa: E402 — force real import
+# Re-register so subsequent `from minio import Minio` gets the real one
+sys.modules["minio"] = _real_minio
 
 from tests.integration.conftest import (
     TEST_MINIO_HOST,
@@ -32,7 +43,7 @@ def _make_tiny_tiff():
     """Create a minimal valid TIFF file in memory."""
     # Minimal TIFF: header + IFD with width/height/bits tags
     # This is a simplified TIFF that most readers will accept
-    width, height = 10, 10
+    width, height = 20, 20
     pixel_data = bytes([128, 64, 32] * width * height)  # RGB pixels
 
     # TIFF header (little-endian)
@@ -109,12 +120,26 @@ class MockNodeODMHandler(BaseHTTPRequestHandler):
 
         # /task/{uuid}/download/{asset}
         if "/download/" in self.path:
+            asset = self.path.rsplit("/download/", 1)[-1]
             tiff_data = _make_tiny_tiff()
-            self.send_response(200)
-            self.send_header("Content-Type", "image/tiff")
-            self.send_header("Content-Length", str(len(tiff_data)))
-            self.end_headers()
-            self.wfile.write(tiff_data)
+            if asset == "all.zip":
+                # Worker expects a zip containing odm_orthophoto.tif
+                import zipfile as _zf
+                buf = io.BytesIO()
+                with _zf.ZipFile(buf, "w") as zf:
+                    zf.writestr("odm_orthophoto/odm_orthophoto.tif", tiff_data)
+                zip_data = buf.getvalue()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/zip")
+                self.send_header("Content-Length", str(len(zip_data)))
+                self.end_headers()
+                self.wfile.write(zip_data)
+            else:
+                self.send_response(200)
+                self.send_header("Content-Type", "image/tiff")
+                self.send_header("Content-Length", str(len(tiff_data)))
+                self.end_headers()
+                self.wfile.write(tiff_data)
             return
 
         self._json_response({"error": "not found"}, 404)
@@ -202,8 +227,8 @@ def minio_client():
 
     client = Minio(
         f"{TEST_MINIO_HOST}:{TEST_MINIO_PORT}",
-        access_key="gemini_storage_user",
-        secret_key="gemini_secret",
+        access_key="gemini_test_user",
+        secret_key="gemini_test_secret",
         secure=False,
     )
     # Ensure test bucket exists
@@ -405,8 +430,8 @@ class TestOdmWorkerPipeline:
         # Override MinIO connection to test instance
         worker_module.STORAGE_HOST = TEST_MINIO_HOST
         worker_module.STORAGE_PORT = TEST_MINIO_PORT
-        worker_module.STORAGE_ACCESS_KEY = "gemini_storage_user"
-        worker_module.STORAGE_SECRET_KEY = "gemini_secret"
+        worker_module.STORAGE_ACCESS_KEY = "gemini_test_user"
+        worker_module.STORAGE_SECRET_KEY = "gemini_test_secret"
         worker_module.STORAGE_BUCKET = BUCKET
         worker_module.POLL_INTERVAL = 0.1  # fast polling for tests
 
