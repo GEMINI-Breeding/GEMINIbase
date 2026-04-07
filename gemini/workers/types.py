@@ -34,7 +34,7 @@ JOB_TYPE_WORKER_MAP = {
     JobType.EXTRACT_TRAITS: "gemini-worker-ml",
     JobType.RUN_STITCH: "gemini-worker-stitch",
     JobType.RUN_ODM: "gemini-worker-odm",
-    JobType.SPLIT_ORTHOMOSAIC: "gemini-worker-odm",
+    JobType.SPLIT_ORTHOMOSAIC: "gemini-worker-geo",
     JobType.PROCESS_DRONE_TIFF: "gemini-worker-geo",
     JobType.TIF_TO_PNG: "gemini-worker-geo",
     JobType.CREATE_COG: "gemini-worker-geo",

@@ -131,7 +131,7 @@ services:
     restart: always
     image: ghcr.io/developmentseed/titiler:2.0.1
     ports:
-      - "${GEMINI_TITILER_PORT:-8091}:8000"
+      - "${GEMINI_TITILER_PORT:-8091}:80"
     environment:
       # Point GDAL/rasterio at MinIO via S3 protocol
       - "AWS_ACCESS_KEY_ID=${GEMINI_STORAGE_ACCESS_KEY}"
@@ -148,7 +148,7 @@ services:
     networks:
       - gemini_network
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:80/healthz')"]
       interval: 10s
       timeout: 5s
       retries: 5

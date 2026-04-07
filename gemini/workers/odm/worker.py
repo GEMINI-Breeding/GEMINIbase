@@ -14,6 +14,8 @@ import tempfile
 import time
 from typing import Set
 
+import requests
+
 from gemini.workers.base import BaseWorker
 from gemini.workers.types import JobType
 from gemini.workers.odm.nodeodm_client import (
@@ -286,14 +288,23 @@ class OdmWorker(BaseWorker):
             self.report_progress(job_id, 96, {"stage": "saving_log"})
             self._save_log(task_id, output_prefix, client)
 
-            # Phase 7: Cleanup NodeODM task (98-100%)
+            # Phase 7: Submit CREATE_COG job for tile serving (96-98%)
+            self.report_progress(job_id, 97, {"stage": "submitting_cog_job"})
+            cog_job_id = self._submit_cog_job(ortho_object_path)
+            if cog_job_id:
+                logger.info(f"Submitted CREATE_COG job {cog_job_id} for {ortho_object_path}")
+
+            # Phase 8: Cleanup NodeODM task (98-100%)
             self.report_progress(job_id, 99, {"stage": "cleanup"})
             self._remove_nodeodm_task(task_id)
 
-            return {
+            result = {
                 "orthophoto_path": ortho_object_path,
                 "image_count": len(image_paths),
             }
+            if cog_job_id:
+                result["cog_job_id"] = cog_job_id
+            return result
 
     def _download_images(
         self, client, prefix: str, dest_dir: str, job_id: str
@@ -453,6 +464,26 @@ class OdmWorker(BaseWorker):
         except Exception:
             pass
         self._remove_nodeodm_task(task_id)
+
+    def _submit_cog_job(self, ortho_path: str) -> str:
+        """Submit a CREATE_COG job to convert the orthophoto to a tiled pyramid for map display."""
+        try:
+            resp = requests.post(
+                f"{self.api_base_url}/api/jobs/submit",
+                json={
+                    "job_type": "CREATE_COG",
+                    "parameters": {"input_path": ortho_path},
+                },
+                timeout=10,
+            )
+            if resp.status_code in (200, 201):
+                return str(resp.json().get("id", ""))
+            else:
+                logger.warning(f"Failed to submit CREATE_COG job: {resp.status_code} {resp.text}")
+                return ""
+        except Exception as e:
+            logger.warning(f"Failed to submit CREATE_COG job: {e}")
+            return ""
 
     def _remove_nodeodm_task(self, task_id: str):
         """Remove a completed/failed NodeODM task to free resources."""
