@@ -23,6 +23,8 @@ from gemini.rest_api.controllers.jobs import JobController
 from gemini.rest_api.controllers.plot_geometry import PlotGeometryController
 from gemini.rest_api.controllers.model_management import ModelManagementController
 from gemini.rest_api.controllers.annotations import AnnotationsController
+from gemini.rest_api.controllers.variant import VariantController
+from gemini.rest_api.controllers.genotype import GenotypeController
 
 controllers = {
     "populations": PopulationController,
@@ -50,5 +52,7 @@ controllers = {
     "plot_geometry": PlotGeometryController,
     "model_management": ModelManagementController,
     "annotations": AnnotationsController,
+    "variants": VariantController,
+    "genotypes": GenotypeController,
 }
 

@@ -31,6 +31,8 @@ from gemini.db.models.experiments import ExperimentModel
 from gemini.db.models.plots import PlotModel
 from gemini.db.models.plants import PlantModel
 from gemini.db.models.jobs import JobModel
+from gemini.db.models.variants import VariantModel
+from gemini.db.models.genotypes import GenotypeModel
 
 # Associations
 import gemini.db.models.associations as Associations
@@ -42,6 +44,7 @@ from gemini.db.models.columnar.procedure_records import ProcedureRecordModel
 from gemini.db.models.columnar.script_records import ScriptRecordModel
 from gemini.db.models.columnar.sensor_records import SensorRecordModel
 from gemini.db.models.columnar.trait_records import TraitRecordModel
+from gemini.db.models.columnar.genotype_records import GenotypeRecordModel
 
 # Views
 from gemini.db.models.views.plot_view import PlotViewModel
@@ -57,6 +60,8 @@ from gemini.db.models.views.dataset_views import (
 )
 
 # Experiment Views
+from gemini.db.models.views.genotype_views import ExperimentGenotypesViewModel
+
 from gemini.db.models.views.experiment_views import (
     ExperimentSitesViewModel,
     ExperimentTraitsViewModel,

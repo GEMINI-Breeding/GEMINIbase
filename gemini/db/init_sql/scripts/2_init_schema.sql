@@ -473,6 +473,41 @@ VALUES
 SELECT setval(pg_get_serial_sequence('gemini.dataset_types', 'id'), 6, true);
 
 -------------------------------------------------------------------------------
+-- Variants Table
+-- Stores genetic variant (marker/SNP) metadata
+CREATE TABLE IF NOT EXISTS gemini.variants (
+    id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+    variant_name VARCHAR(255) NOT NULL,
+    chromosome INTEGER NOT NULL,
+    position FLOAT NOT NULL,
+    alleles VARCHAR(50) NOT NULL,
+    design_sequence TEXT DEFAULT '',
+    variant_info JSONB DEFAULT '{}',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_variants_info ON gemini.variants USING GIN (variant_info);
+CREATE INDEX IF NOT EXISTS idx_variants_chromosome ON gemini.variants (chromosome);
+
+ALTER TABLE gemini.variants ADD CONSTRAINT variant_unique UNIQUE (variant_name);
+
+-------------------------------------------------------------------------------
+-- Genotypes Table
+-- Stores genotyping study/protocol metadata
+CREATE TABLE IF NOT EXISTS gemini.genotypes (
+    id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+    genotype_name VARCHAR(255) NOT NULL,
+    genotype_info JSONB DEFAULT '{}',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_genotypes_info ON gemini.genotypes USING GIN (genotype_info);
+
+ALTER TABLE gemini.genotypes ADD CONSTRAINT genotype_unique UNIQUE (genotype_name);
+
+-------------------------------------------------------------------------------
 -- Jobs Table
 -- Tracks long-running processing tasks (ML training, stitching, ODM, etc.)
 CREATE TABLE IF NOT EXISTS gemini.jobs (

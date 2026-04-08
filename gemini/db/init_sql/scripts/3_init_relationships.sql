@@ -256,6 +256,20 @@ CREATE TABLE IF NOT EXISTS gemini.procedure_datasets (
 
 ALTER TABLE gemini.procedure_datasets ADD CONSTRAINT procedure_dataset_unique UNIQUE (procedure_id, dataset_id);
 
+-------------------------------------------------------------------------------
+-- Experiment Genotypes Table
+
+CREATE TABLE IF NOT EXISTS gemini.experiment_genotypes (
+    experiment_id UUID REFERENCES gemini.experiments(id) ON DELETE CASCADE,
+    genotype_id UUID REFERENCES gemini.genotypes(id) ON DELETE CASCADE,
+    info JSONB DEFAULT '{}',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (experiment_id, genotype_id)
+);
+
+ALTER TABLE gemini.experiment_genotypes ADD CONSTRAINT experiment_genotype_unique UNIQUE (experiment_id, genotype_id);
+
 -- Create Datatype Formats associations
 INSERT INTO gemini.data_type_formats (data_type_id, data_format_id)
 VALUES

@@ -326,3 +326,20 @@ class ProcedureDatasetModel(BaseModel):
     __table_args__ = (
         UniqueConstraint("procedure_id", "dataset_id", name="procedure_dataset_unique"),
     )
+
+
+class ExperimentGenotypeModel(BaseModel):
+    """
+    Represents the association between an experiment and a genotyping study.
+    """
+    __tablename__ = "experiment_genotypes"
+
+    experiment_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=False), ForeignKey("gemini.experiments.id", ondelete="CASCADE"), primary_key=True)
+    genotype_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=False), ForeignKey("gemini.genotypes.id", ondelete="CASCADE"), primary_key=True)
+    info: Mapped[dict] = mapped_column(JSONB, default={})
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP, default=datetime.now)
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP, default=datetime.now, onupdate=datetime.now)
+
+    __table_args__ = (
+        UniqueConstraint("experiment_id", "genotype_id", name="experiment_genotype_unique"),
+    )

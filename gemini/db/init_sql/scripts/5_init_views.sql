@@ -672,6 +672,25 @@ FULL OUTER JOIN gemini.sensors s ON sps.sensor_id = s.id;
 
     
 -------------------------------------------------------------------------------
+-- Materialized View to show Experiment Genotypes
+CREATE OR REPLACE VIEW gemini.experiment_genotypes_view
+AS
+SELECT
+    e.id AS experiment_id,
+    e.experiment_name AS experiment_name,
+    e.experiment_info AS experiment_info,
+    e.experiment_start_date AS experiment_start_date,
+    e.experiment_end_date AS experiment_end_date,
+    g.id AS genotype_id,
+    g.genotype_name AS genotype_name,
+    g.genotype_info AS genotype_info
+FROM
+    gemini.genotypes g
+LEFT JOIN gemini.experiment_genotypes eg ON g.id = eg.genotype_id
+LEFT JOIN gemini.experiments e ON eg.experiment_id = e.id;
+
+
+-------------------------------------------------------------------------------
 -- IMMV
 -------------------------------------------------------------------------------
 

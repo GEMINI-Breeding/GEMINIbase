@@ -1128,3 +1128,87 @@ class JobStatusUpdate(RESTAPIBase):
     progress_detail: Optional[JSONB] = None
     result: Optional[JSONB] = None
     error_message: Optional[str] = None
+
+
+# --------------------------------
+# Variant Classes
+# --------------------------------
+class VariantInput(RESTAPIBase):
+    variant_name: str
+    chromosome: int
+    position: float
+    alleles: str
+    design_sequence: Optional[str] = ''
+    variant_info: Optional[JSONB] = {}
+
+class VariantBulkInput(RESTAPIBase):
+    variants: List[dict]
+
+class VariantUpdate(RESTAPIBase):
+    variant_name: Optional[str] = None
+    chromosome: Optional[int] = None
+    position: Optional[float] = None
+    alleles: Optional[str] = None
+    design_sequence: Optional[str] = None
+    variant_info: Optional[JSONB] = None
+
+class VariantOutput(RESTAPIBase):
+    id: Optional[ID] = None
+    variant_name: Optional[str] = None
+    chromosome: Optional[int] = None
+    position: Optional[float] = None
+    alleles: Optional[str] = None
+    design_sequence: Optional[str] = None
+    variant_info: Optional[JSONB] = None
+
+
+# --------------------------------
+# Genotype Classes
+# --------------------------------
+class GenotypeInput(RESTAPIBase):
+    genotype_name: str
+    genotype_info: Optional[JSONB] = {}
+    experiment_name: Optional[str] = None
+
+class GenotypeUpdate(RESTAPIBase):
+    genotype_name: Optional[str] = None
+    genotype_info: Optional[JSONB] = None
+
+class GenotypeOutput(RESTAPIBase):
+    id: Optional[ID] = None
+    genotype_name: Optional[str] = None
+    genotype_info: Optional[JSONB] = None
+
+
+# --------------------------------
+# Genotype Record Classes
+# --------------------------------
+class GenotypeRecordInput(RESTAPIBase):
+    genotype_id: Optional[ID] = None
+    genotype_name: Optional[str] = None
+    variant_id: Optional[ID] = None
+    variant_name: Optional[str] = None
+    chromosome: Optional[int] = None
+    position: Optional[float] = None
+    population_id: Optional[ID] = None
+    population_name: Optional[str] = None
+    population_accession: Optional[str] = None
+    call_value: str
+    record_info: Optional[JSONB] = {}
+
+class GenotypeRecordBulkInput(RESTAPIBase):
+    records: List[dict]
+
+class GenotypeRecordOutput(RESTAPIBase):
+    id: Optional[ID] = None
+    genotype_id: Optional[ID] = None
+    genotype_name: Optional[str] = None
+    variant_id: Optional[ID] = None
+    variant_name: Optional[str] = None
+    chromosome: Optional[int] = None
+    position: Optional[float] = None
+    population_id: Optional[ID] = None
+    population_name: Optional[str] = None
+    population_accession: Optional[str] = None
+    call_value: Optional[str] = None
+    record_info: Optional[JSONB] = None

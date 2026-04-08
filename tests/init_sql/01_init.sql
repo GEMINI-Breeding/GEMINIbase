@@ -69,6 +69,33 @@ CREATE TABLE IF NOT EXISTS gemini.populations (
 CREATE INDEX IF NOT EXISTS idx_populations_info ON gemini.populations USING GIN (population_info);
 ALTER TABLE gemini.populations ADD CONSTRAINT population_unique UNIQUE (population_accession, population_name);
 
+-- Variants table (genetic markers/SNPs)
+CREATE TABLE IF NOT EXISTS gemini.variants (
+    id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+    variant_name VARCHAR(255) NOT NULL,
+    chromosome INTEGER NOT NULL,
+    position FLOAT NOT NULL,
+    alleles VARCHAR(50) NOT NULL,
+    design_sequence TEXT DEFAULT '',
+    variant_info JSONB DEFAULT '{}',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_variants_info ON gemini.variants USING GIN (variant_info);
+CREATE INDEX IF NOT EXISTS idx_variants_chromosome ON gemini.variants (chromosome);
+ALTER TABLE gemini.variants ADD CONSTRAINT variant_unique UNIQUE (variant_name);
+
+-- Genotypes table (genotyping studies/protocols)
+CREATE TABLE IF NOT EXISTS gemini.genotypes (
+    id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+    genotype_name VARCHAR(255) NOT NULL,
+    genotype_info JSONB DEFAULT '{}',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_genotypes_info ON gemini.genotypes USING GIN (genotype_info);
+ALTER TABLE gemini.genotypes ADD CONSTRAINT genotype_unique UNIQUE (genotype_name);
+
 CREATE TABLE IF NOT EXISTS gemini.plots (
     id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
     experiment_id uuid REFERENCES gemini.experiments(id) ON DELETE SET NULL,
@@ -372,6 +399,15 @@ CREATE TABLE IF NOT EXISTS gemini.experiment_scripts (
     PRIMARY KEY (experiment_id, script_id)
 );
 
+CREATE TABLE IF NOT EXISTS gemini.experiment_genotypes (
+    experiment_id UUID REFERENCES gemini.experiments(id) ON DELETE CASCADE,
+    genotype_id UUID REFERENCES gemini.genotypes(id) ON DELETE CASCADE,
+    info JSONB DEFAULT '{}',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (experiment_id, genotype_id)
+);
+
 CREATE TABLE IF NOT EXISTS gemini.plot_populations (
     plot_id UUID REFERENCES gemini.plots(id) ON DELETE CASCADE,
     population_id UUID REFERENCES gemini.populations(id) ON DELETE CASCADE,
@@ -546,6 +582,30 @@ CREATE TABLE IF NOT EXISTS gemini.script_records (
     record_info JSONB NOT NULL DEFAULT '{}'
 );
 
+CREATE TABLE IF NOT EXISTS gemini.genotype_records (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    genotype_id UUID,
+    genotype_name TEXT,
+    variant_id UUID,
+    variant_name TEXT,
+    chromosome INTEGER,
+    position FLOAT,
+    population_id UUID,
+    population_name TEXT,
+    population_accession TEXT,
+    call_value VARCHAR(10),
+    record_info JSONB NOT NULL DEFAULT '{}'
+);
+ALTER TABLE gemini.genotype_records ADD CONSTRAINT genotype_records_unique UNIQUE (
+    genotype_id,
+    variant_id,
+    population_id
+);
+CREATE INDEX genotype_records_genotype_variant_idx ON gemini.genotype_records (genotype_id, variant_id);
+CREATE INDEX genotype_records_genotype_population_idx ON gemini.genotype_records (genotype_id, population_id);
+CREATE INDEX genotype_records_chromosome_idx ON gemini.genotype_records (chromosome);
+CREATE INDEX genotype_records_record_info_idx ON gemini.genotype_records USING GIN (record_info);
+
 -- Resources table (referenced by some models)
 CREATE TABLE IF NOT EXISTS gemini.resources (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -581,3 +641,54 @@ CREATE INDEX IF NOT EXISTS idx_jobs_status ON gemini.jobs (status);
 CREATE INDEX IF NOT EXISTS idx_jobs_type ON gemini.jobs (job_type);
 CREATE INDEX IF NOT EXISTS idx_jobs_experiment ON gemini.jobs (experiment_id);
 CREATE INDEX IF NOT EXISTS idx_jobs_detail ON gemini.jobs USING GIN (progress_detail);
+
+-- =============================================================================
+-- FUNCTIONS
+-- =============================================================================
+
+CREATE OR REPLACE FUNCTION gemini.filter_genotype_records(
+    p_genotype_names TEXT[] DEFAULT NULL,
+    p_variant_names TEXT[] DEFAULT NULL,
+    p_population_names TEXT[] DEFAULT NULL,
+    p_chromosomes INTEGER[] DEFAULT NULL
+)
+RETURNS TABLE (
+    "id" UUID,
+    "genotype_id" UUID,
+    "genotype_name" TEXT,
+    "variant_id" UUID,
+    "variant_name" TEXT,
+    "chromosome" INTEGER,
+    "position" FLOAT,
+    "population_id" UUID,
+    "population_name" TEXT,
+    "population_accession" TEXT,
+    "call_value" VARCHAR(10),
+    "record_info" JSONB
+)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    RETURN QUERY
+    SELECT
+        gr.id,
+        gr.genotype_id,
+        gr.genotype_name,
+        gr.variant_id,
+        gr.variant_name,
+        gr.chromosome,
+        gr.position,
+        gr.population_id,
+        gr.population_name,
+        gr.population_accession,
+        gr.call_value,
+        gr.record_info
+    FROM
+        gemini.genotype_records gr
+    WHERE
+        (p_genotype_names IS NULL OR array_length(p_genotype_names, 1) IS NULL OR gr.genotype_name = ANY(p_genotype_names))
+        AND (p_variant_names IS NULL OR array_length(p_variant_names, 1) IS NULL OR gr.variant_name = ANY(p_variant_names))
+        AND (p_population_names IS NULL OR array_length(p_population_names, 1) IS NULL OR gr.population_name = ANY(p_population_names))
+        AND (p_chromosomes IS NULL OR array_length(p_chromosomes, 1) IS NULL OR gr.chromosome = ANY(p_chromosomes));
+END;
+$$;

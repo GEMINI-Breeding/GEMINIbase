@@ -1047,3 +1047,54 @@ BEGIN
 END;
 $$;
 
+
+------------------------------------------------------------------------------
+-- Function to filter genotype records
+------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION gemini.filter_genotype_records(
+    p_genotype_names TEXT[] DEFAULT NULL,
+    p_variant_names TEXT[] DEFAULT NULL,
+    p_population_names TEXT[] DEFAULT NULL,
+    p_chromosomes INTEGER[] DEFAULT NULL
+)
+RETURNS TABLE (
+    "id" UUID,
+    "genotype_id" UUID,
+    "genotype_name" TEXT,
+    "variant_id" UUID,
+    "variant_name" TEXT,
+    "chromosome" INTEGER,
+    "position" FLOAT,
+    "population_id" UUID,
+    "population_name" TEXT,
+    "population_accession" TEXT,
+    "call_value" VARCHAR(10),
+    "record_info" JSONB
+)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    RETURN QUERY
+    SELECT
+        gr.id,
+        gr.genotype_id,
+        gr.genotype_name,
+        gr.variant_id,
+        gr.variant_name,
+        gr.chromosome,
+        gr.position,
+        gr.population_id,
+        gr.population_name,
+        gr.population_accession,
+        gr.call_value,
+        gr.record_info
+    FROM
+        gemini.genotype_records gr
+    WHERE
+        (p_genotype_names IS NULL OR array_length(p_genotype_names, 1) IS NULL OR gr.genotype_name = ANY(p_genotype_names))
+        AND (p_variant_names IS NULL OR array_length(p_variant_names, 1) IS NULL OR gr.variant_name = ANY(p_variant_names))
+        AND (p_population_names IS NULL OR array_length(p_population_names, 1) IS NULL OR gr.population_name = ANY(p_population_names))
+        AND (p_chromosomes IS NULL OR array_length(p_chromosomes, 1) IS NULL OR gr.chromosome = ANY(p_chromosomes));
+END;
+$$;
+
