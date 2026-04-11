@@ -1,0 +1,4 @@
+Location,Line ID,Field.plot.number,Crop,Rep,Bed,Tier
+TestField,10,1,Cowpea,1,2,2
+TestField,9,2,Cowpea,1,2,3
+TestField,8,3,Cowpea,1,2,4
