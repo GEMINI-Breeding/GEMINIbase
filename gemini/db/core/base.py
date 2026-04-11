@@ -303,7 +303,8 @@ class BaseModel(DeclarativeBase, SerializeMixin):
         """
         try:
             with db_engine.get_session() as session:
-                session.delete(instance)
+                merged = session.merge(instance)
+                session.delete(merged)
             return True
         except Exception as e:
             logger.error(f"Error deleting instance: {e}")

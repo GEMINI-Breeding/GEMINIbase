@@ -214,13 +214,16 @@ class TraitRecord(APIBase):
                 raise ValueError("Trait name is required.")
             if not dataset_name:
                 raise ValueError("Dataset name is required.")
-            if not all([plot_number, plot_row_number, plot_column_number]):
-                raise ValueError("Plot information (number, row, column) is required if any is provided.")
+            # Plot row/column may only be provided together with a plot_number.
+            # plot_number by itself is valid (row/column are optional).
+            if (plot_row_number is not None or plot_column_number is not None) and plot_number is None:
+                raise ValueError("plot_number is required when plot_row_number or plot_column_number is provided.")
             if not timestamp:
                 timestamp = datetime.now()
             if not collection_date:
                 collection_date = timestamp.date()
-            if not trait_value:
+            # Allow 0.0 and negative values — only reject None/missing.
+            if trait_value is None:
                 raise ValueError("Trait value is required.")
             trait_record = TraitRecord(
                 timestamp=timestamp,

@@ -103,6 +103,12 @@ class PresignedUrlResponse(RESTAPIBase):
     url: str
     expires_in_seconds: int
 
+class PaginatedFileList(RESTAPIBase):
+    files: List[FileMetadata]
+    total_count: int
+    limit: int
+    offset: int
+
 
 # --------------------------------
 # Experiment Classes
@@ -1086,6 +1092,19 @@ class TraitRecordOutput(RESTAPIBase):
     plot_row_number: Optional[int] = None
     plot_column_number: Optional[int] = None
     record_info: Optional[JSONB] = None
+
+
+class TraitRecordBulkInput(RESTAPIBase):
+    records: List[dict]
+    experiment_name: Optional[str] = None
+    season_name: Optional[str] = None
+    site_name: Optional[str] = None
+    dataset_name: Optional[str] = None
+    collection_date: Optional[datetime] = None
+
+class TraitRecordBulkOutput(RESTAPIBase):
+    inserted_count: int
+    record_ids: List[str]
 
 
 # --------------------------------

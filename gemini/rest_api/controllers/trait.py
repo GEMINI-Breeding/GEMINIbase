@@ -14,6 +14,7 @@ from gemini.api.trait import Trait, GEMINITraitLevel
 from gemini.api.trait_record import TraitRecord
 from gemini.rest_api.models import TraitInput, TraitOutput, TraitUpdate, JSONB, str_to_dict
 from gemini.rest_api.models import TraitRecordInput, TraitRecordOutput, TraitRecordUpdate, TraitLevelSearch
+from gemini.rest_api.models import TraitRecordBulkInput, TraitRecordBulkOutput
 from gemini.rest_api.models import RESTAPIError
 from gemini.rest_api.models import DatasetOutput
 from typing import List, Annotated, Optional
@@ -320,6 +321,71 @@ class TraitController(Controller):
                 error_description="An error occurred while adding trait record"
             )
             return Response(content=error_message, status_code=500)
+
+    # Bulk Add Trait Records
+    @post(path="/id/{trait_id:str}/records/bulk", sync_to_thread=True)
+    def bulk_add_trait_records(
+        self,
+        trait_id: str,
+        data: TraitRecordBulkInput
+    ) -> TraitRecordBulkOutput:
+        try:
+            trait = Trait.get_by_id(id=trait_id)
+            if trait is None:
+                return Response(
+                    content=RESTAPIError(error="Trait not found", error_description="The trait with the given ID was not found"),
+                    status_code=404,
+                )
+
+            from datetime import datetime as dt
+
+            timestamps = []
+            trait_values = []
+            plot_numbers = []
+            plot_row_numbers = []
+            plot_column_numbers = []
+            record_infos = []
+
+            for row in data.records:
+                ts = row.get('timestamp')
+                if isinstance(ts, str):
+                    ts = dt.fromisoformat(ts.replace('Z', '+00:00'))
+                timestamps.append(ts)
+                trait_values.append(float(row['trait_value']))
+                plot_numbers.append(row.get('plot_number'))
+                plot_row_numbers.append(row.get('plot_row_number'))
+                plot_column_numbers.append(row.get('plot_column_number'))
+                record_infos.append(row.get('record_info', {}))
+
+            success, record_ids = trait.insert_records(
+                timestamps=timestamps,
+                collection_date=data.collection_date,
+                trait_values=trait_values,
+                dataset_name=data.dataset_name,
+                experiment_name=data.experiment_name,
+                season_name=data.season_name,
+                site_name=data.site_name,
+                plot_numbers=plot_numbers if any(p is not None for p in plot_numbers) else None,
+                plot_row_numbers=plot_row_numbers if any(p is not None for p in plot_row_numbers) else None,
+                plot_column_numbers=plot_column_numbers if any(p is not None for p in plot_column_numbers) else None,
+                record_info=record_infos,
+            )
+
+            if not success:
+                return Response(
+                    content=RESTAPIError(error="Bulk insert failed", error_description="Failed to insert trait records"),
+                    status_code=500,
+                )
+
+            return TraitRecordBulkOutput(
+                inserted_count=len(record_ids),
+                record_ids=[str(rid) for rid in record_ids],
+            )
+        except Exception as e:
+            return Response(
+                content=RESTAPIError(error=str(e), error_description="An error occurred during bulk trait record insert"),
+                status_code=500,
+            )
 
     # Search Trait Records
     @get(path="/id/{trait_id:str}/records", sync_to_thread=True)

@@ -74,6 +74,12 @@ class GEMINISettings(BaseSettings):
     # TiTiler (tile server for COGs stored in MinIO)
     GEMINI_TITILER_PORT : int = 8091
 
+    # NodeODM (OpenDroneMap processing service)
+    GEMINI_NODEODM_PORT : int = 13000
+
+    # UI
+    GEMINI_UI_PORT : int = 3000
+
     # Reverse Proxy
     GEMINI_REVERSE_PROXY_CONTAINER_NAME : str = "gemini-reverse-proxy"
     GEMINI_REVERSE_PROXY_IMAGE_NAME : str = "gemini/reverse-proxy"

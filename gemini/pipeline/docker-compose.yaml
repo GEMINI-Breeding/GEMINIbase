@@ -289,6 +289,20 @@ services:
     networks:
       - gemini_network
 
+  gemini-ui:
+    container_name: gemini-ui
+    restart: always
+    build:
+      context: ../../gemini-ui
+      dockerfile: Dockerfile
+    ports:
+      - "${GEMINI_UI_PORT:-3000}:80"
+    depends_on:
+      rest-api:
+        condition: service_healthy
+    networks:
+      - gemini_network
+
 networks:
   gemini_network:
     driver: bridge

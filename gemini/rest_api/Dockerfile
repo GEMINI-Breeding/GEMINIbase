@@ -15,6 +15,9 @@ RUN poetry config virtualenvs.create false
 
 RUN poetry install --no-root
 
+# Install Pillow for image thumbnail generation
+RUN pip install "Pillow>=10.0.0,<12.0.0"
+
 # Copy the complete GEMINI source code into the container
 COPY gemini ./gemini
 

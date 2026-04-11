@@ -1,10 +1,11 @@
 import io
 import os
 import tempfile
+import hashlib
 
 from litestar import Response
 from litestar.handlers import get, post, patch, delete
-from litestar.params import Body
+from litestar.params import Body, Parameter
 from litestar.controller import Controller
 from litestar.response import Stream
 from litestar.enums import RequestEncodingType
@@ -15,6 +16,7 @@ from mimetypes import guess_type
 from gemini.rest_api.models import (
     RESTAPIError,
     FileMetadata,
+    PaginatedFileList,
     UploadFileRequest,
     ChunkUploadRequest,
     ChunkStatusResponse,
@@ -523,5 +525,114 @@ class FileController(Controller):
         except Exception as e:
             return Response(
                 content=RESTAPIError(error=str(e), error_description="Failed to create zip"),
+                status_code=500,
+            )
+
+    @get(path="/list_paginated/{file_path:path}", sync_to_thread=True)
+    def list_files_paginated(
+        self,
+        file_path: str,
+        limit: int = Parameter(default=50, ge=1, le=500),
+        offset: int = Parameter(default=0, ge=0),
+    ) -> PaginatedFileList:
+        try:
+            parts = file_path.split('/')
+            bucket_name = parts[1] if len(parts) > 1 else parts[0]
+            prefix = '/'.join(parts[2:]) if len(parts) > 2 else ''
+            if not minio_storage_provider.bucket_exists(bucket_name):
+                return Response(
+                    content=RESTAPIError(error="Bucket not found", error_description=f"Bucket {bucket_name} does not exist"),
+                    status_code=404,
+                )
+            result = minio_storage_provider.list_files_paginated(
+                bucket_name=bucket_name,
+                prefix=prefix,
+                limit=limit,
+                offset=offset,
+            )
+            files = [
+                FileMetadata(
+                    bucket_name=f['bucket_name'],
+                    object_name=f['object_name'],
+                    size=f['size'],
+                    last_modified=f['last_modified'],
+                    content_type=f.get('content_type'),
+                    etag=f.get('etag', ''),
+                )
+                for f in result['files']
+            ]
+            return PaginatedFileList(
+                files=files,
+                total_count=result['total_count'],
+                limit=limit,
+                offset=offset,
+            )
+        except Exception as e:
+            return Response(
+                content=RESTAPIError(error=str(e), error_description="An error occurred while listing files"),
+                status_code=500,
+            )
+
+    @get(path="/thumbnail/{file_path:path}", sync_to_thread=True)
+    def get_thumbnail(
+        self,
+        file_path: str,
+        size: int = Parameter(default=200, ge=32, le=800),
+    ) -> Stream:
+        try:
+            from PIL import Image as PILImage
+
+            parts = file_path.split('/')
+            bucket_name = parts[1] if len(parts) > 1 else parts[0]
+            object_name = '/'.join(parts[2:]) if len(parts) > 2 else ''
+
+            # Check for cached thumbnail
+            thumb_object = f".thumbnails/{size}/{object_name}"
+            if minio_storage_provider.file_exists(object_name=thumb_object, bucket_name=bucket_name):
+                thumb_stream = minio_storage_provider.download_file_stream(
+                    object_name=thumb_object, bucket_name=bucket_name
+                )
+                return Stream(
+                    content=thumb_stream.stream(),
+                    media_type="image/webp",
+                    headers={"Cache-Control": "public, max-age=86400"},
+                )
+
+            # Generate thumbnail
+            file_stream = minio_storage_provider.download_file_stream(
+                object_name=object_name, bucket_name=bucket_name
+            )
+            img = PILImage.open(io.BytesIO(file_stream.read()))
+            img.thumbnail((size, size), PILImage.LANCZOS)
+
+            # Convert to WebP
+            thumb_buffer = io.BytesIO()
+            img.save(thumb_buffer, format='WEBP', quality=75)
+            thumb_buffer.seek(0)
+
+            # Cache the thumbnail in MinIO
+            try:
+                thumb_bytes = thumb_buffer.getvalue()
+                minio_storage_provider.upload_file(
+                    object_name=thumb_object,
+                    data_stream=io.BytesIO(thumb_bytes),
+                    content_type="image/webp",
+                    bucket_name=bucket_name,
+                )
+            except Exception:
+                pass  # Cache failure is non-fatal
+
+            thumb_buffer.seek(0)
+            return Stream(
+                content=thumb_buffer,
+                media_type="image/webp",
+                headers={"Cache-Control": "public, max-age=86400"},
+            )
+        except ImportError:
+            # Pillow not installed — fall back to full image
+            return self.download_file(file_path)
+        except Exception as e:
+            return Response(
+                content=RESTAPIError(error=str(e), error_description="An error occurred while generating thumbnail"),
                 status_code=500,
             )

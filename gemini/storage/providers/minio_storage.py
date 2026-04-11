@@ -322,14 +322,14 @@ class MinioStorageProvider(StorageProvider):
         bucket_name: Optional[str] = None
     ) -> list[str]:
         """List all files in MinIO storage with given prefix.
-        
+
         Args:
             prefix: Filter files by prefix
             recursive: Search recursively in directories
-            
+
         Returns:
             list[str]: List of file paths
-            
+
         Raises:
             StorageError: If listing fails
             StorageConnectionError: If connection fails
@@ -341,20 +341,53 @@ class MinioStorageProvider(StorageProvider):
                 recursive=recursive
             )
             return [obj.object_name for obj in objects]
-            # object_metadata = []
-            # for obj in objects:
-            #     # Convert to dict for easier handling
-            #     obj_info = {
-            #         'bucket_name': obj.bucket_name,
-            #         'object_name': obj.object_name,
-            #         'size': obj.size,
-            #         'last_modified': obj.last_modified,
-            #         'etag': obj.etag,
-            #         'content_type': obj.content_type,
-            #         'metadata': obj.metadata
-            #     }
-            #     object_metadata.append(obj_info)
-            # return object_metadata
+        except S3Error as e:
+            if 'AccessDenied' in str(e):
+                raise StorageAuthError(f"Access denied while listing files: {e}")
+            raise StorageError(f"Failed to list files: {e}")
+        except ConnectionError as e:
+            raise StorageConnectionError(f"Connection failed while listing files: {e}")
+        except Exception as e:
+            raise StorageError(f"Unexpected error while listing files: {e}")
+
+    def list_files_paginated(
+        self,
+        prefix: Optional[str] = None,
+        recursive: bool = True,
+        bucket_name: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0
+    ) -> dict:
+        """List files with pagination, returning metadata from the list_objects iterator
+        without making individual HEAD requests per file.
+
+        Returns:
+            dict with keys: files (list of dicts), total_count (int)
+        """
+        try:
+            target_bucket = self.bucket_name if bucket_name is None else bucket_name
+            objects = self.client.list_objects(
+                bucket_name=target_bucket,
+                prefix=prefix,
+                recursive=recursive
+            )
+
+            all_files = []
+            for obj in objects:
+                if obj.is_dir:
+                    continue
+                all_files.append({
+                    'bucket_name': target_bucket,
+                    'object_name': obj.object_name,
+                    'size': obj.size or 0,
+                    'last_modified': obj.last_modified,
+                    'etag': (obj.etag or '').strip('"'),
+                    'content_type': obj.content_type,
+                })
+
+            total_count = len(all_files)
+            page = all_files[offset:offset + limit]
+            return {'files': page, 'total_count': total_count}
         except S3Error as e:
             if 'AccessDenied' in str(e):
                 raise StorageAuthError(f"Access denied while listing files: {e}")

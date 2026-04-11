@@ -207,3 +207,140 @@ class TestTraitRecordInsert:
         success, ids = TraitRecord.insert([])
         assert success is False
         assert ids == []
+
+
+class TestTraitRecordCreatePlotValidation:
+    """Plot field validation in TraitRecord.create().
+
+    Rules:
+    - plot_number alone is valid.
+    - plot_number + plot_row_number + plot_column_number is valid.
+    - plot_row_number or plot_column_number WITHOUT plot_number is invalid.
+    """
+
+    @patch(f"{MODULE}.TraitRecordModel")
+    @patch.object(TraitRecord, "insert")
+    @patch.object(TraitRecord, "get_by_id")
+    def test_plot_number_alone_is_valid(self, m_get, m_insert, _m_model):
+        """plot_number by itself should not raise — no row/col required."""
+        m_insert.return_value = (True, [str(uuid4())])
+        m_get.return_value = TraitRecord(trait_name="T", trait_value=1.0)
+        result = TraitRecord.create(
+            timestamp=datetime.now(),
+            dataset_name="D",
+            trait_name="T",
+            trait_value=1.0,
+            experiment_name="E",
+            plot_number=5,
+        )
+        assert result is not None
+
+    @patch(f"{MODULE}.TraitRecordModel")
+    @patch.object(TraitRecord, "insert")
+    @patch.object(TraitRecord, "get_by_id")
+    def test_full_plot_info_is_valid(self, m_get, m_insert, _m_model):
+        m_insert.return_value = (True, [str(uuid4())])
+        m_get.return_value = TraitRecord(trait_name="T", trait_value=1.0)
+        result = TraitRecord.create(
+            timestamp=datetime.now(),
+            dataset_name="D",
+            trait_name="T",
+            trait_value=1.0,
+            experiment_name="E",
+            plot_number=5,
+            plot_row_number=2,
+            plot_column_number=3,
+        )
+        assert result is not None
+
+    def test_no_plot_info_is_valid(self):
+        """No plot info at all should not raise (records without plot attachment)."""
+        with patch(f"{MODULE}.TraitRecordModel"), \
+             patch.object(TraitRecord, "insert", return_value=(True, [str(uuid4())])), \
+             patch.object(TraitRecord, "get_by_id", return_value=TraitRecord(trait_name="T", trait_value=1.0)):
+            result = TraitRecord.create(
+                timestamp=datetime.now(),
+                dataset_name="D",
+                trait_name="T",
+                trait_value=1.0,
+                experiment_name="E",
+            )
+            assert result is not None
+
+    def test_row_without_plot_number_returns_none(self):
+        """plot_row_number without plot_number triggers the validator and create() returns None."""
+        result = TraitRecord.create(
+            timestamp=datetime.now(),
+            dataset_name="D",
+            trait_name="T",
+            trait_value=1.0,
+            experiment_name="E",
+            plot_row_number=2,
+        )
+        # create() catches the ValueError and returns None
+        assert result is None
+
+    def test_column_without_plot_number_returns_none(self):
+        result = TraitRecord.create(
+            timestamp=datetime.now(),
+            dataset_name="D",
+            trait_name="T",
+            trait_value=1.0,
+            experiment_name="E",
+            plot_column_number=3,
+        )
+        assert result is None
+
+
+class TestTraitRecordCreateTraitValueValidation:
+    """Trait value validation in TraitRecord.create().
+
+    Rules:
+    - None is invalid.
+    - 0.0 is valid (e.g. stand count of zero, disease severity of zero).
+    - Negative values are valid.
+    - Any float is valid.
+    """
+
+    @patch(f"{MODULE}.TraitRecordModel")
+    @patch.object(TraitRecord, "insert")
+    @patch.object(TraitRecord, "get_by_id")
+    def test_zero_is_valid(self, m_get, m_insert, _m_model):
+        """trait_value=0.0 must not be rejected — 0 is a legitimate measurement."""
+        m_insert.return_value = (True, [str(uuid4())])
+        m_get.return_value = TraitRecord(trait_name="T", trait_value=0.0)
+        result = TraitRecord.create(
+            timestamp=datetime.now(),
+            dataset_name="D",
+            trait_name="T",
+            trait_value=0.0,
+            experiment_name="E",
+        )
+        assert result is not None
+
+    @patch(f"{MODULE}.TraitRecordModel")
+    @patch.object(TraitRecord, "insert")
+    @patch.object(TraitRecord, "get_by_id")
+    def test_negative_is_valid(self, m_get, m_insert, _m_model):
+        """Negative trait values are legitimate (e.g. temperature, residuals)."""
+        m_insert.return_value = (True, [str(uuid4())])
+        m_get.return_value = TraitRecord(trait_name="T", trait_value=-5.2)
+        result = TraitRecord.create(
+            timestamp=datetime.now(),
+            dataset_name="D",
+            trait_name="T",
+            trait_value=-5.2,
+            experiment_name="E",
+        )
+        assert result is not None
+
+    def test_none_returns_none(self):
+        """trait_value=None triggers the validator and create() returns None."""
+        result = TraitRecord.create(
+            timestamp=datetime.now(),
+            dataset_name="D",
+            trait_name="T",
+            trait_value=None,
+            experiment_name="E",
+        )
+        assert result is None
