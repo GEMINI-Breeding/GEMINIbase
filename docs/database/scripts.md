@@ -22,7 +22,7 @@ This shell script is the entry point for initializing the database. It performs 
 
 This SQL script defines the database schema, including:
 
-- Creation of tables for main entities such as `populations`, `data_formats`, `data_types`, `datasets`, `experiments`, `models`, `plants`, `plots`, `procedures`, `resources`, `scripts`, `seasons`, `sensor_platforms`, `sensor_types`, `sensors`, `sites`, `trait_levels`, and `traits`.
+- Creation of tables for main entities such as `populations`, `lines`, `accessions`, `data_formats`, `data_types`, `datasets`, `experiments`, `models`, `plots`, `procedures`, `resources`, `scripts`, `seasons`, `sensor_platforms`, `sensor_types`, `sensors`, `sites`, `trait_levels`, and `traits`.
 - Definition of data types for each column in the tables.
 - Definition of primary keys and foreign keys to establish relationships between tables.
 - Creation of unique constraints and indexes to ensure data integrity and optimize query performance.
@@ -39,7 +39,7 @@ This SQL script creates the columnar tables for storing time series data.
 
 This SQL script creates the views for simplifying data access.
 
-- Creation of views for `experiment_datasets_view`, `experiment_models_view`, `experiment_procedures_view`, `experiment_scripts_view`, `experiment_seasons_view`, `experiment_sensors_view`, `experiment_sites_view`, `experiment_traits_view`, `model_runs_view`, `plant_view`, `plot_population_view`, `procedure_runs_view`, `script_runs_view`, `sensor_platform_sensors_view`, `sensor_datasets_view`, `trait_datasets_view`, `datatype_format_view`, `ValidPlotCombinationsView`, `ValidDatasetCombinationsView`, `ValidSensorDatasetCombinationsView`, `ValidTraitDatasetCombinationsView`, `ValidProcedureDatasetCombinationsView`, `ValidModelDatasetCombinationsView`, `ValidScriptDatasetCombinationsView`.
+- Creation of views for `experiment_datasets_view`, `experiment_models_view`, `experiment_procedures_view`, `experiment_scripts_view`, `experiment_seasons_view`, `experiment_sensors_view`, `experiment_sites_view`, `experiment_traits_view`, `model_runs_view`, `plot_view`, `procedure_runs_view`, `script_runs_view`, `sensor_platform_sensors_view`, `sensor_datasets_view`, `trait_datasets_view`, `datatype_format_view`, `ValidPlotCombinationsView`, `ValidDatasetCombinationsView`, `ValidSensorDatasetCombinationsView`, `ValidTraitDatasetCombinationsView`, `ValidProcedureDatasetCombinationsView`, `ValidModelDatasetCombinationsView`, `ValidScriptDatasetCombinationsView`.
 
 ## 6_init_functions.sql
 

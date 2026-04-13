@@ -10,7 +10,6 @@ The GEMINI Python API offers a robust and programmatic interface for managing an
 - [Experiments](experiments.md)
 - [Models](models.md)
 - [Model Records](model_records.md)
-- [Plants](plants.md)
 - [Plots](plots.md)
 - [Procedures](procedures.md)
 - [Procedure Records](procedure_records.md)

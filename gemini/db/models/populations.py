@@ -1,11 +1,13 @@
 """
 SQLAlchemy model for Population entities in the GEMINI database.
+
+A Population is a named germplasm grouping within a breeding program
+(e.g. a diversity panel, RIL population, NAM population). Populations
+contain Accessions via the population_accessions join table.
 """
 
-from sqlalchemy import JSON, String, TIMESTAMP, UniqueConstraint, Index
-from sqlalchemy.orm import relationship
-from sqlalchemy.orm import Mapped
-from sqlalchemy.orm import mapped_column
+from sqlalchemy import String, TIMESTAMP, UniqueConstraint, Index
+from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 
 from gemini.db.core.base import BaseModel
@@ -20,8 +22,9 @@ class PopulationModel(BaseModel):
 
     Attributes:
         id (uuid.UUID): Unique identifier for the population.
-        population_accession (str): The accession identifier for the population.
-        population_name (str): The population name of the population.
+        population_name (str): The globally-unique name of the population.
+        population_type (str): The type of population (e.g. diversity_panel, ril, nam, biparental, breeding_pop).
+        species (str): The species of the population (e.g. "Zea mays").
         population_info (dict): Additional JSONB data for the population.
         created_at (datetime): Timestamp when the record was created.
         updated_at (datetime): Timestamp when the record was last updated.
@@ -29,13 +32,14 @@ class PopulationModel(BaseModel):
     __tablename__ = "populations"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=False), primary_key=True, default=uuid.uuid4)
-    population_accession: Mapped[str] = mapped_column(String(255), nullable=False)
     population_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    population_type: Mapped[str] = mapped_column(String(64), default="")
+    species: Mapped[str] = mapped_column(String(255), default="")
     population_info: Mapped[dict] = mapped_column(JSONB, default={})
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP, default=datetime.now)
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP, default=datetime.now, onupdate=datetime.now)
 
     __table_args__ = (
-        UniqueConstraint('population_accession', 'population_name'),
-        Index('idx_populations_info', 'population_info', postgresql_using='GIN')
+        UniqueConstraint('population_name', name='population_unique'),
+        Index('idx_populations_info', 'population_info', postgresql_using='GIN'),
     )

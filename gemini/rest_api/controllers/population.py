@@ -9,8 +9,7 @@ from gemini.rest_api.models import (
     PopulationOutput,
     PopulationUpdate,
     ExperimentOutput,
-    PlotOutput,
-    PlantOutput,
+    AccessionOutput,
     RESTAPIError,
     str_to_dict,
     JSONB
@@ -44,9 +43,10 @@ class PopulationController(Controller):
     def get_populations(
         self,
         population_name: Optional[str] = None,
-        population_accession: Optional[str] = None,
+        population_type: Optional[str] = None,
+        species: Optional[str] = None,
         population_info: Optional[JSONB] = None,
-        experiment_name: Optional[str] = 'Experiment A'
+        experiment_name: Optional[str] = None,
     ) -> List[PopulationOutput]:
         try:
             if population_info is not None:
@@ -54,9 +54,10 @@ class PopulationController(Controller):
 
             populations = Population.search(
                 population_name=population_name,
-                population_accession=population_accession,
+                population_type=population_type,
+                species=species,
                 population_info=population_info,
-                experiment_name=experiment_name
+                experiment_name=experiment_name,
             )
             if populations is None:
                 error= RESTAPIError(
@@ -102,9 +103,10 @@ class PopulationController(Controller):
         try:
             population = Population.create(
                 population_name=data.population_name,
-                population_accession=data.population_accession,
+                population_type=data.population_type,
+                species=data.species,
                 population_info=data.population_info,
-                experiment_name=data.experiment_name
+                experiment_name=data.experiment_name,
             )
             if population is None:
                 error = RESTAPIError(
@@ -135,7 +137,8 @@ class PopulationController(Controller):
                 return Response(content=error, status_code=404)
             population = population.update(
                 population_name=data.population_name,
-                population_accession=data.population_accession,
+                population_type=data.population_type,
+                species=data.species,
                 population_info=data.population_info,
             )
             if population is None:
@@ -208,58 +211,3 @@ class PopulationController(Controller):
             )
             return Response(content=error, status_code=500)
         
-    # Get Associated Plots
-    @get(path="/id/{population_id:str}/plots", sync_to_thread=True)
-    def get_associated_plots(
-        self, population_id: str
-    ) -> List[PlotOutput]:
-        try:
-            population = Population.get_by_id(id=population_id)
-            if population is None:
-                error = RESTAPIError(
-                    error="Population not found",
-                    error_description="The population with the given ID was not found"
-                )
-                return Response(content=error, status_code=404)
-            plots = population.get_associated_plots()
-            if not plots:
-                error = RESTAPIError(
-                    error="No associated plots found",
-                    error_description="The population has no associated plots"
-                )
-                return Response(content=error, status_code=404)
-            return plots
-        except Exception as e:
-            error = RESTAPIError(
-                error=str(e),
-                error_description="An error occurred while retrieving associated plots"
-            )
-            return Response(content=error, status_code=500)
-        
-    # Get Associated Plants
-    @get(path="/id/{population_id:str}/plants", sync_to_thread=True)
-    def get_associated_plants(
-        self, population_id: str
-    ) -> List[PlantOutput]:
-        try:
-            population = Population.get_by_id(id=population_id)
-            if population is None:
-                error = RESTAPIError(
-                    error="Population not found",
-                    error_description="The population with the given ID was not found"
-                )
-                return Response(content=error, status_code=404)
-            plants = population.get_associated_plants()
-            if not plants:
-                error = RESTAPIError(
-                    error="No associated plants found",
-                    error_description="The population has no associated plants"
-                )
-                return Response(content=error, status_code=404)
-            return plants
-        except Exception as e:
-            error = RESTAPIError(
-                error=str(e),
-                error_description="An error occurred while retrieving associated plants"
-            )
-            return Response(content=error, status_code=500)

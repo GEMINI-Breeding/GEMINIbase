@@ -1,7 +1,7 @@
 """
-This module defines the Plot class, which represents a plot entity, including its metadata, associations to experiments, seasons, sites, populations, and plants, and related operations.
+This module defines the Plot class, which represents a plot entity, including its metadata, associations to experiments, seasons, sites, accessions, and populations, and related operations.
 
-It includes methods for creating, retrieving, updating, and deleting plots, as well as methods for checking existence, searching, and managing associations with experiments, seasons, sites, populations, and plants.
+It includes methods for creating, retrieving, updating, and deleting plots, as well as methods for checking existence, searching, and managing associations with experiments, seasons, sites, accessions, and populations.
 
 This module includes the following methods:
 
@@ -16,7 +16,7 @@ This module includes the following methods:
 - `refresh`: Refresh the plot's data from the database.
 - `get_info`: Get the additional information of the plot.
 - `set_info`: Set the additional information of the plot.
-- Association methods for experiments, seasons, sites, populations, and plants.
+- Association methods for experiments, seasons, sites, accessions, and populations.
 
 """
 
@@ -27,24 +27,21 @@ from pydantic import Field, AliasChoices
 import logging
 from gemini.api.types import ID
 from gemini.api.base import APIBase
-from gemini.api.population import Population
 from gemini.db.models.plots import PlotModel
-from gemini.db.models.associations import PlotPopulationModel
-from gemini.db.models.views.plot_population_view import PlotPopulationViewModel
 from gemini.db.models.views.plot_view import PlotViewModel
-
 
 if TYPE_CHECKING:
     from gemini.api.experiment import Experiment
     from gemini.api.season import Season
     from gemini.api.site import Site
+    from gemini.api.accession import Accession
     from gemini.api.population import Population
 
 logger = logging.getLogger(__name__)
 
 class Plot(APIBase):
     """
-    Represents a plot entity, including its metadata, associations to experiments, seasons, sites, populations, and plants, and related operations.
+    Represents a plot entity, including its metadata, associations to experiments, seasons, sites, accessions, and populations, and related operations.
 
     Attributes:
         id (Optional[ID]): The unique identifier of the plot.
@@ -70,10 +67,14 @@ class Plot(APIBase):
     experiment_id: Optional[ID] = None
     season_id: Optional[ID] = None
     site_id: Optional[ID] = None
+    accession_id: Optional[ID] = None
+    population_id: Optional[ID] = None
 
     experiment_name: Optional[str] = Field(None, exclude=True)
     season_name: Optional[str] = Field(None, exclude=True)
     site_name: Optional[str] = Field(None, exclude=True)
+    accession_name: Optional[str] = Field(None, exclude=True)
+    population_name: Optional[str] = Field(None, exclude=True)
 
     def __str__(self):
         """Return a string representation of the Plot object."""
@@ -137,49 +138,56 @@ class Plot(APIBase):
         experiment_name: str = None,
         season_name: str = None,
         site_name: str = None,
-        population_accession: str = None,
-        population_name: str = None
+        accession_name: str = None,
+        population_name: str = None,
     ) -> Optional["Plot"]:
-        """
-        Create a new plot and associate it with experiment, season, site, and population if provided.
-
-        Examples:
-            >>> plot = Plot.create(plot_number=1, plot_row_number=2, plot_column_number=3)
-            >>> print(plot)
-            Plot(plot_number=1, plot_row_number=2, plot_column_number=3, id=UUID(...))   
-
-        Args:
-            plot_number (int): The plot number.
-            plot_row_number (int): The row number of the plot.
-            plot_column_number (int): The column number of the plot.
-            plot_info (dict, optional): Additional information about the plot. Defaults to {{}}.
-            plot_geometry_info (dict, optional): Geometry information about the plot. Defaults to {{}}.
-            experiment_name (str, optional): The name of the experiment. Defaults to None.
-            season_name (str, optional): The name of the season. Defaults to None.
-            site_name (str, optional): The name of the site. Defaults to None.
-            population_accession (str, optional): The accession of the population. Defaults to None.
-            population_name (str, optional): The population of the population. Defaults to None.
-        Returns:
-            Optional[Plot]: The created plot instance, or None if an error occurred.
-        """
         try:
+            from gemini.api.accession import Accession
+            from gemini.api.population import Population
+            from gemini.api.experiment import Experiment
+            from gemini.api.season import Season
+            from gemini.api.site import Site
+
+            experiment_id = None
+            season_id = None
+            site_id = None
+            accession_id = None
+            population_id = None
+
+            if experiment_name:
+                exp = Experiment.get(experiment_name=experiment_name)
+                if exp:
+                    experiment_id = exp.id
+            if season_name and experiment_name:
+                sea = Season.get(season_name=season_name, experiment_name=experiment_name)
+                if sea:
+                    season_id = sea.id
+            if site_name:
+                sit = Site.get(site_name=site_name)
+                if sit:
+                    site_id = sit.id
+            if accession_name:
+                acc = Accession.get(accession_name=accession_name)
+                if acc:
+                    accession_id = acc.id
+            if population_name:
+                pop = Population.get(population_name=population_name)
+                if pop:
+                    population_id = pop.id
+
             db_instance = PlotModel.get_or_create(
                 plot_number=plot_number,
                 plot_row_number=plot_row_number,
                 plot_column_number=plot_column_number,
                 plot_info=plot_info,
                 plot_geometry_info=plot_geometry_info,
+                experiment_id=experiment_id,
+                season_id=season_id,
+                site_id=site_id,
+                accession_id=accession_id,
+                population_id=population_id,
             )
-            plot = cls.model_validate(db_instance)
-            if experiment_name:
-                plot.associate_experiment(experiment_name)
-            if season_name:
-                plot.associate_season(season_name, experiment_name)
-            if site_name:
-                plot.associate_site(site_name)
-            if population_accession and population_name:
-                plot.associate_population(population_accession, population_name)
-            return plot
+            return cls.model_validate(db_instance)
         except Exception as e:
             logger.error(f"Error creating plot: {e}")
             return None
@@ -292,32 +300,11 @@ class Plot(APIBase):
         experiment_name: str = None,
         season_name: str = None,
         site_name: str = None,
-        population_accession: str = None,
-        population_name: str = None
+        accession_name: str = None,
+        population_name: str = None,
     ) -> Optional[List["Plot"]]:
-        """
-        Search for plots based on various criteria.
-
-        Examples:
-            >>> plots = Plot.search(plot_number=1, plot_row_number=2)
-            >>> for plot in plots:
-            ...     print(plot)
-            Plot(plot_number=1, plot_row_number=2, plot_column_number=3, id=UUID(...))
-
-        Args:
-            plot_number (int, optional): The plot number. Defaults to None.
-            plot_row_number (int, optional): The row number of the plot. Defaults to None.
-            plot_column_number (int, optional): The column number of the plot. Defaults to None.
-            experiment_name (str, optional): The name of the experiment. Defaults to None.
-            season_name (str, optional): The name of the season. Defaults to None.
-            site_name (str, optional): The name of the site. Defaults to None.
-            population_accession (str, optional): The accession of the population. Defaults to None.
-            population_name (str, optional): The population of the population. Defaults to None.
-        Returns:
-            Optional[List[Plot]]: A list of matching plots, or None if not found.
-        """
         try:
-            if not any([plot_number, plot_row_number, plot_column_number, experiment_name, season_name, site_name]):
+            if not any([plot_number, plot_row_number, plot_column_number, experiment_name, season_name, site_name, accession_name, population_name]):
                 logger.warning("At least one search parameter must be provided.")
                 return None
 
@@ -328,8 +315,8 @@ class Plot(APIBase):
                 experiment_name=experiment_name,
                 season_name=season_name,
                 site_name=site_name,
-                population_accession=population_accession,
-                population_name=population_name
+                accession_name=accession_name,
+                population_name=population_name,
             )
             if not plots or len(plots) == 0:
                 logger.info("No plots found with the provided search parameters.")
@@ -900,161 +887,22 @@ class Plot(APIBase):
             logger.error(f"Error unassigning site from plot: {e}")
             return None
 
-    def get_associated_populations(self) -> Optional[List["Population"]]:
-        """
-        Get all populations associated with this plot.
-
-        Examples:
-            >>> plot = Plot.get_by_id(UUID('...'))
-            >>> populations = plot.get_associated_populations()
-            >>> for population in populations:
-            ...     print(population)
-            Population(population_accession='Accession 1', population_name='Population 1', id=UUID(...))
-
-        Returns:
-            Optional[List[Population]]: A list of associated populations, or None if not found.
-        """
+    def get_accession(self) -> Optional["Accession"]:
         try:
-            from gemini.api.population import Population
-            populations = PlotPopulationViewModel.search(plot_id=self.id)
-            if not populations or len(populations) == 0:
-                logger.info("No associated populations found for this plot.")
+            if not self.accession_id:
                 return None
-            populations = [Population.model_validate(population) for population in populations]
-            return populations
+            from gemini.api.accession import Accession
+            return Accession.get_by_id(self.accession_id)
         except Exception as e:
-            logger.error(f"Error getting associated populations: {e}")
+            logger.error(f"Error getting accession for plot: {e}")
             return None
 
-    def associate_population(
-        self,
-        population_accession: str,
-        population_name: str
-    ) -> Optional["Population"]:
-        """
-        Associate this plot with a population.
-
-        Examples:
-            >>> plot = Plot.get_by_id(UUID('...'))
-            >>> population = plot.associate_population("Accession 1", "Population 1")
-            >>> print(population)
-            Population(population_accession='Accession 1', population_name='Population 1', id=UUID(...))
-
-        Args:
-            population_accession (str): The accession of the population.
-            population_name (str): The population of the population.
-        Returns:
-            Optional[Population]: The associated population, or None if an error occurred.
-        """
+    def get_population(self) -> Optional["Population"]:
         try:
+            if not self.population_id:
+                return None
             from gemini.api.population import Population
-            population = Population.get(
-                population_accession=population_accession,
-                population_name=population_name
-            )
-            if not population:
-                logger.warning(f"Population {population_accession} {population_name} does not exist.")
-                return None
-            existing_association = PlotPopulationViewModel.get_by_parameters(
-                plot_id=self.id,
-                population_id=population.id
-            )
-            if existing_association:
-                logger.info(f"Population {population_accession} {population_name} is already assigned to this plot.")
-                return self
-            new_association = PlotPopulationModel.get_or_create(
-                plot_id=self.id,
-                population_id=population.id
-            )
-            if not new_association:
-                logger.info(f"Failed to assign population {population_accession} {population_name} to plot {self.id}.")
-                return None
-            self.refresh()
-            return population
+            return Population.get_by_id(self.population_id)
         except Exception as e:
-            logger.error(f"Error assigning population to plot: {e}")
+            logger.error(f"Error getting population for plot: {e}")
             return None
-
-    def unassociate_population(
-        self,
-        population_accession: str,
-        population_name: str
-    ) -> Optional["Population"]:
-        """
-        Unassociate this plot from a population.
-
-        Examples:
-            >>> plot = Plot.get_by_id(UUID('...'))
-            >>> population = plot.unassociate_population("Accession 1", "Population 1")
-            >>> print(population)
-            Population(population_accession='Accession 1', population_name='Population 1', id=UUID(...))
-
-        Args:
-            population_accession (str): The accession of the population.
-            population_name (str): The population of the population.
-        Returns:
-            Optional[Population]: The unassociated population, or None if an error occurred.
-        """
-        try:
-            from gemini.api.population import Population
-            population = Population.get(
-                population_accession=population_accession,
-                population_name=population_name
-            )
-            if not population:
-                logger.warning(f"Population {population_accession} {population_name} does not exist.")
-                return None
-            existing_association = PlotPopulationModel.get_by_parameters(
-                plot_id=self.id,
-                population_id=population.id
-            )
-            if not existing_association:
-                logger.info(f"Population {population_accession} {population_name} is not assigned to this plot.")
-                return None
-            is_deleted = PlotPopulationModel.delete(existing_association)
-            if not is_deleted:
-                logger.info(f"Failed to unassign population {population_accession} {population_name} from plot {self.id}.")
-                return None
-            self.refresh()
-            return population
-        except Exception as e:
-            logger.error(f"Error unassigning population from plot: {e}")
-            return None
-
-    def belongs_to_population(
-        self,
-        population_accession: str,
-        population_name: str
-    ) -> bool:
-        """
-        Check if this plot is associated with a specific population.
-
-        Examples:
-            >>> plot = Plot.get_by_id(UUID('...'))
-            >>> is_associated = plot.belongs_to_population("Accession 1", "Population 1")
-            >>> print(is_associated)
-            True
-
-        Args:
-            population_accession (str): The accession of the population.
-            population_name (str): The population of the population.
-        Returns:
-            bool: True if associated, False otherwise.
-        """
-        try:
-            from gemini.api.population import Population
-            population = Population.get(
-                population_accession=population_accession,
-                population_name=population_name
-            )
-            if not population:
-                logger.warning(f"Population {population_accession} {population_name} does not exist.")
-                return False
-            association_exists = PlotPopulationViewModel.exists(
-                plot_id=self.id,
-                population_id=population.id
-            )
-            return association_exists
-        except Exception as e:
-            logger.error(f"Error checking if plot has population: {e}")
-            return False

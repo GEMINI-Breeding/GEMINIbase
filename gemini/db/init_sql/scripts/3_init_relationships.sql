@@ -146,18 +146,18 @@ CREATE TABLE IF NOT EXISTS gemini.experiment_scripts (
 ALTER TABLE gemini.experiment_scripts ADD CONSTRAINT experiment_script_unique UNIQUE (experiment_id, script_id);
 
 -------------------------------------------------------------------------------
--- Plot Populations Table
+-- Population Accessions Table (M:M)
 
-CREATE TABLE IF NOT EXISTS gemini.plot_populations (
-    plot_id UUID REFERENCES gemini.plots(id) ON DELETE CASCADE,
+CREATE TABLE IF NOT EXISTS gemini.population_accessions (
     population_id UUID REFERENCES gemini.populations(id) ON DELETE CASCADE,
+    accession_id UUID REFERENCES gemini.accessions(id) ON DELETE CASCADE,
     info JSONB DEFAULT '{}',
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (plot_id, population_id)
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (population_id, accession_id)
 );
 
-ALTER TABLE gemini.plot_populations ADD CONSTRAINT plot_population_unique UNIQUE (plot_id, population_id);
+ALTER TABLE gemini.population_accessions ADD CONSTRAINT population_accession_unique UNIQUE (population_id, accession_id);
 
 -------------------------------------------------------------------------------
 -- Trait Sensors Table
@@ -257,18 +257,18 @@ CREATE TABLE IF NOT EXISTS gemini.procedure_datasets (
 ALTER TABLE gemini.procedure_datasets ADD CONSTRAINT procedure_dataset_unique UNIQUE (procedure_id, dataset_id);
 
 -------------------------------------------------------------------------------
--- Experiment Genotypes Table
+-- Experiment Genotyping Studies Table
 
-CREATE TABLE IF NOT EXISTS gemini.experiment_genotypes (
+CREATE TABLE IF NOT EXISTS gemini.experiment_genotyping_studies (
     experiment_id UUID REFERENCES gemini.experiments(id) ON DELETE CASCADE,
-    genotype_id UUID REFERENCES gemini.genotypes(id) ON DELETE CASCADE,
+    study_id UUID REFERENCES gemini.genotyping_studies(id) ON DELETE CASCADE,
     info JSONB DEFAULT '{}',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (experiment_id, genotype_id)
+    PRIMARY KEY (experiment_id, study_id)
 );
 
-ALTER TABLE gemini.experiment_genotypes ADD CONSTRAINT experiment_genotype_unique UNIQUE (experiment_id, genotype_id);
+ALTER TABLE gemini.experiment_genotyping_studies ADD CONSTRAINT experiment_genotyping_study_unique UNIQUE (experiment_id, study_id);
 
 -- Create Datatype Formats associations
 INSERT INTO gemini.data_type_formats (data_type_id, data_format_id)

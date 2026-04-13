@@ -13,6 +13,7 @@ interface DeleteDialogProps {
   onClose: () => void
   onConfirm: () => void
   entityName: string
+  description?: string
   isLoading?: boolean
 }
 
@@ -21,6 +22,7 @@ export function DeleteDialog({
   onClose,
   onConfirm,
   entityName,
+  description,
   isLoading,
 }: DeleteDialogProps) {
   return (
@@ -31,6 +33,7 @@ export function DeleteDialog({
           <DialogDescription>
             Are you sure you want to delete {entityName}? This action cannot be
             undone.
+            {description && <><br />{description}</>}
           </DialogDescription>
         </DialogHeader>
         <DialogFooter className="mt-4">

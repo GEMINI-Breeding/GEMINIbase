@@ -15,7 +15,8 @@ from gemini.db.models.associations import (
     ExperimentTraitModel,
     ExperimentPopulationModel,
     ExperimentDatasetModel,
-    PlotPopulationModel,
+    PopulationAccessionModel,
+    ExperimentGenotypingStudyModel,
     TraitSensorModel,
     SensorPlatformSensorModel,
     SensorDatasetModel,
@@ -193,22 +194,52 @@ class TestExperimentDatasetModel:
 
 
 # ===========================================================================
-# PlotPopulationModel
+# PopulationAccessionModel
 # ===========================================================================
 
 
-class TestPlotPopulationModel:
+class TestPopulationAccessionModel:
 
     def test_tablename(self):
-        assert PlotPopulationModel.__tablename__ == "plot_populations"
+        assert PopulationAccessionModel.__tablename__ == "population_accessions"
 
     def test_foreign_keys(self):
-        targets = _get_fk_target_tables(PlotPopulationModel)
-        assert "gemini.plots.id" in targets
+        targets = _get_fk_target_tables(PopulationAccessionModel)
         assert "gemini.populations.id" in targets
+        assert "gemini.accessions.id" in targets
 
     def test_unique_constraint(self):
-        assert _has_unique_constraint(PlotPopulationModel, "plot_id", "population_id")
+        assert _has_unique_constraint(PopulationAccessionModel, "population_id", "accession_id")
+
+    def test_has_info_column(self):
+        assert "info" in PopulationAccessionModel.__table__.columns
+
+    def test_has_timestamps(self):
+        assert "created_at" in PopulationAccessionModel.__table__.columns
+        assert "updated_at" in PopulationAccessionModel.__table__.columns
+
+
+# ===========================================================================
+# ExperimentGenotypingStudyModel
+# ===========================================================================
+
+
+class TestExperimentGenotypingStudyModel:
+
+    def test_tablename(self):
+        assert ExperimentGenotypingStudyModel.__tablename__ == "experiment_genotyping_studies"
+
+    def test_foreign_keys(self):
+        targets = _get_fk_target_tables(ExperimentGenotypingStudyModel)
+        assert "gemini.experiments.id" in targets
+        assert "gemini.genotyping_studies.id" in targets
+
+    def test_unique_constraint(self):
+        assert _has_unique_constraint(ExperimentGenotypingStudyModel, "experiment_id", "study_id")
+
+    def test_has_timestamps(self):
+        assert "created_at" in ExperimentGenotypingStudyModel.__table__.columns
+        assert "updated_at" in ExperimentGenotypingStudyModel.__table__.columns
 
 
 # ===========================================================================

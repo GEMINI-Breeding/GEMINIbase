@@ -188,21 +188,20 @@ class ExperimentDatasetModel(BaseModel):
         UniqueConstraint("experiment_id", "dataset_id", name="experiment_dataset_unique"),
     )
 
-class PlotPopulationModel(BaseModel):
+class PopulationAccessionModel(BaseModel):
     """
-    Represents the association between a plot and a population.
+    Represents the M:M association between a population and an accession.
     """
-    __tablename__ = "plot_populations"
+    __tablename__ = "population_accessions"
 
-    plot_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=False), ForeignKey("gemini.plots.id", ondelete="CASCADE"), primary_key=True)
     population_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=False), ForeignKey("gemini.populations.id", ondelete="CASCADE"), primary_key=True)
+    accession_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=False), ForeignKey("gemini.accessions.id", ondelete="CASCADE"), primary_key=True)
     info: Mapped[dict] = mapped_column(JSONB, default={})
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP, default=datetime.now)
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP, default=datetime.now, onupdate=datetime.now)
 
-
     __table_args__ = (
-        UniqueConstraint("plot_id", "population_id", name="plot_population_unique"),
+        UniqueConstraint("population_id", "accession_id", name="population_accession_unique"),
     )
 
 class TraitSensorModel(BaseModel):
@@ -328,18 +327,18 @@ class ProcedureDatasetModel(BaseModel):
     )
 
 
-class ExperimentGenotypeModel(BaseModel):
+class ExperimentGenotypingStudyModel(BaseModel):
     """
     Represents the association between an experiment and a genotyping study.
     """
-    __tablename__ = "experiment_genotypes"
+    __tablename__ = "experiment_genotyping_studies"
 
     experiment_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=False), ForeignKey("gemini.experiments.id", ondelete="CASCADE"), primary_key=True)
-    genotype_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=False), ForeignKey("gemini.genotypes.id", ondelete="CASCADE"), primary_key=True)
+    study_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=False), ForeignKey("gemini.genotyping_studies.id", ondelete="CASCADE"), primary_key=True)
     info: Mapped[dict] = mapped_column(JSONB, default={})
     created_at: Mapped[datetime] = mapped_column(TIMESTAMP, default=datetime.now)
     updated_at: Mapped[datetime] = mapped_column(TIMESTAMP, default=datetime.now, onupdate=datetime.now)
 
     __table_args__ = (
-        UniqueConstraint("experiment_id", "genotype_id", name="experiment_genotype_unique"),
+        UniqueConstraint("experiment_id", "study_id", name="experiment_genotyping_study_unique"),
     )

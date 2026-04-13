@@ -112,8 +112,9 @@ This view combines information from experiments and populations.
 | `experiment_start_date` | `String`       | The start date of the experiment.                                                                |
 | `experiment_end_date`   | `String`       | The end date of the experiment.                                                                  |
 | `population_id`         | `UUID`         | Unique identifier for the population.                                                              |
-| `population_accession`  | `String`       | The accession identifier for the population.                                                       |
-| `population_name` | `String`       | The population name of the population.                                                             |
+| `population_name`       | `String`       | The name of the population.                                                                        |
+| `population_type`       | `String`       | The type of the population.                                                                        |
+| `species`               | `String`       | The species of the population.                                                                     |
 | `population_info`       | `JSONB`         | Additional JSONB data for the population.                                                              |
 
 ## Experiment Procedures View (`experiment_procedures_view`)

@@ -10,7 +10,7 @@ import type {
   SensorPlatformOutput,
   TraitOutput,
   DatasetOutput,
-  GenotypeOutput,
+  GenotypingStudyOutput,
 } from '@/api/types'
 
 export const experimentsApi = {
@@ -58,5 +58,5 @@ export const experimentsApi = {
     getOrEmpty<DatasetOutput>(`api/experiments/id/${id}/datasets`),
 
   getGenotypes: (id: string) =>
-    getOrEmpty<GenotypeOutput>(`api/experiments/id/${id}/genotypes`),
+    getOrEmpty<GenotypingStudyOutput>(`api/experiments/id/${id}/genotypes`),
 }

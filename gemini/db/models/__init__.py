@@ -26,13 +26,14 @@ from gemini.db.models.sensors import SensorModel
 from gemini.db.models.traits import TraitModel
 from gemini.db.models.seasons import SeasonModel
 from gemini.db.models.sites import SiteModel
+from gemini.db.models.lines import LineModel
+from gemini.db.models.accessions import AccessionModel
 from gemini.db.models.populations import PopulationModel
 from gemini.db.models.experiments import ExperimentModel
 from gemini.db.models.plots import PlotModel
-from gemini.db.models.plants import PlantModel
 from gemini.db.models.jobs import JobModel
 from gemini.db.models.variants import VariantModel
-from gemini.db.models.genotypes import GenotypeModel
+from gemini.db.models.genotyping_studies import GenotypingStudyModel
 
 # Associations
 import gemini.db.models.associations as Associations
@@ -48,7 +49,7 @@ from gemini.db.models.columnar.genotype_records import GenotypeRecordModel
 
 # Views
 from gemini.db.models.views.plot_view import PlotViewModel
-from gemini.db.models.views.plot_population_view import PlotPopulationViewModel
+from gemini.db.models.views.plot_accession_view import PlotAccessionViewModel
 
 # Dataset Views
 from gemini.db.models.views.dataset_views import (
@@ -60,7 +61,7 @@ from gemini.db.models.views.dataset_views import (
 )
 
 # Experiment Views
-from gemini.db.models.views.genotype_views import ExperimentGenotypesViewModel
+from gemini.db.models.views.genotype_views import ExperimentGenotypingStudiesViewModel
 
 from gemini.db.models.views.experiment_views import (
     ExperimentSitesViewModel,

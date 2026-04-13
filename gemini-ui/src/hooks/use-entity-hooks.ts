@@ -10,9 +10,10 @@ import { sensorTypesApi } from '@/api/endpoints/sensor-types'
 import { traitsApi } from '@/api/endpoints/traits'
 import { traitLevelsApi } from '@/api/endpoints/trait-levels'
 import { plotsApi } from '@/api/endpoints/plots'
-import { plantsApi } from '@/api/endpoints/plants'
-import { genotypesApi } from '@/api/endpoints/genotypes'
+import { genotypingStudiesApi } from '@/api/endpoints/genotyping-studies'
 import { variantsApi } from '@/api/endpoints/variants'
+import { linesApi } from '@/api/endpoints/lines'
+import { accessionsApi } from '@/api/endpoints/accessions'
 import { modelsApi } from '@/api/endpoints/models'
 import { scriptsApi } from '@/api/endpoints/scripts'
 import { proceduresApi } from '@/api/endpoints/procedures'
@@ -31,9 +32,10 @@ import type {
   TraitOutput, TraitInput, TraitUpdate,
   TraitLevelOutput, TraitLevelInput, TraitLevelUpdate,
   PlotOutput, PlotInput, PlotUpdate,
-  PlantOutput, PlantInput, PlantUpdate,
-  GenotypeOutput, GenotypeInput, GenotypeUpdate,
+  GenotypingStudyOutput, GenotypingStudyInput, GenotypingStudyUpdate,
   VariantOutput, VariantInput, VariantUpdate,
+  LineOutput, LineInput, LineUpdate,
+  AccessionOutput, AccessionInput, AccessionUpdate,
   ModelOutput, ModelInput, ModelUpdate,
   ScriptOutput, ScriptInput, ScriptUpdate,
   ProcedureOutput, ProcedureInput, ProcedureUpdate,
@@ -53,9 +55,10 @@ export const useSensorTypes = createCrudHooks<SensorTypeOutput, SensorTypeInput,
 export const useTraits = createCrudHooks<TraitOutput, TraitInput, TraitUpdate>('traits', traitsApi)
 export const useTraitLevels = createCrudHooks<TraitLevelOutput, TraitLevelInput, TraitLevelUpdate>('traitLevels', traitLevelsApi)
 export const usePlots = createCrudHooks<PlotOutput, PlotInput, PlotUpdate>('plots', plotsApi)
-export const usePlants = createCrudHooks<PlantOutput, PlantInput, PlantUpdate>('plants', plantsApi)
-export const useGenotypes = createCrudHooks<GenotypeOutput, GenotypeInput, GenotypeUpdate>('genotypes', genotypesApi)
+export const useGenotypingStudies = createCrudHooks<GenotypingStudyOutput, GenotypingStudyInput, GenotypingStudyUpdate>('genotypingStudies', genotypingStudiesApi)
 export const useVariants = createCrudHooks<VariantOutput, VariantInput, VariantUpdate>('variants', variantsApi)
+export const useLines = createCrudHooks<LineOutput, LineInput, LineUpdate>('lines', linesApi)
+export const useAccessions = createCrudHooks<AccessionOutput, AccessionInput, AccessionUpdate>('accessions', accessionsApi)
 export const useModels = createCrudHooks<ModelOutput, ModelInput, ModelUpdate>('models', modelsApi)
 export const useScripts = createCrudHooks<ScriptOutput, ScriptInput, ScriptUpdate>('scripts', scriptsApi)
 export const useProcedures = createCrudHooks<ProcedureOutput, ProcedureInput, ProcedureUpdate>('procedures', proceduresApi)

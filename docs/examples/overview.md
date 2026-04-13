@@ -42,14 +42,8 @@ This page provides an overview of the available API examples. Each example demon
 - [Model Model Run API](./model_model_run_api.md)
 - [Model Run API](./model_run_api.md)
 
-## Plant
-- [Plant API](./plant_api.md)
-- [Plant Population API](./plant_population_api.md)
-- [Plant Plot API](./plant_plot_api.md)
-
 ## Plot
 - [Plot API](./plot_api.md)
-- [Plot Population API](./plot_population_api.md)
 - [Plot Experiment API](./plot_experiment_api.md)
 - [Plot Site API](./site_plots_api.md)
 

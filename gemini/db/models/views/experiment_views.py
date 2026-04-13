@@ -96,8 +96,9 @@ class ExperimentPopulationsViewModel(ViewBaseModel):
     experiment_start_date : Mapped[str] = mapped_column(String)
     experiment_end_date : Mapped[str] = mapped_column(String)
     population_id : Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
-    population_accession : Mapped[str] = mapped_column(String)
     population_name : Mapped[str] = mapped_column(String)
+    population_type : Mapped[str] = mapped_column(String)
+    species : Mapped[str] = mapped_column(String)
     population_info : Mapped[dict] = mapped_column(JSONB)
 
 

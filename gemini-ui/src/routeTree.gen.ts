@@ -20,14 +20,15 @@ import { Route as ScriptsIndexRouteImport } from './routes/scripts/index'
 import { Route as ProceduresIndexRouteImport } from './routes/procedures/index'
 import { Route as PopulationsIndexRouteImport } from './routes/populations/index'
 import { Route as PlotsIndexRouteImport } from './routes/plots/index'
-import { Route as PlantsIndexRouteImport } from './routes/plants/index'
 import { Route as ModelsIndexRouteImport } from './routes/models/index'
+import { Route as LinesIndexRouteImport } from './routes/lines/index'
 import { Route as JobsIndexRouteImport } from './routes/jobs/index'
 import { Route as ImportIndexRouteImport } from './routes/import/index'
-import { Route as GenotypesIndexRouteImport } from './routes/genotypes/index'
+import { Route as GenotypingStudiesIndexRouteImport } from './routes/genotyping-studies/index'
 import { Route as FilesIndexRouteImport } from './routes/files/index'
 import { Route as ExperimentsIndexRouteImport } from './routes/experiments/index'
 import { Route as DatasetsIndexRouteImport } from './routes/datasets/index'
+import { Route as AccessionsIndexRouteImport } from './routes/accessions/index'
 import { Route as VariantsVariantIdRouteImport } from './routes/variants/$variantId'
 import { Route as TraitsTraitIdRouteImport } from './routes/traits/$traitId'
 import { Route as SitesSiteIdRouteImport } from './routes/sites/$siteId'
@@ -38,12 +39,13 @@ import { Route as ScriptsScriptIdRouteImport } from './routes/scripts/$scriptId'
 import { Route as ProceduresProcedureIdRouteImport } from './routes/procedures/$procedureId'
 import { Route as PopulationsPopulationIdRouteImport } from './routes/populations/$populationId'
 import { Route as PlotsPlotIdRouteImport } from './routes/plots/$plotId'
-import { Route as PlantsPlantIdRouteImport } from './routes/plants/$plantId'
 import { Route as ModelsModelIdRouteImport } from './routes/models/$modelId'
+import { Route as LinesLineIdRouteImport } from './routes/lines/$lineId'
 import { Route as JobsJobIdRouteImport } from './routes/jobs/$jobId'
-import { Route as GenotypesGenotypeIdRouteImport } from './routes/genotypes/$genotypeId'
+import { Route as GenotypingStudiesStudyIdRouteImport } from './routes/genotyping-studies/$studyId'
 import { Route as ExperimentsExperimentIdRouteImport } from './routes/experiments/$experimentId'
 import { Route as DatasetsDatasetIdRouteImport } from './routes/datasets/$datasetId'
+import { Route as AccessionsAccessionIdRouteImport } from './routes/accessions/$accessionId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -100,14 +102,14 @@ const PlotsIndexRoute = PlotsIndexRouteImport.update({
   path: '/plots/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const PlantsIndexRoute = PlantsIndexRouteImport.update({
-  id: '/plants/',
-  path: '/plants/',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const ModelsIndexRoute = ModelsIndexRouteImport.update({
   id: '/models/',
   path: '/models/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LinesIndexRoute = LinesIndexRouteImport.update({
+  id: '/lines/',
+  path: '/lines/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const JobsIndexRoute = JobsIndexRouteImport.update({
@@ -120,9 +122,9 @@ const ImportIndexRoute = ImportIndexRouteImport.update({
   path: '/import/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const GenotypesIndexRoute = GenotypesIndexRouteImport.update({
-  id: '/genotypes/',
-  path: '/genotypes/',
+const GenotypingStudiesIndexRoute = GenotypingStudiesIndexRouteImport.update({
+  id: '/genotyping-studies/',
+  path: '/genotyping-studies/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const FilesIndexRoute = FilesIndexRouteImport.update({
@@ -138,6 +140,11 @@ const ExperimentsIndexRoute = ExperimentsIndexRouteImport.update({
 const DatasetsIndexRoute = DatasetsIndexRouteImport.update({
   id: '/datasets/',
   path: '/datasets/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AccessionsIndexRoute = AccessionsIndexRouteImport.update({
+  id: '/accessions/',
+  path: '/accessions/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const VariantsVariantIdRoute = VariantsVariantIdRouteImport.update({
@@ -191,14 +198,14 @@ const PlotsPlotIdRoute = PlotsPlotIdRouteImport.update({
   path: '/plots/$plotId',
   getParentRoute: () => rootRouteImport,
 } as any)
-const PlantsPlantIdRoute = PlantsPlantIdRouteImport.update({
-  id: '/plants/$plantId',
-  path: '/plants/$plantId',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const ModelsModelIdRoute = ModelsModelIdRouteImport.update({
   id: '/models/$modelId',
   path: '/models/$modelId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LinesLineIdRoute = LinesLineIdRouteImport.update({
+  id: '/lines/$lineId',
+  path: '/lines/$lineId',
   getParentRoute: () => rootRouteImport,
 } as any)
 const JobsJobIdRoute = JobsJobIdRouteImport.update({
@@ -206,11 +213,12 @@ const JobsJobIdRoute = JobsJobIdRouteImport.update({
   path: '/jobs/$jobId',
   getParentRoute: () => rootRouteImport,
 } as any)
-const GenotypesGenotypeIdRoute = GenotypesGenotypeIdRouteImport.update({
-  id: '/genotypes/$genotypeId',
-  path: '/genotypes/$genotypeId',
-  getParentRoute: () => rootRouteImport,
-} as any)
+const GenotypingStudiesStudyIdRoute =
+  GenotypingStudiesStudyIdRouteImport.update({
+    id: '/genotyping-studies/$studyId',
+    path: '/genotyping-studies/$studyId',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ExperimentsExperimentIdRoute = ExperimentsExperimentIdRouteImport.update({
   id: '/experiments/$experimentId',
   path: '/experiments/$experimentId',
@@ -221,15 +229,21 @@ const DatasetsDatasetIdRoute = DatasetsDatasetIdRouteImport.update({
   path: '/datasets/$datasetId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AccessionsAccessionIdRoute = AccessionsAccessionIdRouteImport.update({
+  id: '/accessions/$accessionId',
+  path: '/accessions/$accessionId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/accessions/$accessionId': typeof AccessionsAccessionIdRoute
   '/datasets/$datasetId': typeof DatasetsDatasetIdRoute
   '/experiments/$experimentId': typeof ExperimentsExperimentIdRoute
-  '/genotypes/$genotypeId': typeof GenotypesGenotypeIdRoute
+  '/genotyping-studies/$studyId': typeof GenotypingStudiesStudyIdRoute
   '/jobs/$jobId': typeof JobsJobIdRoute
+  '/lines/$lineId': typeof LinesLineIdRoute
   '/models/$modelId': typeof ModelsModelIdRoute
-  '/plants/$plantId': typeof PlantsPlantIdRoute
   '/plots/$plotId': typeof PlotsPlotIdRoute
   '/populations/$populationId': typeof PopulationsPopulationIdRoute
   '/procedures/$procedureId': typeof ProceduresProcedureIdRoute
@@ -240,14 +254,15 @@ export interface FileRoutesByFullPath {
   '/sites/$siteId': typeof SitesSiteIdRoute
   '/traits/$traitId': typeof TraitsTraitIdRoute
   '/variants/$variantId': typeof VariantsVariantIdRoute
+  '/accessions/': typeof AccessionsIndexRoute
   '/datasets/': typeof DatasetsIndexRoute
   '/experiments/': typeof ExperimentsIndexRoute
   '/files/': typeof FilesIndexRoute
-  '/genotypes/': typeof GenotypesIndexRoute
+  '/genotyping-studies/': typeof GenotypingStudiesIndexRoute
   '/import/': typeof ImportIndexRoute
   '/jobs/': typeof JobsIndexRoute
+  '/lines/': typeof LinesIndexRoute
   '/models/': typeof ModelsIndexRoute
-  '/plants/': typeof PlantsIndexRoute
   '/plots/': typeof PlotsIndexRoute
   '/populations/': typeof PopulationsIndexRoute
   '/procedures/': typeof ProceduresIndexRoute
@@ -261,12 +276,13 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/accessions/$accessionId': typeof AccessionsAccessionIdRoute
   '/datasets/$datasetId': typeof DatasetsDatasetIdRoute
   '/experiments/$experimentId': typeof ExperimentsExperimentIdRoute
-  '/genotypes/$genotypeId': typeof GenotypesGenotypeIdRoute
+  '/genotyping-studies/$studyId': typeof GenotypingStudiesStudyIdRoute
   '/jobs/$jobId': typeof JobsJobIdRoute
+  '/lines/$lineId': typeof LinesLineIdRoute
   '/models/$modelId': typeof ModelsModelIdRoute
-  '/plants/$plantId': typeof PlantsPlantIdRoute
   '/plots/$plotId': typeof PlotsPlotIdRoute
   '/populations/$populationId': typeof PopulationsPopulationIdRoute
   '/procedures/$procedureId': typeof ProceduresProcedureIdRoute
@@ -277,14 +293,15 @@ export interface FileRoutesByTo {
   '/sites/$siteId': typeof SitesSiteIdRoute
   '/traits/$traitId': typeof TraitsTraitIdRoute
   '/variants/$variantId': typeof VariantsVariantIdRoute
+  '/accessions': typeof AccessionsIndexRoute
   '/datasets': typeof DatasetsIndexRoute
   '/experiments': typeof ExperimentsIndexRoute
   '/files': typeof FilesIndexRoute
-  '/genotypes': typeof GenotypesIndexRoute
+  '/genotyping-studies': typeof GenotypingStudiesIndexRoute
   '/import': typeof ImportIndexRoute
   '/jobs': typeof JobsIndexRoute
+  '/lines': typeof LinesIndexRoute
   '/models': typeof ModelsIndexRoute
-  '/plants': typeof PlantsIndexRoute
   '/plots': typeof PlotsIndexRoute
   '/populations': typeof PopulationsIndexRoute
   '/procedures': typeof ProceduresIndexRoute
@@ -299,12 +316,13 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/accessions/$accessionId': typeof AccessionsAccessionIdRoute
   '/datasets/$datasetId': typeof DatasetsDatasetIdRoute
   '/experiments/$experimentId': typeof ExperimentsExperimentIdRoute
-  '/genotypes/$genotypeId': typeof GenotypesGenotypeIdRoute
+  '/genotyping-studies/$studyId': typeof GenotypingStudiesStudyIdRoute
   '/jobs/$jobId': typeof JobsJobIdRoute
+  '/lines/$lineId': typeof LinesLineIdRoute
   '/models/$modelId': typeof ModelsModelIdRoute
-  '/plants/$plantId': typeof PlantsPlantIdRoute
   '/plots/$plotId': typeof PlotsPlotIdRoute
   '/populations/$populationId': typeof PopulationsPopulationIdRoute
   '/procedures/$procedureId': typeof ProceduresProcedureIdRoute
@@ -315,14 +333,15 @@ export interface FileRoutesById {
   '/sites/$siteId': typeof SitesSiteIdRoute
   '/traits/$traitId': typeof TraitsTraitIdRoute
   '/variants/$variantId': typeof VariantsVariantIdRoute
+  '/accessions/': typeof AccessionsIndexRoute
   '/datasets/': typeof DatasetsIndexRoute
   '/experiments/': typeof ExperimentsIndexRoute
   '/files/': typeof FilesIndexRoute
-  '/genotypes/': typeof GenotypesIndexRoute
+  '/genotyping-studies/': typeof GenotypingStudiesIndexRoute
   '/import/': typeof ImportIndexRoute
   '/jobs/': typeof JobsIndexRoute
+  '/lines/': typeof LinesIndexRoute
   '/models/': typeof ModelsIndexRoute
-  '/plants/': typeof PlantsIndexRoute
   '/plots/': typeof PlotsIndexRoute
   '/populations/': typeof PopulationsIndexRoute
   '/procedures/': typeof ProceduresIndexRoute
@@ -338,12 +357,13 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/accessions/$accessionId'
     | '/datasets/$datasetId'
     | '/experiments/$experimentId'
-    | '/genotypes/$genotypeId'
+    | '/genotyping-studies/$studyId'
     | '/jobs/$jobId'
+    | '/lines/$lineId'
     | '/models/$modelId'
-    | '/plants/$plantId'
     | '/plots/$plotId'
     | '/populations/$populationId'
     | '/procedures/$procedureId'
@@ -354,14 +374,15 @@ export interface FileRouteTypes {
     | '/sites/$siteId'
     | '/traits/$traitId'
     | '/variants/$variantId'
+    | '/accessions/'
     | '/datasets/'
     | '/experiments/'
     | '/files/'
-    | '/genotypes/'
+    | '/genotyping-studies/'
     | '/import/'
     | '/jobs/'
+    | '/lines/'
     | '/models/'
-    | '/plants/'
     | '/plots/'
     | '/populations/'
     | '/procedures/'
@@ -375,12 +396,13 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/accessions/$accessionId'
     | '/datasets/$datasetId'
     | '/experiments/$experimentId'
-    | '/genotypes/$genotypeId'
+    | '/genotyping-studies/$studyId'
     | '/jobs/$jobId'
+    | '/lines/$lineId'
     | '/models/$modelId'
-    | '/plants/$plantId'
     | '/plots/$plotId'
     | '/populations/$populationId'
     | '/procedures/$procedureId'
@@ -391,14 +413,15 @@ export interface FileRouteTypes {
     | '/sites/$siteId'
     | '/traits/$traitId'
     | '/variants/$variantId'
+    | '/accessions'
     | '/datasets'
     | '/experiments'
     | '/files'
-    | '/genotypes'
+    | '/genotyping-studies'
     | '/import'
     | '/jobs'
+    | '/lines'
     | '/models'
-    | '/plants'
     | '/plots'
     | '/populations'
     | '/procedures'
@@ -412,12 +435,13 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/accessions/$accessionId'
     | '/datasets/$datasetId'
     | '/experiments/$experimentId'
-    | '/genotypes/$genotypeId'
+    | '/genotyping-studies/$studyId'
     | '/jobs/$jobId'
+    | '/lines/$lineId'
     | '/models/$modelId'
-    | '/plants/$plantId'
     | '/plots/$plotId'
     | '/populations/$populationId'
     | '/procedures/$procedureId'
@@ -428,14 +452,15 @@ export interface FileRouteTypes {
     | '/sites/$siteId'
     | '/traits/$traitId'
     | '/variants/$variantId'
+    | '/accessions/'
     | '/datasets/'
     | '/experiments/'
     | '/files/'
-    | '/genotypes/'
+    | '/genotyping-studies/'
     | '/import/'
     | '/jobs/'
+    | '/lines/'
     | '/models/'
-    | '/plants/'
     | '/plots/'
     | '/populations/'
     | '/procedures/'
@@ -450,12 +475,13 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AccessionsAccessionIdRoute: typeof AccessionsAccessionIdRoute
   DatasetsDatasetIdRoute: typeof DatasetsDatasetIdRoute
   ExperimentsExperimentIdRoute: typeof ExperimentsExperimentIdRoute
-  GenotypesGenotypeIdRoute: typeof GenotypesGenotypeIdRoute
+  GenotypingStudiesStudyIdRoute: typeof GenotypingStudiesStudyIdRoute
   JobsJobIdRoute: typeof JobsJobIdRoute
+  LinesLineIdRoute: typeof LinesLineIdRoute
   ModelsModelIdRoute: typeof ModelsModelIdRoute
-  PlantsPlantIdRoute: typeof PlantsPlantIdRoute
   PlotsPlotIdRoute: typeof PlotsPlotIdRoute
   PopulationsPopulationIdRoute: typeof PopulationsPopulationIdRoute
   ProceduresProcedureIdRoute: typeof ProceduresProcedureIdRoute
@@ -466,14 +492,15 @@ export interface RootRouteChildren {
   SitesSiteIdRoute: typeof SitesSiteIdRoute
   TraitsTraitIdRoute: typeof TraitsTraitIdRoute
   VariantsVariantIdRoute: typeof VariantsVariantIdRoute
+  AccessionsIndexRoute: typeof AccessionsIndexRoute
   DatasetsIndexRoute: typeof DatasetsIndexRoute
   ExperimentsIndexRoute: typeof ExperimentsIndexRoute
   FilesIndexRoute: typeof FilesIndexRoute
-  GenotypesIndexRoute: typeof GenotypesIndexRoute
+  GenotypingStudiesIndexRoute: typeof GenotypingStudiesIndexRoute
   ImportIndexRoute: typeof ImportIndexRoute
   JobsIndexRoute: typeof JobsIndexRoute
+  LinesIndexRoute: typeof LinesIndexRoute
   ModelsIndexRoute: typeof ModelsIndexRoute
-  PlantsIndexRoute: typeof PlantsIndexRoute
   PlotsIndexRoute: typeof PlotsIndexRoute
   PopulationsIndexRoute: typeof PopulationsIndexRoute
   ProceduresIndexRoute: typeof ProceduresIndexRoute
@@ -565,18 +592,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PlotsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/plants/': {
-      id: '/plants/'
-      path: '/plants'
-      fullPath: '/plants/'
-      preLoaderRoute: typeof PlantsIndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/models/': {
       id: '/models/'
       path: '/models'
       fullPath: '/models/'
       preLoaderRoute: typeof ModelsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/lines/': {
+      id: '/lines/'
+      path: '/lines'
+      fullPath: '/lines/'
+      preLoaderRoute: typeof LinesIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/jobs/': {
@@ -593,11 +620,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ImportIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/genotypes/': {
-      id: '/genotypes/'
-      path: '/genotypes'
-      fullPath: '/genotypes/'
-      preLoaderRoute: typeof GenotypesIndexRouteImport
+    '/genotyping-studies/': {
+      id: '/genotyping-studies/'
+      path: '/genotyping-studies'
+      fullPath: '/genotyping-studies/'
+      preLoaderRoute: typeof GenotypingStudiesIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/files/': {
@@ -619,6 +646,13 @@ declare module '@tanstack/react-router' {
       path: '/datasets'
       fullPath: '/datasets/'
       preLoaderRoute: typeof DatasetsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/accessions/': {
+      id: '/accessions/'
+      path: '/accessions'
+      fullPath: '/accessions/'
+      preLoaderRoute: typeof AccessionsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/variants/$variantId': {
@@ -691,18 +725,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PlotsPlotIdRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/plants/$plantId': {
-      id: '/plants/$plantId'
-      path: '/plants/$plantId'
-      fullPath: '/plants/$plantId'
-      preLoaderRoute: typeof PlantsPlantIdRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/models/$modelId': {
       id: '/models/$modelId'
       path: '/models/$modelId'
       fullPath: '/models/$modelId'
       preLoaderRoute: typeof ModelsModelIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/lines/$lineId': {
+      id: '/lines/$lineId'
+      path: '/lines/$lineId'
+      fullPath: '/lines/$lineId'
+      preLoaderRoute: typeof LinesLineIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/jobs/$jobId': {
@@ -712,11 +746,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof JobsJobIdRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/genotypes/$genotypeId': {
-      id: '/genotypes/$genotypeId'
-      path: '/genotypes/$genotypeId'
-      fullPath: '/genotypes/$genotypeId'
-      preLoaderRoute: typeof GenotypesGenotypeIdRouteImport
+    '/genotyping-studies/$studyId': {
+      id: '/genotyping-studies/$studyId'
+      path: '/genotyping-studies/$studyId'
+      fullPath: '/genotyping-studies/$studyId'
+      preLoaderRoute: typeof GenotypingStudiesStudyIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/experiments/$experimentId': {
@@ -733,17 +767,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DatasetsDatasetIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/accessions/$accessionId': {
+      id: '/accessions/$accessionId'
+      path: '/accessions/$accessionId'
+      fullPath: '/accessions/$accessionId'
+      preLoaderRoute: typeof AccessionsAccessionIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AccessionsAccessionIdRoute: AccessionsAccessionIdRoute,
   DatasetsDatasetIdRoute: DatasetsDatasetIdRoute,
   ExperimentsExperimentIdRoute: ExperimentsExperimentIdRoute,
-  GenotypesGenotypeIdRoute: GenotypesGenotypeIdRoute,
+  GenotypingStudiesStudyIdRoute: GenotypingStudiesStudyIdRoute,
   JobsJobIdRoute: JobsJobIdRoute,
+  LinesLineIdRoute: LinesLineIdRoute,
   ModelsModelIdRoute: ModelsModelIdRoute,
-  PlantsPlantIdRoute: PlantsPlantIdRoute,
   PlotsPlotIdRoute: PlotsPlotIdRoute,
   PopulationsPopulationIdRoute: PopulationsPopulationIdRoute,
   ProceduresProcedureIdRoute: ProceduresProcedureIdRoute,
@@ -754,14 +796,15 @@ const rootRouteChildren: RootRouteChildren = {
   SitesSiteIdRoute: SitesSiteIdRoute,
   TraitsTraitIdRoute: TraitsTraitIdRoute,
   VariantsVariantIdRoute: VariantsVariantIdRoute,
+  AccessionsIndexRoute: AccessionsIndexRoute,
   DatasetsIndexRoute: DatasetsIndexRoute,
   ExperimentsIndexRoute: ExperimentsIndexRoute,
   FilesIndexRoute: FilesIndexRoute,
-  GenotypesIndexRoute: GenotypesIndexRoute,
+  GenotypingStudiesIndexRoute: GenotypingStudiesIndexRoute,
   ImportIndexRoute: ImportIndexRoute,
   JobsIndexRoute: JobsIndexRoute,
+  LinesIndexRoute: LinesIndexRoute,
   ModelsIndexRoute: ModelsIndexRoute,
-  PlantsIndexRoute: PlantsIndexRoute,
   PlotsIndexRoute: PlotsIndexRoute,
   PopulationsIndexRoute: PopulationsIndexRoute,
   ProceduresIndexRoute: ProceduresIndexRoute,

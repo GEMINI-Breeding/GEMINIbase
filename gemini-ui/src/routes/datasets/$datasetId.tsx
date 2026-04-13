@@ -1,7 +1,12 @@
 import { useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { ArrowLeft, Pencil, Trash2 } from 'lucide-react'
 import { useDatasets } from '@/hooks/use-entity-hooks'
+import { datasetsApi } from '@/api/endpoints/datasets'
+import { experimentsApi } from '@/api/endpoints/experiments'
+import { traitsApi } from '@/api/endpoints/traits'
+import { populationsApi } from '@/api/endpoints/populations'
 import { EntityForm, type FieldDef } from '@/components/crud/entity-form'
 import { DeleteDialog } from '@/components/crud/delete-dialog'
 import { DatasetFiles } from '@/components/data-viewers/dataset-files'
@@ -17,21 +22,75 @@ const fields: FieldDef[] = [
   { name: 'dataset_info', label: 'Info (JSON)', type: 'json' },
 ]
 
+async function safeList<T>(fn: () => Promise<T[]>): Promise<T[]> {
+  try {
+    return await fn()
+  } catch {
+    return []
+  }
+}
+
+async function cleanupOrphans(datasetId: string) {
+  const experiments = await safeList(() => datasetsApi.getExperiments(datasetId))
+
+  await datasetsApi.remove(datasetId)
+
+  for (const exp of experiments) {
+    if (!exp.id) continue
+    const remainingDatasets = await safeList(() => experimentsApi.getDatasets(exp.id!))
+    if (remainingDatasets.length > 0) continue
+
+    const [traits, populations] = await Promise.all([
+      safeList(() => experimentsApi.getTraits(exp.id!)),
+      safeList(() => experimentsApi.getPopulations(exp.id!)),
+    ])
+
+    for (const trait of traits) {
+      if (!trait.id) continue
+      const traitExps = await traitsApi.getExperiments(trait.id)
+      if (traitExps.length <= 1) {
+        await traitsApi.remove(trait.id)
+      }
+    }
+
+    for (const pop of populations) {
+      if (!pop.id) continue
+      const popExps = await populationsApi.getExperiments(pop.id)
+      if (popExps.length <= 1) {
+        await populationsApi.remove(pop.id)
+      }
+    }
+
+    await experimentsApi.remove(exp.id)
+  }
+}
+
 function DatasetDetail() {
   const { datasetId } = Route.useParams()
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const { data: dataset, isLoading } = useDatasets.useGetById(datasetId)
   const updateMutation = useDatasets.useUpdate()
-  const removeMutation = useDatasets.useRemove()
   const [editing, setEditing] = useState(false)
   const [showDelete, setShowDelete] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   if (isLoading) return <div className="animate-pulse p-8">Loading...</div>
   if (!dataset) return <div className="p-8">Dataset not found</div>
 
-  // Extract files prefix from dataset_info if present
   const datasetInfo = dataset.dataset_info as Record<string, unknown> | null
   const filesPrefix = (datasetInfo?.files_prefix as string) || null
+
+  async function handleDelete() {
+    setDeleting(true)
+    try {
+      await cleanupOrphans(datasetId)
+      await queryClient.invalidateQueries()
+      navigate({ to: '/datasets' })
+    } catch {
+      setDeleting(false)
+    }
+  }
 
   return (
     <div>
@@ -78,7 +137,14 @@ function DatasetDetail() {
           </TabsContent>
         </Tabs>
       )}
-      <DeleteDialog open={showDelete} onClose={() => setShowDelete(false)} onConfirm={() => removeMutation.mutate(datasetId, { onSuccess: () => navigate({ to: '/datasets' }) })} entityName={dataset.dataset_name ?? 'Dataset'} isLoading={removeMutation.isPending} />
+      <DeleteDialog
+        open={showDelete}
+        onClose={() => setShowDelete(false)}
+        onConfirm={handleDelete}
+        entityName={dataset.dataset_name ?? 'Dataset'}
+        description="This will also remove any experiments, traits, and populations that are only linked to this dataset."
+        isLoading={deleting}
+      />
     </div>
   )
 }

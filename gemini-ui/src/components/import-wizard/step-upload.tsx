@@ -12,6 +12,7 @@ import { sensorPlatformsApi } from '@/api/endpoints/sensor-platforms'
 import { sensorsApi } from '@/api/endpoints/sensors'
 import { datasetsApi } from '@/api/endpoints/datasets'
 import { traitsApi } from '@/api/endpoints/traits'
+import { populationsApi } from '@/api/endpoints/populations'
 import { Loader2, CheckCircle, XCircle, AlertTriangle } from 'lucide-react'
 
 interface StepUploadProps {
@@ -128,6 +129,34 @@ export function StepUpload({ files, detection, metadata, columnMapping, onNext, 
           return traitId
         }
 
+        // Create population entities from unique genotype values across all sheets.
+        const genotypeNames = new Set<string>()
+        for (let si = 0; si < sheets.length; si++) {
+          const config = sheetConfigs[si]
+          if (!config || config.skipped || !config.genotypeColumn) continue
+          for (const row of sheets[si].rows) {
+            const gv = row[config.genotypeColumn]
+            if (gv != null && String(gv).trim() !== '') genotypeNames.add(String(gv).trim())
+          }
+        }
+        if (genotypeNames.size > 0) {
+          for (const name of genotypeNames) {
+            if (abortedRef.current) return
+            try {
+              await populationsApi.create({
+                population_name: name,
+                experiment_name: metadata.experimentName,
+              })
+            } catch {
+              try {
+                await populationsApi.search({ population_name: name })
+              } catch {
+                // population may already exist — safe to ignore
+              }
+            }
+          }
+        }
+
         // Pre-compute per-(sheet, trait) totals so the progress UI can show
         // running totals without waiting until the end. A cell counts only if
         // both the trait value AND plot_number are present and numeric.
@@ -136,7 +165,7 @@ export function StepUpload({ files, detection, metadata, columnMapping, onNext, 
         for (let si = 0; si < sheets.length; si++) {
           const sheet = sheets[si]
           const config = sheetConfigs[si]
-          if (!config || !config.plotNumberColumn) continue
+          if (!config || config.skipped || !config.plotNumberColumn) continue
           const enabledTraits = config.traitColumns.filter((tc) => tc.enabled)
           for (const trait of enabledTraits) {
             let count = 0
@@ -176,7 +205,7 @@ export function StepUpload({ files, detection, metadata, columnMapping, onNext, 
           const config = sheetConfigs[si]
           // Plot number is the required row identifier — skip sheets that
           // somehow got here without one (wizard validation should prevent it).
-          if (!config || !config.plotNumberColumn) continue
+          if (!config || config.skipped || !config.plotNumberColumn) continue
 
           const enabledTraits = config.traitColumns.filter((tc) => tc.enabled)
           for (const trait of enabledTraits) {

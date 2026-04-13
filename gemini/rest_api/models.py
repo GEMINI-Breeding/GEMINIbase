@@ -216,25 +216,29 @@ class SiteOutput(RESTAPIBase):
 
 class PopulationInput(RESTAPIBase):
     population_name: str
-    population_accession: Optional[str] = None
+    population_type: Optional[str] = None
+    species: Optional[str] = None
     population_info: Optional[JSONB] = {}
     experiment_name: Optional[str] = None
 
 class PopulationUpdate(RESTAPIBase):
     population_name: Optional[str] = None
-    population_accession: Optional[str] = None
+    population_type: Optional[str] = None
+    species: Optional[str] = None
     population_info: Optional[JSONB] = None
 
 class PopulationSearch(RESTAPIBase):
     population_name: Optional[str] = None
-    population_accession: Optional[str] = None
+    population_type: Optional[str] = None
+    species: Optional[str] = None
     population_info: Optional[JSONB] = None
     experiment_name: Optional[str] = None
 
 class PopulationOutput(RESTAPIBase):
     id: Optional[ID] = None
     population_name: Optional[str] = None
-    population_accession: Optional[str] = None
+    population_type: Optional[str] = None
+    species: Optional[str] = None
     population_info: Optional[JSONB] = None
 
 
@@ -394,40 +398,48 @@ class ModelRunOutput(RESTAPIBase):
 # Plant Classes
 # --------------------------------
 
-class PlantInput(RESTAPIBase):
-    plant_number: int
-    plant_info: Optional[JSONB] = {}
-    population_accession: Optional[str] = None
-    population_name: Optional[str] = None
-    experiment_name: Optional[str] = None
-    season_name: Optional[str] = None
-    site_name: Optional[str] = None
-    plot_number: Optional[int] = None
-    plot_row_number: Optional[int] = None
-    plot_column_number: Optional[int] = None
+# --------------------------------
+# Line Classes
+# --------------------------------
 
+class LineInput(RESTAPIBase):
+    line_name: str
+    species: Optional[str] = None
+    line_info: Optional[JSONB] = {}
 
-class PlantUpdate(RESTAPIBase):
-    plant_number: Optional[int] = None
-    plant_info: Optional[JSONB] = None
+class LineUpdate(RESTAPIBase):
+    line_name: Optional[str] = None
+    species: Optional[str] = None
+    line_info: Optional[JSONB] = None
 
-class PlantSearch(RESTAPIBase):
-    plant_number: Optional[int] = None
-    population_accession: Optional[str] = None
-    population_name: Optional[str] = None
-    experiment_name: Optional[str] = None
-    season_name: Optional[str] = None
-    site_name: Optional[str] = None
-    plot_number: Optional[int] = None
-    plot_row_number: Optional[int] = None
-    plot_column_number: Optional[int] = None
-
-class PlantOutput(RESTAPIBase):
+class LineOutput(RESTAPIBase):
     id: Optional[ID] = None
-    plot_id: Optional[ID] = None
-    population_id: Optional[ID] = None
-    plant_number: int
-    plant_info: Optional[JSONB] = None
+    line_name: Optional[str] = None
+    species: Optional[str] = None
+    line_info: Optional[JSONB] = None
+
+# --------------------------------
+# Accession Classes
+# --------------------------------
+
+class AccessionInput(RESTAPIBase):
+    accession_name: str
+    line_name: Optional[str] = None
+    species: Optional[str] = None
+    accession_info: Optional[JSONB] = {}
+    population_name: Optional[str] = None
+
+class AccessionUpdate(RESTAPIBase):
+    accession_name: Optional[str] = None
+    species: Optional[str] = None
+    accession_info: Optional[JSONB] = None
+
+class AccessionOutput(RESTAPIBase):
+    id: Optional[ID] = None
+    accession_name: Optional[str] = None
+    line_id: Optional[ID] = None
+    species: Optional[str] = None
+    accession_info: Optional[JSONB] = None
 
 # --------------------------------
 # Plot Classes
@@ -442,7 +454,7 @@ class PlotInput(RESTAPIBase):
     experiment_name: Optional[str] = None
     season_name: Optional[str] = None
     site_name: Optional[str] = None
-    population_accession: Optional[str] = None
+    accession_name: Optional[str] = None
     population_name: Optional[str] = None
 
 class PlotUpdate(RESTAPIBase):
@@ -451,7 +463,6 @@ class PlotUpdate(RESTAPIBase):
     plot_column_number: Optional[int] = None
     plot_info: Optional[JSONB] = None
     plot_geometry_info: Optional[JSONB] = None
-
 
 class PlotSearch(RESTAPIBase):
     plot_number: Optional[int] = None
@@ -462,12 +473,16 @@ class PlotSearch(RESTAPIBase):
     experiment_name: Optional[str] = None
     season_name: Optional[str] = None
     site_name: Optional[str] = None
+    accession_name: Optional[str] = None
+    population_name: Optional[str] = None
 
 class PlotOutput(RESTAPIBase):
     id: Optional[ID] = None
     experiment_id: Optional[ID] = None
     season_id: Optional[ID] = None
     site_id: Optional[ID] = None
+    accession_id: Optional[ID] = None
+    population_id: Optional[ID] = None
     plot_number: int = None
     plot_row_number: int = None
     plot_column_number: int = None
@@ -1184,34 +1199,33 @@ class VariantOutput(RESTAPIBase):
 # --------------------------------
 # Genotype Classes
 # --------------------------------
-class GenotypeInput(RESTAPIBase):
-    genotype_name: str
-    genotype_info: Optional[JSONB] = {}
+class GenotypingStudyInput(RESTAPIBase):
+    study_name: str
+    study_info: Optional[JSONB] = {}
     experiment_name: Optional[str] = None
 
-class GenotypeUpdate(RESTAPIBase):
-    genotype_name: Optional[str] = None
-    genotype_info: Optional[JSONB] = None
+class GenotypingStudyUpdate(RESTAPIBase):
+    study_name: Optional[str] = None
+    study_info: Optional[JSONB] = None
 
-class GenotypeOutput(RESTAPIBase):
+class GenotypingStudyOutput(RESTAPIBase):
     id: Optional[ID] = None
-    genotype_name: Optional[str] = None
-    genotype_info: Optional[JSONB] = None
+    study_name: Optional[str] = None
+    study_info: Optional[JSONB] = None
 
 
 # --------------------------------
 # Genotype Record Classes
 # --------------------------------
 class GenotypeRecordInput(RESTAPIBase):
-    genotype_id: Optional[ID] = None
-    genotype_name: Optional[str] = None
+    study_id: Optional[ID] = None
+    study_name: Optional[str] = None
     variant_id: Optional[ID] = None
     variant_name: Optional[str] = None
     chromosome: Optional[int] = None
     position: Optional[float] = None
-    population_id: Optional[ID] = None
-    population_name: Optional[str] = None
-    population_accession: Optional[str] = None
+    accession_id: Optional[ID] = None
+    accession_name: Optional[str] = None
     call_value: str
     record_info: Optional[JSONB] = {}
 
@@ -1220,14 +1234,13 @@ class GenotypeRecordBulkInput(RESTAPIBase):
 
 class GenotypeRecordOutput(RESTAPIBase):
     id: Optional[ID] = None
-    genotype_id: Optional[ID] = None
-    genotype_name: Optional[str] = None
+    study_id: Optional[ID] = None
+    study_name: Optional[str] = None
     variant_id: Optional[ID] = None
     variant_name: Optional[str] = None
     chromosome: Optional[int] = None
     position: Optional[float] = None
-    population_id: Optional[ID] = None
-    population_name: Optional[str] = None
-    population_accession: Optional[str] = None
+    accession_id: Optional[ID] = None
+    accession_name: Optional[str] = None
     call_value: Optional[str] = None
     record_info: Optional[JSONB] = None

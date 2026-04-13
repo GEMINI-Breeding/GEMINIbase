@@ -14,7 +14,6 @@ Below is a list of the available API endpoints, each with its own dedicated docu
 - [Experiments](./experiments.md)
 - [Files](./files.md)
 - [Models](./models.md)
-- [Plants](./plants.md)
 - [Plots](./plots.md)
 - [Procedures](./procedures.md)
 - [Scripts](./scripts.md)

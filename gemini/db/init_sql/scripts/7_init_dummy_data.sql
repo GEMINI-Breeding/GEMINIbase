@@ -39,79 +39,93 @@ VALUES
     ((SELECT id FROM gemini.experiments WHERE experiment_name = 'Experiment B' LIMIT 1), (SELECT id FROM gemini.sites WHERE site_name = 'Site B2' LIMIT 1), '{"description": "Test association"}', NOW(), NOW()),
     ((SELECT id FROM gemini.experiments WHERE experiment_name = 'Experiment B' LIMIT 1), (SELECT id FROM gemini.sites WHERE site_name = 'Site B3' LIMIT 1), '{"description": "Test association"}', NOW(), NOW());
     
--- Add 12 Populations, 3 for each dummy population
-INSERT INTO gemini.populations (population_accession, population_name, population_info, created_at, updated_at)
+-- Add 2 Populations (germplasm groupings)
+INSERT INTO gemini.populations (population_name, population_type, species, population_info, created_at, updated_at)
 VALUES
-    ('Accession A1', 'Population A', '{"description": "Test population A1"}', NOW(), NOW()),
-    ('Accession A2', 'Population A', '{"description": "Test population A2"}', NOW(), NOW()),
-    ('Accession A3', 'Population A', '{"description": "Test population A3"}', NOW(), NOW()),
-    ('Accession B1', 'Population B', '{"description": "Test population B1"}', NOW(), NOW()),
-    ('Accession B2', 'Population B', '{"description": "Test population B2"}', NOW(), NOW()),
-    ('Accession B3', 'Population B', '{"description": "Test population B3"}', NOW(), NOW());
+    ('Population A', 'diversity_panel', 'Zea mays', '{"description": "Test diversity panel A"}', NOW(), NOW()),
+    ('Population B', 'ril', 'Phaseolus vulgaris', '{"description": "Test RIL population B"}', NOW(), NOW());
 
+-- Add 3 Lines per population
+INSERT INTO gemini.lines (line_name, species, line_info, created_at, updated_at)
+VALUES
+    ('Line A1', 'Zea mays', '{"description": "Test line A1"}', NOW(), NOW()),
+    ('Line A2', 'Zea mays', '{"description": "Test line A2"}', NOW(), NOW()),
+    ('Line A3', 'Zea mays', '{"description": "Test line A3"}', NOW(), NOW()),
+    ('Line B1', 'Phaseolus vulgaris', '{"description": "Test line B1"}', NOW(), NOW()),
+    ('Line B2', 'Phaseolus vulgaris', '{"description": "Test line B2"}', NOW(), NOW()),
+    ('Line B3', 'Phaseolus vulgaris', '{"description": "Test line B3"}', NOW(), NOW());
+
+-- Add 6 Accessions (globally unique germplasm units), each derived from a line
+INSERT INTO gemini.accessions (accession_name, line_id, species, accession_info, created_at, updated_at)
+VALUES
+    ('Accession A1', (SELECT id FROM gemini.lines WHERE line_name = 'Line A1' LIMIT 1), 'Zea mays', '{"description": "Test accession A1"}', NOW(), NOW()),
+    ('Accession A2', (SELECT id FROM gemini.lines WHERE line_name = 'Line A2' LIMIT 1), 'Zea mays', '{"description": "Test accession A2"}', NOW(), NOW()),
+    ('Accession A3', (SELECT id FROM gemini.lines WHERE line_name = 'Line A3' LIMIT 1), 'Zea mays', '{"description": "Test accession A3"}', NOW(), NOW()),
+    ('Accession B1', (SELECT id FROM gemini.lines WHERE line_name = 'Line B1' LIMIT 1), 'Phaseolus vulgaris', '{"description": "Test accession B1"}', NOW(), NOW()),
+    ('Accession B2', (SELECT id FROM gemini.lines WHERE line_name = 'Line B2' LIMIT 1), 'Phaseolus vulgaris', '{"description": "Test accession B2"}', NOW(), NOW()),
+    ('Accession B3', (SELECT id FROM gemini.lines WHERE line_name = 'Line B3' LIMIT 1), 'Phaseolus vulgaris', '{"description": "Test accession B3"}', NOW(), NOW());
+
+-- Link accessions to populations (M:M)
+INSERT INTO gemini.population_accessions (population_id, accession_id, info, created_at, updated_at)
+VALUES
+    ((SELECT id FROM gemini.populations WHERE population_name = 'Population A' LIMIT 1), (SELECT id FROM gemini.accessions WHERE accession_name = 'Accession A1' LIMIT 1), '{}', NOW(), NOW()),
+    ((SELECT id FROM gemini.populations WHERE population_name = 'Population A' LIMIT 1), (SELECT id FROM gemini.accessions WHERE accession_name = 'Accession A2' LIMIT 1), '{}', NOW(), NOW()),
+    ((SELECT id FROM gemini.populations WHERE population_name = 'Population A' LIMIT 1), (SELECT id FROM gemini.accessions WHERE accession_name = 'Accession A3' LIMIT 1), '{}', NOW(), NOW()),
+    ((SELECT id FROM gemini.populations WHERE population_name = 'Population B' LIMIT 1), (SELECT id FROM gemini.accessions WHERE accession_name = 'Accession B1' LIMIT 1), '{}', NOW(), NOW()),
+    ((SELECT id FROM gemini.populations WHERE population_name = 'Population B' LIMIT 1), (SELECT id FROM gemini.accessions WHERE accession_name = 'Accession B2' LIMIT 1), '{}', NOW(), NOW()),
+    ((SELECT id FROM gemini.populations WHERE population_name = 'Population B' LIMIT 1), (SELECT id FROM gemini.accessions WHERE accession_name = 'Accession B3' LIMIT 1), '{}', NOW(), NOW());
 
 -- Add associations to experiment_populations
 INSERT INTO gemini.experiment_populations (experiment_id, population_id, info, created_at, updated_at)
 VALUES
-    ((SELECT id FROM gemini.experiments WHERE experiment_name = 'Experiment A' LIMIT 1), (SELECT id FROM gemini.populations WHERE population_accession = 'Accession A1' LIMIT 1), '{"description": "Test association"}', NOW(), NOW()),
-    ((SELECT id FROM gemini.experiments WHERE experiment_name = 'Experiment A' LIMIT 1), (SELECT id FROM gemini.populations WHERE population_accession = 'Accession A2' LIMIT 1), '{"description": "Test association"}', NOW(), NOW()),
-    ((SELECT id FROM gemini.experiments WHERE experiment_name = 'Experiment A' LIMIT 1), (SELECT id FROM gemini.populations WHERE population_accession = 'Accession A3' LIMIT 1), '{"description": "Test association"}', NOW(), NOW()),
-    ((SELECT id FROM gemini.experiments WHERE experiment_name = 'Experiment B' LIMIT 1), (SELECT id FROM gemini.populations WHERE population_accession = 'Accession B1' LIMIT 1), '{"description": "Test association"}', NOW(), NOW()),
-    ((SELECT id FROM gemini.experiments WHERE experiment_name = 'Experiment B' LIMIT 1), (SELECT id FROM gemini.populations WHERE population_accession = 'Accession B2' LIMIT 1), '{"description": "Test association"}', NOW(), NOW()),
-    ((SELECT id FROM gemini.experiments WHERE experiment_name = 'Experiment B' LIMIT 1), (SELECT id FROM gemini.populations WHERE population_accession = 'Accession B3' LIMIT 1), '{"description": "Test association"}', NOW(), NOW());
+    ((SELECT id FROM gemini.experiments WHERE experiment_name = 'Experiment A' LIMIT 1), (SELECT id FROM gemini.populations WHERE population_name = 'Population A' LIMIT 1), '{"description": "Test association"}', NOW(), NOW()),
+    ((SELECT id FROM gemini.experiments WHERE experiment_name = 'Experiment B' LIMIT 1), (SELECT id FROM gemini.populations WHERE population_name = 'Population B' LIMIT 1), '{"description": "Test association"}', NOW(), NOW());
 
 
 
 
--- For each combination of experiment, season, and site, add 20 plots
--- Use an anonymous function to generate plot numbers
+-- For each combination of experiment, season, and site, add 20 plots.
+-- Each plot is assigned a random accession from the experiment's population,
+-- plus the population_id for that accession's population.
 
 DO $$
 DECLARE
     exp_id UUID;
     sea_id UUID;
     sit_id UUID;
-    plot_number INTEGER;
-    plot_row_number INTEGER;
-    plot_column_number INTEGER;
+    pop_id UUID;
+    acc_id UUID;
+    plot_num INTEGER;
+    plot_row INTEGER;
+    plot_col INTEGER;
     plot_info JSONB;
 BEGIN
-    FOR exp_id IN SELECT id from gemini.experiments LOOP
+    FOR exp_id IN SELECT id FROM gemini.experiments LOOP
+        -- Get the population associated with this experiment
+        SELECT ep.population_id INTO pop_id
+        FROM gemini.experiment_populations ep
+        WHERE ep.experiment_id = exp_id LIMIT 1;
+
         FOR sea_id IN SELECT id FROM gemini.seasons WHERE experiment_id = exp_id LOOP
-            FOR sit_id IN SELECT site_id from gemini.experiment_sites WHERE experiment_id = exp_id LOOP
-                FOR plot_number IN 1..20 LOOP
-                    plot_row_number := (plot_number - 1) / 5 + 1;
-                    plot_column_number := (plot_number - 1) % 5 + 1;
-                    plot_info := jsonb_build_object('description', 'Test plot ' || plot_number);
-                    INSERT INTO gemini.plots (experiment_id, season_id, site_id, plot_number, plot_row_number, plot_column_number, plot_info, created_at, updated_at)
-                    VALUES (exp_id, sea_id, sit_id, plot_number, plot_row_number, plot_column_number, plot_info, NOW(), NOW());
+            FOR sit_id IN SELECT site_id FROM gemini.experiment_sites WHERE experiment_id = exp_id LOOP
+                FOR plot_num IN 1..20 LOOP
+                    plot_row := (plot_num - 1) / 5 + 1;
+                    plot_col := (plot_num - 1) % 5 + 1;
+                    plot_info := jsonb_build_object('description', 'Test plot ' || plot_num);
+
+                    -- Pick a random accession from this population
+                    SELECT pa.accession_id INTO acc_id
+                    FROM gemini.population_accessions pa
+                    WHERE pa.population_id = pop_id
+                    ORDER BY RANDOM() LIMIT 1;
+
+                    INSERT INTO gemini.plots (experiment_id, season_id, site_id, accession_id, population_id,
+                                              plot_number, plot_row_number, plot_column_number, plot_info, created_at, updated_at)
+                    VALUES (exp_id, sea_id, sit_id, acc_id, pop_id,
+                            plot_num, plot_row, plot_col, plot_info, NOW(), NOW());
                 END LOOP;
             END LOOP;
         END LOOP;
-    END LOOP;
-END $$;
-
-
--- For each plot, add 2 plants of random populations, but each plot can only have one kind of population
-DO $$
-DECLARE
-    plot_uuid UUID;
-    population_uuid UUID;
-    plant_number INTEGER;
-BEGIN
-    FOR plot_uuid in SELECT id FROM gemini.plots LOOP
-        -- Select a random population from the populations table
-        SELECT id INTO population_uuid FROM gemini.populations ORDER BY RANDOM() LIMIT 1;
-        -- Insert 2 plants for each plot with the same population
-        FOR plant_number IN 1..2 LOOP
-            INSERT INTO gemini.plants (plot_id, plant_number, plant_info, population_id, created_at, updated_at)
-            VALUES (plot_uuid, plant_number, jsonb_build_object('description', 'Test plant ' || plant_number), population_uuid, NOW(), NOW());
-        END LOOP;
-
-        -- Insert associated plot_population entry
-        INSERT INTO gemini.plot_populations (plot_id, population_id, info, created_at, updated_at)
-        VALUES (plot_uuid, population_uuid, '{"description": "Verified association"}', NOW(), NOW());
-
     END LOOP;
 END $$;
 

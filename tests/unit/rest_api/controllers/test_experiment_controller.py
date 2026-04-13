@@ -190,8 +190,8 @@ class TestExperimentAssociations:
     def test_get_populations_success(self, mock_cls, test_client):
         mock_exp = MagicMock()
         mock_exp.get_associated_populations.return_value = [PopulationOutput(
-            id="c1", population_name="Pop A", population_accession="Acc 1",
-            population_info={}
+            id="c1", population_name="Pop A", population_type="diversity_panel",
+            species="Zea mays", population_info={}
         )]
         mock_cls.get_by_id.return_value = mock_exp
         response = test_client.get("/api/experiments/id/exp-uuid/populations")

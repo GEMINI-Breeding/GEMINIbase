@@ -9,7 +9,8 @@ import { Button } from '@/components/ui/button'
 
 const fields: FieldDef[] = [
   { name: 'population_name', label: 'Name', type: 'text', required: true },
-  { name: 'population_accession', label: 'Accession', type: 'text' },
+  { name: 'population_type', label: 'Type', type: 'text' },
+  { name: 'species', label: 'Species', type: 'text' },
   { name: 'population_info', label: 'Info (JSON)', type: 'json' },
 ]
 
@@ -29,7 +30,7 @@ function PopulationDetail() {
     <div>
       <PageHeader
         title={population.population_name ?? 'Population'}
-        description={population.population_accession ?? undefined}
+        description={population.population_type ?? undefined}
         actions={
           <div className="flex gap-2">
             <Button variant="outline" onClick={() => navigate({ to: '/populations' })}><ArrowLeft className="mr-2 h-4 w-4" /> Back</Button>
@@ -44,7 +45,8 @@ function PopulationDetail() {
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-4 rounded-md border p-4">
             <div><p className="text-sm text-muted-foreground">Name</p><p>{population.population_name}</p></div>
-            <div><p className="text-sm text-muted-foreground">Accession</p><p>{population.population_accession ?? '-'}</p></div>
+            <div><p className="text-sm text-muted-foreground">Type</p><p>{population.population_type ?? '-'}</p></div>
+            <div><p className="text-sm text-muted-foreground">Species</p><p>{population.species ?? '-'}</p></div>
           </div>
           {population.population_info && (
             <div className="rounded-md border p-4">

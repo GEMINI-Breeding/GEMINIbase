@@ -121,7 +121,7 @@ class TestPopulationEndpoints:
     def test_create_population(self, client, setup_real_db):
         resp = client.post("/api/populations", json={
             "population_name": "Pop A",
-            "population_accession": "Acc 001",
+            "population_type": "diversity_panel",
         })
         assert resp.status_code in (200, 201), resp.text
 

@@ -133,21 +133,24 @@ export interface SiteOutput {
 
 export interface PopulationInput {
   population_name: string;
-  population_accession?: string;
+  population_type?: string;
+  species?: string;
   population_info?: JSONB;
   experiment_name?: string;
 }
 
 export interface PopulationUpdate {
   population_name?: string;
-  population_accession?: string;
+  population_type?: string;
+  species?: string;
   population_info?: JSONB;
 }
 
 export interface PopulationOutput {
   id?: ID;
   population_name?: string;
-  population_accession?: string;
+  population_type?: string;
+  species?: string;
   population_info?: JSONB;
 }
 
@@ -277,36 +280,6 @@ export interface ModelRunOutput {
 }
 
 // ---------------------------------------------------------------------------
-// Plant
-// ---------------------------------------------------------------------------
-
-export interface PlantInput {
-  plant_number: number;
-  plant_info?: JSONB;
-  population_accession?: string;
-  population_name?: string;
-  experiment_name?: string;
-  season_name?: string;
-  site_name?: string;
-  plot_number?: number;
-  plot_row_number?: number;
-  plot_column_number?: number;
-}
-
-export interface PlantUpdate {
-  plant_number?: number;
-  plant_info?: JSONB;
-}
-
-export interface PlantOutput {
-  id?: ID;
-  plot_id?: ID;
-  population_id?: ID;
-  plant_number: number;
-  plant_info?: JSONB;
-}
-
-// ---------------------------------------------------------------------------
 // Plot
 // ---------------------------------------------------------------------------
 
@@ -319,7 +292,7 @@ export interface PlotInput {
   experiment_name?: string;
   season_name?: string;
   site_name?: string;
-  population_accession?: string;
+  accession_name?: string;
   population_name?: string;
 }
 
@@ -336,6 +309,8 @@ export interface PlotOutput {
   experiment_id?: ID;
   season_id?: ID;
   site_id?: ID;
+  accession_id?: ID;
+  population_id?: ID;
   plot_number?: number;
   plot_row_number?: number;
   plot_column_number?: number;
@@ -660,15 +635,14 @@ export interface ScriptRecordOutput {
 
 export interface GenotypeRecordOutput {
   id?: ID;
-  genotype_id?: ID;
-  genotype_name?: string;
+  study_id?: ID;
+  study_name?: string;
   variant_id?: ID;
   variant_name?: string;
   chromosome?: number;
   position?: number;
-  population_id?: ID;
-  population_name?: string;
-  population_accession?: string;
+  accession_id?: ID;
+  accession_name?: string;
   call_value?: string;
   record_info?: JSONB;
 }
@@ -737,42 +711,90 @@ export interface VariantOutput {
 }
 
 // ---------------------------------------------------------------------------
-// Genotype
+// Genotyping Study
 // ---------------------------------------------------------------------------
 
-export interface GenotypeInput {
-  genotype_name: string;
-  genotype_info?: JSONB;
+export interface GenotypingStudyInput {
+  study_name: string;
+  study_info?: JSONB;
   experiment_name?: string;
 }
 
-export interface GenotypeUpdate {
-  genotype_name?: string;
-  genotype_info?: JSONB;
+export interface GenotypingStudyUpdate {
+  study_name?: string;
+  study_info?: JSONB;
 }
 
-export interface GenotypeOutput {
+export interface GenotypingStudyOutput {
   id?: ID;
-  genotype_name?: string;
-  genotype_info?: JSONB;
+  study_name?: string;
+  study_info?: JSONB;
 }
 
 export interface GenotypeRecordInput {
-  genotype_id?: ID;
-  genotype_name?: string;
+  study_id?: ID;
+  study_name?: string;
   variant_id?: ID;
   variant_name?: string;
   chromosome?: number;
   position?: number;
-  population_id?: ID;
-  population_name?: string;
-  population_accession?: string;
+  accession_id?: ID;
+  accession_name?: string;
   call_value: string;
   record_info?: JSONB;
 }
 
 export interface GenotypeRecordBulkInput {
   records: JSONB[];
+}
+
+// ---------------------------------------------------------------------------
+// Line
+// ---------------------------------------------------------------------------
+
+export interface LineInput {
+  line_name: string;
+  species?: string;
+  line_info?: JSONB;
+}
+
+export interface LineUpdate {
+  line_name?: string;
+  species?: string;
+  line_info?: JSONB;
+}
+
+export interface LineOutput {
+  id?: ID;
+  line_name?: string;
+  species?: string;
+  line_info?: JSONB;
+}
+
+// ---------------------------------------------------------------------------
+// Accession
+// ---------------------------------------------------------------------------
+
+export interface AccessionInput {
+  accession_name: string;
+  line_name?: string;
+  species?: string;
+  accession_info?: JSONB;
+  population_name?: string;
+}
+
+export interface AccessionUpdate {
+  accession_name?: string;
+  species?: string;
+  accession_info?: JSONB;
+}
+
+export interface AccessionOutput {
+  id?: ID;
+  accession_name?: string;
+  line_id?: ID;
+  species?: string;
+  accession_info?: JSONB;
 }
 
 // Record filter types

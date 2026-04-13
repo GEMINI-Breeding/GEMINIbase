@@ -59,12 +59,46 @@ CREATE INDEX IF NOT EXISTS idx_sites_info ON gemini.sites USING GIN (site_info);
 ALTER TABLE gemini.sites ADD CONSTRAINT site_unique UNIQUE (site_name, site_city, site_state, site_country);
 
 -------------------------------------------------------------------------------
+-- Lines Table
+-- A breeding-line pedigree anchor (inbred line, clonal parent, etc.)
+CREATE TABLE IF NOT EXISTS gemini.lines (
+    id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+    line_name VARCHAR(255) NOT NULL,
+    species VARCHAR(255) DEFAULT '',
+    line_info JSONB DEFAULT '{}',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_lines_info ON gemini.lines USING GIN (line_info);
+
+ALTER TABLE gemini.lines ADD CONSTRAINT line_unique UNIQUE (line_name);
+
+-------------------------------------------------------------------------------
+-- Accessions Table
+-- A canonical germplasm unit (globally unique) that gets planted in plots
+CREATE TABLE IF NOT EXISTS gemini.accessions (
+    id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+    accession_name VARCHAR(255) NOT NULL,
+    line_id uuid REFERENCES gemini.lines(id) ON DELETE SET NULL,
+    species VARCHAR(255) DEFAULT '',
+    accession_info JSONB DEFAULT '{}',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_accessions_info ON gemini.accessions USING GIN (accession_info);
+
+ALTER TABLE gemini.accessions ADD CONSTRAINT accession_unique UNIQUE (accession_name);
+
+-------------------------------------------------------------------------------
 -- Populations Table
--- Each experiment can have multiple populations, and they are a combination of accession and population
+-- A named germplasm grouping within a breeding program
 CREATE TABLE IF NOT EXISTS gemini.populations (
     id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
-    population_accession VARCHAR(255) NOT NULL,
     population_name VARCHAR(255) NOT NULL,
+    population_type VARCHAR(64) DEFAULT '',
+    species VARCHAR(255) DEFAULT '',
     population_info JSONB DEFAULT '{}',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -72,16 +106,18 @@ CREATE TABLE IF NOT EXISTS gemini.populations (
 
 CREATE INDEX IF NOT EXISTS idx_populations_info ON gemini.populations USING GIN (population_info);
 
-ALTER TABLE gemini.populations ADD CONSTRAINT population_unique UNIQUE (population_accession, population_name);
+ALTER TABLE gemini.populations ADD CONSTRAINT population_unique UNIQUE (population_name);
 
 -------------------------------------------------------------------------------
 -- Plots Table
--- This is where all the plot information is stored
+-- Each plot holds one accession from one population in one season at one site
 CREATE TABLE IF NOT EXISTS gemini.plots (
     id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
     experiment_id uuid REFERENCES gemini.experiments(id) ON DELETE SET NULL,
-    season_id uuid REFERENCES gemini.seasons(id) ON DELETE SET NULL, 
+    season_id uuid REFERENCES gemini.seasons(id) ON DELETE SET NULL,
     site_id uuid REFERENCES gemini.sites(id) ON DELETE SET NULL,
+    accession_id uuid REFERENCES gemini.accessions(id) ON DELETE SET NULL,
+    population_id uuid REFERENCES gemini.populations(id) ON DELETE SET NULL,
     plot_number INTEGER,
     plot_row_number INTEGER,
     plot_column_number INTEGER,
@@ -90,28 +126,10 @@ CREATE TABLE IF NOT EXISTS gemini.plots (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-    
 
 CREATE INDEX IF NOT EXISTS idx_plots_info ON gemini.plots USING GIN (plot_info);
 
 ALTER TABLE gemini.plots ADD CONSTRAINT plot_unique UNIQUE (experiment_id, season_id, site_id, plot_number, plot_row_number, plot_column_number);
-
--------------------------------------------------------------------------------
--- Plants Table
--- This is where all the plant information is stored
-CREATE TABLE IF NOT EXISTS gemini.plants (
-    id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
-    plot_id uuid REFERENCES gemini.plots(id) ON DELETE CASCADE,
-    plant_number INTEGER,
-    plant_info JSONB DEFAULT '{}',
-    population_id uuid REFERENCES gemini.populations(id) ON DELETE SET NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_plants_info ON gemini.plants USING GIN (plant_info);
-
-ALTER TABLE gemini.plants ADD CONSTRAINT plant_unique UNIQUE (plot_id, plant_number);
 
 
 -------------------------------------------------------------------------------
@@ -493,19 +511,19 @@ CREATE INDEX IF NOT EXISTS idx_variants_chromosome ON gemini.variants (chromosom
 ALTER TABLE gemini.variants ADD CONSTRAINT variant_unique UNIQUE (variant_name);
 
 -------------------------------------------------------------------------------
--- Genotypes Table
+-- Genotyping Studies Table
 -- Stores genotyping study/protocol metadata
-CREATE TABLE IF NOT EXISTS gemini.genotypes (
+CREATE TABLE IF NOT EXISTS gemini.genotyping_studies (
     id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
-    genotype_name VARCHAR(255) NOT NULL,
-    genotype_info JSONB DEFAULT '{}',
+    study_name VARCHAR(255) NOT NULL,
+    study_info JSONB DEFAULT '{}',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_genotypes_info ON gemini.genotypes USING GIN (genotype_info);
+CREATE INDEX IF NOT EXISTS idx_genotyping_studies_info ON gemini.genotyping_studies USING GIN (study_info);
 
-ALTER TABLE gemini.genotypes ADD CONSTRAINT genotype_unique UNIQUE (genotype_name);
+ALTER TABLE gemini.genotyping_studies ADD CONSTRAINT genotyping_study_unique UNIQUE (study_name);
 
 -------------------------------------------------------------------------------
 -- Jobs Table

@@ -251,11 +251,30 @@ class TestSeasonEndpoints:
 # Plant endpoints
 # ============================================================
 
-class TestPlantEndpoints:
+class TestLineEndpoints:
+
+    def test_create_line(self, client, setup_real_db):
+        resp = client.post("/api/lines/", json={
+            "line_name": "TestLine1", "species": "Zea mays", "line_info": {}
+        })
+        assert resp.status_code == 201
 
     def test_get_all(self, client, setup_real_db):
-        resp = client.get("/api/plants/all")
-        assert resp.status_code in (200, 404)  # May be empty
+        resp = client.get("/api/lines/all")
+        assert resp.status_code in (200, 404)
+
+
+class TestAccessionEndpoints:
+
+    def test_create_accession(self, client, setup_real_db):
+        resp = client.post("/api/accessions/", json={
+            "accession_name": "TestAcc1", "species": "Zea mays", "accession_info": {}
+        })
+        assert resp.status_code == 201
+
+    def test_get_all(self, client, setup_real_db):
+        resp = client.get("/api/accessions/all")
+        assert resp.status_code in (200, 404)
 
 
 # ============================================================

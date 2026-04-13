@@ -147,8 +147,9 @@ The Experiments API provides endpoints for managing and retrieving experiment da
 - **Method:** `POST`
 - **Description:** Creates a new population for a specific experiment.
 - **Request Body:**
-  - `population_name`: The population of the population.
-  - `population_accession`: The accession number of the population.
+  - `population_name`: The name of the population.
+  - `population_type`: The type of the population.
+  - `species`: The species of the population.
   - `population_info`: Additional information about the population.
 - **Responses:**
   - `200 OK`: The newly created population object.

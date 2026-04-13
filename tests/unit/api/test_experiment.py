@@ -312,27 +312,27 @@ class TestExperimentAssociations:
         exp = Experiment(id=uuid4(), experiment_name="Test", experiment_start_date=date.today(), experiment_end_date=date.today())
         with patch("gemini.api.population.Population") as mock_cult:
             mock_cult.create.return_value = MagicMock()
-            result = exp.create_new_population("Pop1", "Acc1")
+            result = exp.create_new_population("Pop1")
             assert result is not None
 
     def test_create_new_population_failure(self):
         exp = Experiment(id=uuid4(), experiment_name="Test", experiment_start_date=date.today(), experiment_end_date=date.today())
         with patch("gemini.api.population.Population") as mock_cult:
             mock_cult.create.return_value = None
-            assert exp.create_new_population("Pop1", "Acc1") is None
+            assert exp.create_new_population("Pop1") is None
 
     def test_create_new_population_exception(self):
         exp = Experiment(id=uuid4(), experiment_name="Test", experiment_start_date=date.today(), experiment_end_date=date.today())
         with patch("gemini.api.population.Population") as mock_cult:
             mock_cult.create.side_effect = Exception("err")
-            assert exp.create_new_population("Pop1", "Acc1") is None
+            assert exp.create_new_population("Pop1") is None
 
     def test_associate_population_success(self):
         exp = Experiment(id=uuid4(), experiment_name="Test", experiment_start_date=date.today(), experiment_end_date=date.today())
         with patch("gemini.api.population.Population") as mock_cult:
             mock_obj = MagicMock()
             mock_cult.get.return_value = mock_obj
-            result = exp.associate_population("Pop1", "Acc1")
+            result = exp.associate_population("Pop1")
             assert result is mock_obj
             mock_obj.associate_experiment.assert_called_once()
 
@@ -340,20 +340,20 @@ class TestExperimentAssociations:
         exp = Experiment(id=uuid4(), experiment_name="Test", experiment_start_date=date.today(), experiment_end_date=date.today())
         with patch("gemini.api.population.Population") as mock_cult:
             mock_cult.get.return_value = None
-            assert exp.associate_population("Pop1", "Acc1") is None
+            assert exp.associate_population("Pop1") is None
 
     def test_associate_population_exception(self):
         exp = Experiment(id=uuid4(), experiment_name="Test", experiment_start_date=date.today(), experiment_end_date=date.today())
         with patch("gemini.api.population.Population") as mock_cult:
             mock_cult.get.side_effect = Exception("err")
-            assert exp.associate_population("Pop1", "Acc1") is None
+            assert exp.associate_population("Pop1") is None
 
     def test_unassociate_population_success(self):
         exp = Experiment(id=uuid4(), experiment_name="Test", experiment_start_date=date.today(), experiment_end_date=date.today())
         with patch("gemini.api.population.Population") as mock_cult:
             mock_obj = MagicMock()
             mock_cult.get.return_value = mock_obj
-            result = exp.unassociate_population("Pop1", "Acc1")
+            result = exp.unassociate_population("Pop1")
             assert result is mock_obj
             mock_obj.unassociate_experiment.assert_called_once()
 
@@ -361,7 +361,7 @@ class TestExperimentAssociations:
         exp = Experiment(id=uuid4(), experiment_name="Test", experiment_start_date=date.today(), experiment_end_date=date.today())
         with patch("gemini.api.population.Population") as mock_cult:
             mock_cult.get.return_value = None
-            assert exp.unassociate_population("Pop1", "Acc1") is None
+            assert exp.unassociate_population("Pop1") is None
 
     def test_belongs_to_population_true(self):
         exp = Experiment(id=uuid4(), experiment_name="Test", experiment_start_date=date.today(), experiment_end_date=date.today())
@@ -369,19 +369,19 @@ class TestExperimentAssociations:
             mock_obj = MagicMock()
             mock_obj.belongs_to_experiment.return_value = True
             mock_cult.get.return_value = mock_obj
-            assert exp.belongs_to_population("Pop1", "Acc1") is True
+            assert exp.belongs_to_population("Pop1") is True
 
     def test_belongs_to_population_not_found(self):
         exp = Experiment(id=uuid4(), experiment_name="Test", experiment_start_date=date.today(), experiment_end_date=date.today())
         with patch("gemini.api.population.Population") as mock_cult:
             mock_cult.get.return_value = None
-            assert exp.belongs_to_population("Pop1", "Acc1") is False
+            assert exp.belongs_to_population("Pop1") is False
 
     def test_belongs_to_population_exception(self):
         exp = Experiment(id=uuid4(), experiment_name="Test", experiment_start_date=date.today(), experiment_end_date=date.today())
         with patch("gemini.api.population.Population") as mock_cult:
             mock_cult.get.side_effect = Exception("err")
-            assert exp.belongs_to_population("Pop1", "Acc1") is False
+            assert exp.belongs_to_population("Pop1") is False
 
     # --- Procedures ---
     @patch(f"{MODULE}.ExperimentProceduresViewModel")

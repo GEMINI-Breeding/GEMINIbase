@@ -14,7 +14,8 @@ from gemini.api.population import Population
 # Create a new population for Experiment A
 new_population = Population.create(
     population_name="Population Test 1",
-    population_accession="Accession A",
+    population_type="breeding",
+    species="Triticum aestivum",
     population_info={"test": "test"},
     experiment_name="Experiment A"
 )

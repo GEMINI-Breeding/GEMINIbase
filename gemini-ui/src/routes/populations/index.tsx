@@ -12,12 +12,14 @@ import type { PopulationOutput } from '@/api/types'
 
 const columns: ColumnDef<PopulationOutput>[] = [
   { accessorKey: 'population_name', header: 'Name' },
-  { accessorKey: 'population_accession', header: 'Accession' },
+  { accessorKey: 'population_type', header: 'Type' },
+  { accessorKey: 'species', header: 'Species' },
 ]
 
 const fields: FieldDef[] = [
   { name: 'population_name', label: 'Name', type: 'text', required: true },
-  { name: 'population_accession', label: 'Accession', type: 'text' },
+  { name: 'population_type', label: 'Type', type: 'text' },
+  { name: 'species', label: 'Species', type: 'text' },
   { name: 'population_info', label: 'Info (JSON)', type: 'json' },
 ]
 

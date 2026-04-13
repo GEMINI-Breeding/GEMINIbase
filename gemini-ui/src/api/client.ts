@@ -58,4 +58,14 @@ export async function postForm<T>(path: string, formData: FormData): Promise<T> 
   return api.post(path, { body: formData }).json<T>()
 }
 
+export async function getNdjson<T>(path: string, params?: Record<string, unknown>): Promise<T[]> {
+  const searchParams = params
+    ? Object.fromEntries(Object.entries(params).filter(([, v]) => v != null).map(([k, v]) => [k, String(v)]))
+    : undefined
+  const response = await api.get(path, { searchParams })
+  const text = await response.text()
+  if (!text.trim()) return []
+  return text.trim().split('\n').map((line) => JSON.parse(line) as T)
+}
+
 export { api }

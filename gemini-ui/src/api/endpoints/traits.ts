@@ -1,4 +1,4 @@
-import { get, post, patch, del } from '@/api/client'
+import { get, getOrEmpty, getNdjson, post, patch, del } from '@/api/client'
 import type {
   TraitOutput,
   TraitInput,
@@ -26,11 +26,17 @@ export const traitsApi = {
   remove: (id: string) =>
     del(`api/traits/id/${id}`),
 
-  getRecords: (traitId: string, limit = 100, offset = 0) =>
-    get<TraitRecordOutput[]>(`api/traits/id/${traitId}/records`, { limit, offset }),
+  getRecords: (traitId: string, params?: Record<string, unknown>) =>
+    getNdjson<TraitRecordOutput>(`api/traits/id/${traitId}/records`, params),
 
   filterRecords: (traitId: string, filter: TraitRecordFilter) =>
     post<TraitRecordOutput[]>(`api/traits/id/${traitId}/records/filter`, filter),
+
+  getExperiments: (traitId: string) =>
+    getOrEmpty<string>(`api/traits/id/${traitId}/experiments`),
+
+  getDatasets: (traitId: string) =>
+    getOrEmpty<{ id: string; dataset_name: string }>(`api/traits/id/${traitId}/datasets`),
 
   bulkCreateRecords: (traitId: string, data: {
     records: Record<string, unknown>[]

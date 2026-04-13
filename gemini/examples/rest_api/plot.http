@@ -16,9 +16,13 @@ GET {{apiUrl}}/?experiment_name=Experiment+A
 # @name GetPlotById
 GET {{apiUrl}}/id/{{plotId}}
 
-### Get all associated populations by plot ID
-# @name GetPopulationsByPlotId
-GET {{apiUrl}}/id/{{plotId}}/populations
+### Get accession for a plot
+# @name GetAccessionByPlotId
+GET {{apiUrl}}/id/{{plotId}}/accession
+
+### Get population for a plot
+# @name GetPopulationByPlotId
+GET {{apiUrl}}/id/{{plotId}}/population
 
 ### Get associated experiment by plot ID
 # @name GetExperimentByPlotId
@@ -45,7 +49,7 @@ Content-Type: application/json
         "plot_description": "Test Description",
         "plot_notes": "Test Notes"
     },
-    "population_accession": "Accession A1",
+    "accession_name": "Accession A1",
     "population_name": "Population A",
     "experiment_name": "Experiment A",
     "season_name": "Season 1A",

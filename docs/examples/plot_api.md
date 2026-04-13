@@ -21,7 +21,7 @@ new_plot = Plot.create(
     experiment_name="Experiment A",
     season_name="Season 1A",
     site_name="Site A1",
-    population_accession="Accession A1",
+    accession_name="Accession A1",
     population_name="Population A"
 )
 print(f"Created New Plot: {new_plot}")

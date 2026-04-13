@@ -2,7 +2,7 @@
 import pytest
 from unittest.mock import patch, MagicMock
 from gemini.rest_api.models import (
-    PlotOutput, PopulationOutput, ExperimentOutput, SeasonOutput, SiteOutput
+    PlotOutput, AccessionOutput, PopulationOutput, ExperimentOutput, SeasonOutput, SiteOutput
 )
 
 
@@ -147,13 +147,24 @@ class TestDeletePlot:
 class TestPlotAssociations:
 
     @patch(PLOT_API_PATH)
-    def test_get_populations(self, mock_cls, test_client):
+    def test_get_accession(self, mock_cls, test_client):
         mock_plot = MagicMock()
-        mock_plot.get_associated_populations.return_value = [PopulationOutput(
-            id="c1", population_name="Pop", population_accession="Acc", population_info={}
-        )]
+        mock_plot.get_accession.return_value = AccessionOutput(
+            id="a1", accession_name="B73", species="Zea mays", accession_info={}
+        )
         mock_cls.get_by_id.return_value = mock_plot
-        response = test_client.get("/api/plots/id/plot-uuid/populations")
+        response = test_client.get("/api/plots/id/plot-uuid/accession")
+        assert response.status_code == 200
+
+    @patch(PLOT_API_PATH)
+    def test_get_population(self, mock_cls, test_client):
+        mock_plot = MagicMock()
+        mock_plot.get_population.return_value = PopulationOutput(
+            id="p1", population_name="Maize Panel", population_type="diversity_panel",
+            species="Zea mays", population_info={}
+        )
+        mock_cls.get_by_id.return_value = mock_plot
+        response = test_client.get("/api/plots/id/plot-uuid/population")
         assert response.status_code == 200
 
     @patch(PLOT_API_PATH)

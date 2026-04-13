@@ -1,9 +1,12 @@
 import { useState } from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Pencil, Trash2, ChevronDown, ChevronRight, ExternalLink } from 'lucide-react'
 import { useExperiments } from '@/hooks/use-entity-hooks'
 import { experimentsApi } from '@/api/endpoints/experiments'
+import { traitsApi } from '@/api/endpoints/traits'
+import { populationsApi } from '@/api/endpoints/populations'
+import { datasetsApi } from '@/api/endpoints/datasets'
 import { EntityForm, type FieldDef } from '@/components/crud/entity-form'
 import { DeleteDialog } from '@/components/crud/delete-dialog'
 import { DatasetFiles } from '@/components/data-viewers/dataset-files'
@@ -14,7 +17,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { EntityTable } from '@/components/crud/entity-table'
 import { formatDate, cn } from '@/lib/utils'
 import type { ColumnDef } from '@tanstack/react-table'
-import type { SeasonOutput, SiteOutput, PopulationOutput, SensorOutput, DatasetOutput, TraitOutput, GenotypeOutput } from '@/api/types'
+import type { SeasonOutput, SiteOutput, PopulationOutput, SensorOutput, DatasetOutput, TraitOutput, GenotypingStudyOutput } from '@/api/types'
 
 const editFields: FieldDef[] = [
   { name: 'experiment_name', label: 'Name', type: 'text', required: true },
@@ -35,7 +38,7 @@ const siteCols: ColumnDef<SiteOutput>[] = [
 ]
 const populationCols: ColumnDef<PopulationOutput>[] = [
   { accessorKey: 'population_name', header: 'Name' },
-  { accessorKey: 'population_accession', header: 'Accession' },
+  { accessorKey: 'population_type', header: 'Type' },
 ]
 const sensorCols: ColumnDef<SensorOutput>[] = [
   { accessorKey: 'sensor_name', header: 'Name' },
@@ -45,9 +48,45 @@ const traitCols: ColumnDef<TraitOutput>[] = [
   { accessorKey: 'trait_name', header: 'Name' },
   { accessorKey: 'trait_units', header: 'Units' },
 ]
-const genotypeCols: ColumnDef<GenotypeOutput>[] = [
-  { accessorKey: 'genotype_name', header: 'Name' },
+const genotypeCols: ColumnDef<GenotypingStudyOutput>[] = [
+  { accessorKey: 'study_name', header: 'Name' },
 ]
+
+async function safeList<T>(fn: () => Promise<T[]>): Promise<T[]> {
+  try {
+    return await fn()
+  } catch {
+    return []
+  }
+}
+
+async function cleanupExperimentOrphans(experimentId: string) {
+  const [traitsList, populationsList, datasetsList] = await Promise.all([
+    safeList(() => experimentsApi.getTraits(experimentId)),
+    safeList(() => experimentsApi.getPopulations(experimentId)),
+    safeList(() => experimentsApi.getDatasets(experimentId)),
+  ])
+
+  await experimentsApi.remove(experimentId)
+
+  for (const trait of traitsList) {
+    if (!trait.id) continue
+    const exps = await traitsApi.getExperiments(trait.id)
+    if (exps.length === 0) await traitsApi.remove(trait.id)
+  }
+
+  for (const pop of populationsList) {
+    if (!pop.id) continue
+    const exps = await populationsApi.getExperiments(pop.id)
+    if (exps.length === 0) await populationsApi.remove(pop.id)
+  }
+
+  for (const ds of datasetsList) {
+    if (!ds.id) continue
+    const exps = await safeList(() => datasetsApi.getExperiments(ds.id!))
+    if (exps.length === 0) await datasetsApi.remove(ds.id)
+  }
+}
 
 // ── Dataset card with expandable file preview ──
 function DatasetCard({ dataset, experimentName }: { dataset: DatasetOutput; experimentName: string }) {
@@ -114,10 +153,11 @@ function ExperimentDetail() {
   const { experimentId } = Route.useParams()
   const navigate = useNavigate()
   const { data: experiment, isLoading } = useExperiments.useGetById(experimentId)
+  const queryClient = useQueryClient()
   const updateMutation = useExperiments.useUpdate()
-  const removeMutation = useExperiments.useRemove()
   const [editing, setEditing] = useState(false)
   const [showDelete, setShowDelete] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const [activeTab, setActiveTab] = useState('data')
 
   // Fetch all sub-entity lists eagerly so tab badge counts are visible immediately.
@@ -227,7 +267,7 @@ function ExperimentDetail() {
             <EntityTable columns={traitCols} data={traits.data ?? []} isLoading={traits.isLoading} onRowClick={(r) => navigate({ to: '/traits/$traitId', params: { traitId: r.id! } })} />
           </TabsContent>
           <TabsContent value="genotypes">
-            <EntityTable columns={genotypeCols} data={genotypes.data ?? []} isLoading={genotypes.isLoading} onRowClick={(r) => navigate({ to: '/genotypes/$genotypeId', params: { genotypeId: r.id! } })} />
+            <EntityTable columns={genotypeCols} data={genotypes.data ?? []} isLoading={genotypes.isLoading} onRowClick={(r) => navigate({ to: '/genotyping-studies/$studyId', params: { studyId: r.id! } })} />
           </TabsContent>
         </Tabs>
       )}
@@ -235,13 +275,19 @@ function ExperimentDetail() {
       <DeleteDialog
         open={showDelete}
         onClose={() => setShowDelete(false)}
-        onConfirm={() =>
-          removeMutation.mutate(experimentId, {
-            onSuccess: () => navigate({ to: '/experiments' }),
-          })
-        }
+        onConfirm={async () => {
+          setDeleting(true)
+          try {
+            await cleanupExperimentOrphans(experimentId)
+            await queryClient.invalidateQueries()
+            navigate({ to: '/experiments' })
+          } catch {
+            setDeleting(false)
+          }
+        }}
         entityName={experiment.experiment_name}
-        isLoading={removeMutation.isPending}
+        description="This will also remove any traits, populations, and datasets that are only linked to this experiment."
+        isLoading={deleting}
       />
     </div>
   )

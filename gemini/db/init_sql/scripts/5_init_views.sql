@@ -200,31 +200,7 @@ JOIN gemini.plots AS p
     ON s.id = p.site_id;
 
 -------------------------------------------------------------------------------
--- View for plots and respective plants
-CREATE OR REPLACE VIEW gemini.plot_plant_view AS
-SELECT
-    p.id as plot_id,
-    p.plot_number,
-    p.plot_row_number,
-    p.plot_column_number,
-    p.plot_geometry_info,
-    p.plot_info,
-    pl.id as plant_id,
-    pl.plant_number,
-    pl.plant_info,
-    pl.population_id,
-    c.population_accession,
-    c.population_name,
-    c.population_info
-FROM gemini.plots AS p
-LEFT JOIN gemini.plants AS pl
-    ON p.id = pl.plot_id
-LEFT JOIN gemini.populations AS c
-    ON pl.population_id = c.id;
-
--------------------------------------------------------------------------------
--- Materialized View for Plot Information
-
+-- Plot View — denormalizes experiment, season, site, accession, population
 CREATE OR REPLACE VIEW gemini.plot_view
 AS
 SELECT
@@ -235,6 +211,10 @@ SELECT
     s.season_name,
     si.id AS site_id,
     si.site_name,
+    a.id AS accession_id,
+    a.accession_name,
+    pop.id AS population_id,
+    pop.population_name,
     p.plot_number,
     p.plot_row_number,
     p.plot_column_number,
@@ -244,65 +224,37 @@ FROM
     gemini.plots p
 LEFT JOIN gemini.experiments e ON p.experiment_id = e.id
 LEFT JOIN gemini.seasons s ON p.season_id = s.id
-LEFT JOIN gemini.sites si ON p.site_id = si.id;
+LEFT JOIN gemini.sites si ON p.site_id = si.id
+LEFT JOIN gemini.accessions a ON p.accession_id = a.id
+LEFT JOIN gemini.populations pop ON p.population_id = pop.id;
 
 -------------------------------------------------------------------------------
--- Materialized view that shows plot population information
-
-CREATE OR REPLACE VIEW gemini.plot_population_view
+-- Plot Accession View — enriches plot view with full accession + population info
+CREATE OR REPLACE VIEW gemini.plot_accession_view
 AS
 SELECT
-    pv.plot_id AS plot_id,
-    pv.plot_number AS plot_number,
-    pv.plot_row_number AS plot_row_number,
-    pv.plot_column_number AS plot_column_number,
-    pv.plot_info AS plot_info,
-    pv.plot_geometry_info AS plot_geometry_info,
-    pv.experiment_id AS experiment_id,
-    pv.experiment_name AS experiment_name,
-    pv.season_id AS season_id,
-    pv.season_name AS season_name,
-    pv.site_id AS site_id,
-    pv.site_name AS site_name,
-    c.id AS population_id,
-    c.population_accession AS population_accession,
-    c.population_name AS population_name,
-    c.population_info AS population_info
+    pv.plot_id,
+    pv.plot_number,
+    pv.plot_row_number,
+    pv.plot_column_number,
+    pv.plot_info,
+    pv.plot_geometry_info,
+    pv.experiment_id,
+    pv.experiment_name,
+    pv.season_id,
+    pv.season_name,
+    pv.site_id,
+    pv.site_name,
+    a.id AS accession_id,
+    a.accession_name,
+    a.accession_info,
+    pop.id AS population_id,
+    pop.population_name,
+    pop.population_info
 FROM
     gemini.plot_view pv
-LEFT JOIN gemini.plot_populations pc ON pv.plot_id = pc.plot_id
-LEFT JOIN gemini.populations c ON pc.population_id = c.id;
-
-
--------------------------------------------------------------------------------
--- Materialized view that shows plant information
-
-CREATE OR REPLACE VIEW gemini.plant_view
-AS
-SELECT
-    p.id AS plant_id,
-    p.plot_id AS plot_id,
-    p.plant_number AS plant_number,
-    p.plant_info AS plant_info,
-    p.population_id AS population_id,
-    ppv.population_accession AS population_accession,
-    ppv.population_name AS population_name,
-    ppv.population_info AS population_info,
-    pv.plot_number AS plot_number,
-    pv.plot_row_number AS plot_row_number,
-    pv.plot_column_number AS plot_column_number,
-    pv.plot_info AS plot_info,
-    pv.plot_geometry_info AS plot_geometry_info,
-    pv.experiment_id AS experiment_id,
-    pv.experiment_name AS experiment_name,
-    pv.season_id AS season_id,
-    pv.season_name AS season_name,
-    pv.site_id AS site_id,
-    pv.site_name AS site_name
-FROM 
-    gemini.plants p
-LEFT JOIN gemini.plot_plant_view ppv ON p.plot_id = ppv.plot_id
-LEFT JOIN gemini.plot_view pv ON p.plot_id = pv.plot_id;
+LEFT JOIN gemini.accessions a ON pv.accession_id = a.id
+LEFT JOIN gemini.populations pop ON pv.population_id = pop.id;
 
 
 
@@ -410,7 +362,7 @@ LEFT JOIN gemini.experiments e ON es.experiment_id = e.id;
 
 
 -------------------------------------------------------------------------------
--- Materialized View to show Experiment Populations
+-- View to show Experiment Populations
 CREATE OR REPLACE VIEW gemini.experiment_populations_view
 AS
 SELECT
@@ -420,11 +372,12 @@ SELECT
     e.experiment_start_date AS experiment_start_date,
     e.experiment_end_date AS experiment_end_date,
     c.id AS population_id,
-    c.population_accession AS population_accession,
     c.population_name AS population_name,
+    c.population_type AS population_type,
+    c.species AS species,
     c.population_info AS population_info
 FROM
-    gemini.populations c -- Start from populations
+    gemini.populations c
 LEFT JOIN gemini.experiment_populations ec ON c.id = ec.population_id
 LEFT JOIN gemini.experiments e ON ec.experiment_id = e.id;
 
@@ -672,8 +625,8 @@ FULL OUTER JOIN gemini.sensors s ON sps.sensor_id = s.id;
 
     
 -------------------------------------------------------------------------------
--- Materialized View to show Experiment Genotypes
-CREATE OR REPLACE VIEW gemini.experiment_genotypes_view
+-- View to show Experiment Genotyping Studies
+CREATE OR REPLACE VIEW gemini.experiment_genotyping_studies_view
 AS
 SELECT
     e.id AS experiment_id,
@@ -681,12 +634,12 @@ SELECT
     e.experiment_info AS experiment_info,
     e.experiment_start_date AS experiment_start_date,
     e.experiment_end_date AS experiment_end_date,
-    g.id AS genotype_id,
-    g.genotype_name AS genotype_name,
-    g.genotype_info AS genotype_info
+    g.id AS study_id,
+    g.study_name AS study_name,
+    g.study_info AS study_info
 FROM
-    gemini.genotypes g
-LEFT JOIN gemini.experiment_genotypes eg ON g.id = eg.genotype_id
+    gemini.genotyping_studies g
+LEFT JOIN gemini.experiment_genotyping_studies eg ON g.id = eg.study_id
 LEFT JOIN gemini.experiments e ON eg.experiment_id = e.id;
 
 

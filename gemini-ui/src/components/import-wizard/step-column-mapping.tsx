@@ -32,6 +32,7 @@ const NOT_MAPPED = '__not_mapped__'
 function emptySheetConfig(sheet: ParsedSheet): SheetMapping {
   return {
     sheetName: sheet.name,
+    skipped: false,
     plotNumberColumn: null,
     plotRowColumn: null,
     plotColumnColumn: null,
@@ -58,6 +59,7 @@ function seedSheetConfig(
     col && headerSet.has(col) ? col : null
   return {
     sheetName: sheet.name,
+    skipped: false,
     plotNumberColumn: copyIfPresent(prev.plotNumberColumn),
     plotRowColumn: copyIfPresent(prev.plotRowColumn),
     plotColumnColumn: copyIfPresent(prev.plotColumnColumn),
@@ -73,6 +75,7 @@ function seedSheetConfig(
 }
 
 function isSheetConfigValid(config: SheetMapping): boolean {
+  if (config.skipped) return true
   // Plot number is the primary row identifier — required.
   if (!config.plotNumberColumn) return false
   // At least one enabled trait column with a non-empty label.
@@ -119,7 +122,7 @@ export function StepColumnMapping({
         }
         setSheets(parsed)
         setSheetIdx(0)
-        setConfigs([emptySheetConfig(parsed[0])])
+        setConfigs(parsed.map((s) => emptySheetConfig(s)))
       } catch (err) {
         setParseError(
           err instanceof Error ? err.message : 'Failed to parse file.',
@@ -273,9 +276,10 @@ export function StepColumnMapping({
   const allSheetsValid =
     configs.length === sheets.length && configs.every(isSheetConfigValid)
   const currentValid = currentConfig ? isSheetConfigValid(currentConfig) : false
+  const hasAnyUnskipped =
+    configs.length > 0 && configs.some((c) => !c.skipped)
 
-  const isLastSheet = sheetIdx === sheets.length - 1
-  const canContinue = isLastSheet && allSheetsValid && !loading
+  const canContinue = allSheetsValid && hasAnyUnskipped && !loading
 
   function handleContinue() {
     if (!canContinue) return
@@ -360,39 +364,61 @@ export function StepColumnMapping({
   return (
     <div className="space-y-6">
       {/* Sheet navigation header */}
-      <div className="rounded-lg border p-4 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => goToSheet(sheetIdx - 1)}
-            disabled={sheetIdx === 0}
-            data-testid="sheet-prev"
-          >
-            <ChevronLeft className="w-4 h-4" />
-            Previous sheet
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => goToSheet(sheetIdx + 1)}
-            disabled={sheetIdx === sheets.length - 1 || !currentValid}
-            data-testid="sheet-next"
-          >
-            Next sheet
-            <ChevronRight className="w-4 h-4" />
-          </Button>
+      <div className="rounded-lg border p-4 space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => goToSheet(sheetIdx - 1)}
+              disabled={sheetIdx === 0}
+              data-testid="sheet-prev"
+            >
+              <ChevronLeft className="w-4 h-4" />
+              Previous sheet
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => goToSheet(sheetIdx + 1)}
+              disabled={sheetIdx === sheets.length - 1 || !currentValid}
+              data-testid="sheet-next"
+            >
+              Next sheet
+              <ChevronRight className="w-4 h-4" />
+            </Button>
+          </div>
+          <div className="text-sm">
+            <span className="font-medium">
+              Sheet {sheetIdx + 1} of {sheets.length}:
+            </span>{' '}
+            <span className="text-muted-foreground">
+              {currentSheet.name} ({currentSheet.totalRows} rows)
+            </span>
+          </div>
         </div>
-        <div className="text-sm">
-          <span className="font-medium">
-            Sheet {sheetIdx + 1} of {sheets.length}:
-          </span>{' '}
-          <span className="text-muted-foreground">
-            {currentSheet.name} ({currentSheet.totalRows} rows)
-          </span>
-        </div>
+        {sheets.length > 1 && (
+          <label className="flex items-center gap-2 cursor-pointer text-sm">
+            <input
+              type="checkbox"
+              checked={currentConfig.skipped}
+              onChange={(e) => updateCurrentConfig({ skipped: e.target.checked })}
+              className="accent-primary w-4 h-4"
+              data-testid="sheet-skip"
+            />
+            Skip this sheet (don't import its data)
+          </label>
+        )}
       </div>
 
+      {currentConfig.skipped && (
+        <div className="rounded-md border border-dashed p-4 text-center text-sm text-muted-foreground">
+          This sheet will be skipped during import. Uncheck above to configure it.
+        </div>
+      )}
+
+      {!currentConfig.skipped && (
+      <>
       {/* Data preview */}
       <div className="rounded-lg border p-4 space-y-3">
         <div className="flex items-center justify-between">
@@ -712,6 +738,9 @@ export function StepColumnMapping({
             </Table>
           </div>
         </div>
+      )}
+
+      </>
       )}
 
       {/* Navigation */}

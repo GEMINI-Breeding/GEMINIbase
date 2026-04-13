@@ -5,7 +5,8 @@ from gemini.rest_api.controllers.dataset_type import DatasetTypeController
 from gemini.rest_api.controllers.dataset import DatasetController
 from gemini.rest_api.controllers.experiment import ExperimentController
 from gemini.rest_api.controllers.model import ModelController
-from gemini.rest_api.controllers.plant import PlantController
+from gemini.rest_api.controllers.line import LineController
+from gemini.rest_api.controllers.accession import AccessionController
 from gemini.rest_api.controllers.plot import PlotController
 from gemini.rest_api.controllers.script import ScriptController
 from gemini.rest_api.controllers.season import SeasonController
@@ -24,7 +25,7 @@ from gemini.rest_api.controllers.plot_geometry import PlotGeometryController
 from gemini.rest_api.controllers.model_management import ModelManagementController
 from gemini.rest_api.controllers.annotations import AnnotationsController
 from gemini.rest_api.controllers.variant import VariantController
-from gemini.rest_api.controllers.genotype import GenotypeController
+from gemini.rest_api.controllers.genotyping_study import GenotypingStudyController
 
 controllers = {
     "populations": PopulationController,
@@ -34,7 +35,8 @@ controllers = {
     "datasets": DatasetController,
     "experiments": ExperimentController,
     "models": ModelController,
-    "plants": PlantController,
+    "lines": LineController,
+    "accessions": AccessionController,
     "plots": PlotController,
     "procedures": ProcedureController,
     "scripts": ScriptController,
@@ -53,6 +55,6 @@ controllers = {
     "model_management": ModelManagementController,
     "annotations": AnnotationsController,
     "variants": VariantController,
-    "genotypes": GenotypeController,
+    "genotyping_studies": GenotypingStudyController,
 }
 

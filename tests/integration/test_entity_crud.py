@@ -44,9 +44,9 @@ class Fixtures:
         )
 
     @staticmethod
-    def population(acc="ACC001", pop="POP_A"):
+    def population(pop="POP_A"):
         from gemini.db.models.populations import PopulationModel
-        return PopulationModel.get_or_create(population_accession=acc, population_name=pop)
+        return PopulationModel.get_or_create(population_name=pop)
 
     @staticmethod
     def sensor(name="Test Sensor"):
@@ -67,28 +67,27 @@ class TestPopulationCRUD:
 
     def test_create(self, setup_real_db):
         from gemini.db.models.populations import PopulationModel
-        c = PopulationModel.create(population_accession="A001", population_name="Pop1")
-        assert c.population_accession == "A001"
+        c = PopulationModel.create(population_name="Pop1")
         assert c.population_name == "Pop1"
         assert c.id is not None
 
     def test_unique_constraint(self, setup_real_db):
         from gemini.db.models.populations import PopulationModel
-        PopulationModel.create(population_accession="U1", population_name="P1")
-        dup = PopulationModel.get_or_create(population_accession="U1", population_name="P1")
-        assert PopulationModel.search(population_accession="U1", population_name="P1")
-        assert len(PopulationModel.search(population_accession="U1")) == 1
+        PopulationModel.create(population_name="P1")
+        dup = PopulationModel.get_or_create(population_name="P1")
+        assert PopulationModel.search(population_name="P1")
+        assert len(PopulationModel.search(population_name="P1")) == 1
 
     def test_update_info(self, setup_real_db):
         from gemini.db.models.populations import PopulationModel
-        c = PopulationModel.create(population_accession="UPD", population_name="P")
+        c = PopulationModel.create(population_name="P_UPD")
         PopulationModel.update(c, population_info={"color": "green"})
         fetched = PopulationModel.get(c.id)
         assert fetched.population_info["color"] == "green"
 
     def test_delete(self, setup_real_db):
         from gemini.db.models.populations import PopulationModel
-        c = PopulationModel.create(population_accession="DEL", population_name="P")
+        c = PopulationModel.create(population_name="P_DEL")
         PopulationModel.delete(c)
         assert PopulationModel.get(c.id) is None
 
@@ -354,40 +353,6 @@ class TestProcedureRunCRUD:
         assert run.id is not None
         ProcedureModel.delete(p)
         assert ProcedureRunModel.get(run.id) is None
-
-
-# ============================================================
-# Plant (requires plot → requires experiment + season + site)
-# ============================================================
-
-class TestPlantCRUD:
-
-    def test_create_plant_in_plot(self, setup_real_db):
-        from gemini.db.models.plants import PlantModel
-        exp = Fixtures.experiment("Plant Exp")
-        season = Fixtures.season(exp.id)
-        site = Fixtures.site("Plant Site")
-        plot = Fixtures.plot(exp.id, season.id, site.id)
-        population = Fixtures.population("PACC", "PPOP")
-
-        plant = PlantModel.create(
-            plot_id=plot.id, plant_number=1, population_id=population.id
-        )
-        assert plant.plot_id is not None
-        assert plant.plant_number == 1
-
-    def test_unique_plant_number_per_plot(self, setup_real_db):
-        from gemini.db.models.plants import PlantModel
-        exp = Fixtures.experiment("PlantU Exp")
-        season = Fixtures.season(exp.id, "UniSeason")
-        site = Fixtures.site("PlantU Site")
-        plot = Fixtures.plot(exp.id, season.id, site.id)
-        population = Fixtures.population("UACC", "UPOP")
-
-        PlantModel.create(plot_id=plot.id, plant_number=1, population_id=population.id)
-        dup = PlantModel.get_or_create(plot_id=plot.id, plant_number=1, population_id=population.id)
-        assert dup is not None
-        assert PlantModel.count() == 1
 
 
 # ============================================================

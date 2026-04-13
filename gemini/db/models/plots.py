@@ -28,6 +28,8 @@ class PlotModel(BaseModel):
     experiment_id (uuid.UUID): Foreign key referencing the experiment to which the plot belongs.
     season_id (uuid.UUID): Foreign key referencing the season during which the plot was used.
     site_id (uuid.UUID): Foreign key referencing the site where the plot is located.
+    accession_id (uuid.UUID): Foreign key referencing the accession planted in this plot.
+    population_id (uuid.UUID): Foreign key referencing the population this plot is enrolled in.
     plot_number (int): The number of the plot.
     plot_row_number (int): The row number of the plot in a grid layout.
     plot_column_number (int): The column number of the plot in a grid layout.
@@ -42,6 +44,8 @@ class PlotModel(BaseModel):
   experiment_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey('gemini.experiments.id'))
   season_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey('gemini.seasons.id'))
   site_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey('gemini.sites.id'))
+  accession_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey('gemini.accessions.id'), nullable=True)
+  population_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey('gemini.populations.id'), nullable=True)
   plot_number: Mapped[int] = mapped_column(Integer)
   plot_row_number: Mapped[int] = mapped_column(Integer)
   plot_column_number: Mapped[int] = mapped_column(Integer)
@@ -52,5 +56,5 @@ class PlotModel(BaseModel):
 
   __table_args__ = (
     UniqueConstraint('experiment_id', 'season_id', 'site_id', 'plot_number', 'plot_row_number', 'plot_column_number'),
-    Index('idx_plots_info', 'plot_info', postgresql_using='GIN')
+    Index('idx_plots_info', 'plot_info', postgresql_using='GIN'),
   )

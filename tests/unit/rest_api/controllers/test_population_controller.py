@@ -2,7 +2,7 @@
 import types
 import pytest
 from unittest.mock import patch, MagicMock
-from gemini.rest_api.models import PopulationOutput, ExperimentOutput, PlotOutput, PlantOutput
+from gemini.rest_api.models import PopulationOutput, ExperimentOutput, AccessionOutput
 
 
 API_PATH = "gemini.rest_api.controllers.population.Population"
@@ -13,7 +13,8 @@ def mock_output():
     return {
         "id": "cult-uuid",
         "population_name": "Population A",
-        "population_accession": "Accession 1",
+        "population_type": "diversity_panel",
+        "species": "Zea mays",
         "population_info": {},
     }
 
@@ -147,28 +148,6 @@ class TestPopulationAssociations:
         response = test_client.get("/api/populations/id/cult-uuid/experiments")
         assert response.status_code == 200
 
-    @patch(API_PATH)
-    def test_get_plots(self, mock_cls, test_client):
-        mock_obj = MagicMock()
-        mock_obj.get_associated_plots.return_value = [PlotOutput(
-            id="p1", plot_number=1, plot_row_number=1, plot_column_number=1,
-            experiment_id=None, season_id=None, site_id=None,
-            plot_info={}, plot_geometry_info={}
-        )]
-        mock_cls.get_by_id.return_value = mock_obj
-        response = test_client.get("/api/populations/id/cult-uuid/plots")
-        assert response.status_code == 200
-
-    @patch(API_PATH)
-    def test_get_plants(self, mock_cls, test_client):
-        mock_obj = MagicMock()
-        mock_obj.get_associated_plants.return_value = [PlantOutput(
-            id="pl1", plot_id="p1", population_id="c1",
-            plant_number=1, plant_info={}
-        )]
-        mock_cls.get_by_id.return_value = mock_obj
-        response = test_client.get("/api/populations/id/cult-uuid/plants")
-        assert response.status_code == 200
 
     @patch(API_PATH)
     def test_get_experiments_population_not_found(self, mock_cls, test_client):

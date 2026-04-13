@@ -1,10 +1,11 @@
-import { get, post, patch, del } from '@/api/client'
+import { get, getOrEmpty, post, patch, del } from '@/api/client'
 import type {
   DatasetOutput,
   DatasetInput,
   DatasetUpdate,
   DatasetRecordOutput,
   DatasetRecordFilter,
+  ExperimentOutput,
 } from '@/api/types'
 
 export const datasetsApi = {
@@ -31,4 +32,7 @@ export const datasetsApi = {
 
   filterRecords: (id: string, filter: DatasetRecordFilter) =>
     post<DatasetRecordOutput[]>(`api/datasets/id/${id}/records/filter`, filter),
+
+  getExperiments: (id: string) =>
+    getOrEmpty<ExperimentOutput>(`api/datasets/id/${id}/experiments`),
 }

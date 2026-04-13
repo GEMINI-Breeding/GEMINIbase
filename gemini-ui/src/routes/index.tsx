@@ -7,7 +7,7 @@ import {
   useDatasets,
   useSensors,
   useTraits,
-  useGenotypes,
+  useGenotypingStudies,
   usePopulations,
 } from '@/hooks/use-entity-hooks'
 import {
@@ -32,7 +32,7 @@ function Dashboard() {
   const datasets = useDatasets.useGetAll(100, 0)
   const sensors = useSensors.useGetAll(100, 0)
   const traits = useTraits.useGetAll(100, 0)
-  const genotypes = useGenotypes.useGetAll(100, 0)
+  const genotypes = useGenotypingStudies.useGetAll(100, 0)
   const populations = usePopulations.useGetAll(100, 0)
 
   return (
@@ -72,11 +72,11 @@ function Dashboard() {
           href="/traits"
         />
         <StatCard
-          title="Genotypes"
+          title="Genotyping Studies"
           value={genotypes.data?.length ?? 0}
           icon={Dna}
           loading={genotypes.isLoading}
-          href="/genotypes"
+          href="/genotyping-studies"
         />
         <StatCard
           title="Populations"

@@ -1,5 +1,5 @@
-import { get, post, patch, del } from '@/api/client'
-import type { PopulationOutput, PopulationInput, PopulationUpdate } from '@/api/types'
+import { get, getOrEmpty, post, patch, del } from '@/api/client'
+import type { PopulationOutput, PopulationInput, PopulationUpdate, ExperimentOutput } from '@/api/types'
 
 export const populationsApi = {
   getAll: (limit = 100, offset = 0) =>
@@ -19,4 +19,7 @@ export const populationsApi = {
 
   remove: (id: string) =>
     del(`api/populations/id/${id}`),
+
+  getExperiments: (id: string) =>
+    getOrEmpty<ExperimentOutput>(`api/populations/id/${id}/experiments`),
 }

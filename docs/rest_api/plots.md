@@ -54,8 +54,8 @@ The Plots API provides endpoints for managing and retrieving plot data and their
   - `experiment_name`: The name of the associated experiment.
   - `season_name`: The name of the season.
   - `site_name`: The name of the site.
-  - `population_accession`: The accession number of the associated population.
-  - `population_name`: The population of the associated population.
+  - `accession_name`: The name of the associated accession.
+  - `population_name`: The name of the associated population.
 - **Responses:**
   - `200 OK`: The newly created plot object.
   - `500 Internal Server Error`: If the plot cannot be created.

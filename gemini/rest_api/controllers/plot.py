@@ -8,35 +8,14 @@ from pydantic import BaseModel
 from gemini.api.plot import Plot
 from gemini.rest_api.models import PlotInput, PlotOutput, PlotUpdate, RESTAPIError, JSONB, str_to_dict
 from gemini.rest_api.models import (
+    AccessionOutput,
     PopulationOutput,
-    PlantOutput,
     ExperimentOutput,
     SeasonOutput,
     SiteOutput
 )
 
 from typing import List, Annotated, Optional
-
-class PlotExperimentInput(BaseModel):
-    experiment_name: str
-
-class PlotSeasonInput(BaseModel):
-    experiment_name: str
-    season_name: str
-
-class PlotSiteInput(BaseModel):
-    site_name: str
-
-class PlotPopulationInput(BaseModel):
-    population_accession: str
-    population_name: str
-    population_info: Optional[JSONB] = None
-
-class PlotPlantInput(BaseModel):
-    plant_number: int
-    population_accession: str
-    population_name: str
-    plant_info: Optional[JSONB] = None
 
 
 class PlotController(Controller):
@@ -132,7 +111,7 @@ class PlotController(Controller):
                 experiment_name=data.experiment_name,
                 season_name=data.season_name,
                 site_name=data.site_name,
-                population_accession=data.population_accession,
+                accession_name=data.accession_name,
                 population_name=data.population_name,
             )
             if plot is None:
@@ -214,33 +193,31 @@ class PlotController(Controller):
             return Response(content=error, status_code=500)
         
         
-    # Get Plot Populations
-    @get(path="/id/{plot_id:str}/populations", sync_to_thread=True)
-    def get_plot_populations(
-        self, plot_id: str
-    ) -> List[PopulationOutput]:
+    @get(path="/id/{plot_id:str}/accession", sync_to_thread=True)
+    def get_plot_accession(self, plot_id: str) -> AccessionOutput:
         try:
             plot = Plot.get_by_id(id=plot_id)
             if plot is None:
-                error = RESTAPIError(
-                    error="Plot not found",
-                    error_description="The plot with the given ID was not found"
-                )
-                return Response(content=error, status_code=404)
-            populations = plot.get_associated_populations()
-            if populations is None:
-                error_html = RESTAPIError(
-                    error="No populations found",
-                    error_description="No populations were found for the given plot"
-                ).to_html()
-                return Response(content=error_html, status_code=404)
-            return populations
+                return Response(content=RESTAPIError(error="Plot not found", error_description=""), status_code=404)
+            accession = plot.get_accession()
+            if accession is None:
+                return Response(content=RESTAPIError(error="No accession", error_description="").to_html(), status_code=404)
+            return accession
         except Exception as e:
-            error = RESTAPIError(
-                error=str(e),
-                error_description="An error occurred while retrieving the populations for the plot"
-            )
-            return Response(content=error, status_code=500)
+            return Response(content=RESTAPIError(error=str(e), error_description=""), status_code=500)
+
+    @get(path="/id/{plot_id:str}/population", sync_to_thread=True)
+    def get_plot_population(self, plot_id: str) -> PopulationOutput:
+        try:
+            plot = Plot.get_by_id(id=plot_id)
+            if plot is None:
+                return Response(content=RESTAPIError(error="Plot not found", error_description=""), status_code=404)
+            population = plot.get_population()
+            if population is None:
+                return Response(content=RESTAPIError(error="No population", error_description="").to_html(), status_code=404)
+            return population
+        except Exception as e:
+            return Response(content=RESTAPIError(error=str(e), error_description=""), status_code=500)
         
     # Get Plot Experiment
     @get(path="/id/{plot_id:str}/experiment", sync_to_thread=True)

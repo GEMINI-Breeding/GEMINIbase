@@ -37,7 +37,8 @@ class ExperimentSiteInput(BaseModel):
 
 class ExperimentPopulationInput(BaseModel):
     population_name: str
-    population_accession: Optional[str] = None
+    population_type: Optional[str] = None
+    species: Optional[str] = None
     population_info: Optional[JSONB] = {}
 
 class ExperimentSensorPlatformInput(BaseModel):
@@ -447,8 +448,10 @@ class ExperimentController(Controller):
                 )
                 return Response(content=error, status_code=404)
             kwargs = dict(population_name=data.population_name)
-            if data.population_accession is not None:
-                kwargs["population_accession"] = data.population_accession
+            if data.population_type is not None:
+                kwargs["population_type"] = data.population_type
+            if data.species is not None:
+                kwargs["species"] = data.species
             if data.population_info is not None:
                 kwargs["population_info"] = data.population_info
             population = experiment.create_new_population(**kwargs)

@@ -65,8 +65,8 @@ POST {{apiUrl}}/id/{{experimentId}}/populations
 Content-Type: application/json
 
 {
-    "population_accession": "Test Accession A",
     "population_name": "Test Population A",
+    "population_type": "diversity_panel",
     "population_info": {
         "population_name": "Test Population A",
         "population_description": "Test Description A",

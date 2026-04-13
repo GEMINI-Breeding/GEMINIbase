@@ -35,9 +35,13 @@ def make_trait(name="Assoc Trait"):
     from gemini.db.models.traits import TraitModel
     return TraitModel.get_or_create(trait_name=name)
 
-def make_population(acc="AACC", pop="APOP"):
+def make_population(pop="APOP"):
     from gemini.db.models.populations import PopulationModel
-    return PopulationModel.get_or_create(population_accession=acc, population_name=pop)
+    return PopulationModel.get_or_create(population_name=pop)
+
+def make_accession(name="AACC"):
+    from gemini.db.models.accessions import AccessionModel
+    return AccessionModel.get_or_create(accession_name=name)
 
 def make_dataset(name="Assoc Dataset"):
     from gemini.db.models.datasets import DatasetModel
@@ -122,7 +126,7 @@ class TestExperimentTraitAssociation:
 class TestExperimentPopulationAssociation:
     def test_create_and_exists(self, setup_real_db):
         from gemini.db.models.associations import ExperimentPopulationModel
-        exp, cult = make_experiment("EC1"), make_population("EC1", "P")
+        exp, cult = make_experiment("EC1"), make_population("EC1_P")
         ExperimentPopulationModel.create(experiment_id=exp.id, population_id=cult.id)
         assert ExperimentPopulationModel.exists(experiment_id=exp.id, population_id=cult.id)
 
@@ -163,16 +167,13 @@ class TestExperimentScriptAssociation:
 # Non-experiment associations (9 types)
 # ============================================================
 
-class TestPlotPopulationAssociation:
+class TestPopulationAccessionAssociation:
     def test_create_and_exists(self, setup_real_db):
-        from gemini.db.models.associations import PlotPopulationModel
-        exp = make_experiment("PC1")
-        season = make_season(exp.id, "PC1")
-        site = make_site("PC1")
-        plot = make_plot(exp.id, season.id, site.id)
-        cult = make_population("PC1", "P")
-        PlotPopulationModel.create(plot_id=plot.id, population_id=cult.id)
-        assert PlotPopulationModel.exists(plot_id=plot.id, population_id=cult.id)
+        from gemini.db.models.associations import PopulationAccessionModel
+        pop = make_population("PA_Pop1")
+        acc = make_accession("PA_Acc1")
+        PopulationAccessionModel.create(population_id=pop.id, accession_id=acc.id)
+        assert PopulationAccessionModel.exists(population_id=pop.id, accession_id=acc.id)
 
 
 class TestSensorDatasetAssociation:

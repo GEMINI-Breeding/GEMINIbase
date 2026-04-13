@@ -236,7 +236,8 @@ class TestDelete:
         _, mock_session = mock_db_engine
         instance = MagicMock()
         assert FakeModel.delete(instance) is True
-        mock_session.delete.assert_called_once_with(instance)
+        mock_session.merge.assert_called_once_with(instance)
+        mock_session.delete.assert_called_once_with(mock_session.merge.return_value)
 
     def test_delete_returns_false_on_exception(self, mock_db_engine):
         _, mock_session = mock_db_engine

@@ -20,28 +20,17 @@ GET {{apiUrl}}/id/{{populationId}}
 # @name GetExperimentsByPopulationId
 GET {{apiUrl}}/id/{{populationId}}/experiments
 
-### Get all associated plots by population ID
-# @name GetPlotsByPopulationId
-GET {{apiUrl}}/id/{{populationId}}/plots
-
-### Get all associated plants by population ID
-# @name GetPlantsByPopulationId
-GET {{apiUrl}}/id/{{populationId}}/plants
-
 ### Create a new population
 # @name CreatePopulation
 POST {{apiUrl}}
 Content-Type: application/json
 
 {
-    "population_accession": "Test Accession Z",
     "population_name": "Test Population Z",
+    "population_type": "diversity_panel",
+    "species": "Zea mays",
     "population_info": {
-        "population_name": "Test Population Z",
-        "population_description": "Test Description Z",
-        "population_origin": "Test Origin Z",
-        "population_usage": "Test Usage Z",
-        "population_notes": "Test Notes Z"
+        "description": "Test Description Z"
     },
     "experiment_name": "Experiment B"
 }
@@ -55,16 +44,11 @@ PATCH {{apiUrl}}/id/{{createdPopulationId}}
 Content-Type: application/json
 
 {
-    "population_accession": "Updated Accession Z",
     "population_name": "Updated Population Z",
+    "population_type": "ril",
     "population_info": {
-        "population_name": "Updated Population Z",
-        "population_description": "Updated Description Z",
-        "population_origin": "Updated Origin Z",
-        "population_usage": "Updated Usage Z",
-        "population_notes": "Updated Notes Z"
-    },
-    "experiment_name": "Experiment B"
+        "description": "Updated Description Z"
+    }
 }
 
 ### Delete a population

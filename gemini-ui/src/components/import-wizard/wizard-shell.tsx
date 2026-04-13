@@ -45,6 +45,8 @@ export interface MetadataColumn {
 
 export interface SheetMapping {
   sheetName: string
+  /** When true the sheet is excluded from import — no configuration required. */
+  skipped: boolean
   /** Plot number column — the primary row identifier. Required for the sheet to be valid. */
   plotNumberColumn: string | null
   /** Optional plot row. May only be set if plotNumberColumn is also set. */

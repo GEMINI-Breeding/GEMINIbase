@@ -14,14 +14,15 @@ from gemini.api.population import Population
 # Create a new Population for Experiment A
 new_population = Population.create(
     population_name="Population Test 1",
-    population_accession="Accession A",
+    population_type="breeding",
+    species="Triticum aestivum",
     population_info={"test": "test"},
     experiment_name="Experiment A"
 )
 print(f"Created Population: {new_population}")
 
-# Get Population with Population and Accession
-population = Population.get("Population Test 1", "Accession A")
+# Get Population by name
+population = Population.get("Population Test 1")
 print(f"Got Population: {population}")
 
 # Get the same Population by ID
@@ -51,8 +52,7 @@ print(f"Updated Population Info: {population.get_info()}")
 
 # Check if the population exists before deletion
 exists = Population.exists(
-    population_name="Population Test 1",
-    population_accession="Accession A"
+    population_name="Population Test 1"
 )
 print(f"Population exists: {exists}")
 
@@ -62,8 +62,7 @@ print(f"Deleted Population: {is_deleted}")
 
 # Check if the population exists after deletion
 exists_after_deletion = Population.exists(
-    population_name="Population Test 1",
-    population_accession="Accession A"
+    population_name="Population Test 1"
 )
 print(f"Population exists after deletion: {exists_after_deletion}")
 ```
@@ -73,10 +72,10 @@ print(f"Population exists after deletion: {exists_after_deletion}")
 This example demonstrates the basic operations for managing populations using the Gemini API:
 
 *   **Creating a population:**  The `Population.create()` method is used to create a new population associated with a specific experiment.
-*   **Getting a population:** The `Population.get()` method retrieves a population by its population and accession.  The `Population.get_by_id()` method retrieves a population by its unique ID.
+*   **Getting a population:** The `Population.get()` method retrieves a population by its name.  The `Population.get_by_id()` method retrieves a population by its unique ID.
 *   **Getting all populations:** The `Population.get_all()` method retrieves all populations in the database.
 *   **Searching for populations:** The `Population.search()` method finds populations based on specified criteria, such as the experiment name.
 *   **Refreshing a population:** The `Population.refresh()` method updates the population object with the latest data from the database.
 *   **Updating population information:** The `Population.set_info()` method updates the `population_info` field with new data.
-*   **Checking for existence:** The `Population.exists()` method verifies if a population with the given population and accession exists.
+*   **Checking for existence:** The `Population.exists()` method verifies if a population with the given name exists.
 *   **Deleting a population:** The `Population.delete()` method removes the population from the database.

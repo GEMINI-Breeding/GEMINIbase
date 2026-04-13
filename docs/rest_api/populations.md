@@ -18,8 +18,9 @@ The Populations API provides endpoints for managing and retrieving population da
 - **Method:** `GET`
 - **Description:** Searches for populations based on the provided criteria.
 - **Query Parameters:**
-  - `population_name` (optional): The population of the population.
-  - `population_accession` (optional): The accession number of the population.
+  - `population_name` (optional): The name of the population.
+  - `population_type` (optional): The type of the population.
+  - `species` (optional): The species of the population.
   - `population_info` (optional): Additional information about the population in JSON format.
   - `experiment_name` (optional): The name of the associated experiment.
 - **Responses:**
@@ -45,8 +46,9 @@ The Populations API provides endpoints for managing and retrieving population da
 - **Method:** `POST`
 - **Description:** Creates a new population in the database.
 - **Request Body:**
-  - `population_name`: The population of the population.
-  - `population_accession`: The accession number of the population.
+  - `population_name`: The name of the population.
+  - `population_type`: The type of the population.
+  - `species`: The species of the population.
   - `population_info`: Additional information about the population.
   - `experiment_name`: The name of the associated experiment.
 - **Responses:**
@@ -61,8 +63,9 @@ The Populations API provides endpoints for managing and retrieving population da
 - **Path Parameter:**
   - `population_id`: The ID of the population to update.
 - **Request Body:**
-  - `population_name` (optional): The new population of the population.
-  - `population_accession` (optional): The new accession number of the population.
+  - `population_name` (optional): The new name of the population.
+  - `population_type` (optional): The new type of the population.
+  - `species` (optional): The new species of the population.
   - `population_info` (optional): New information about the population.
 - **Responses:**
   - `200 OK`: The updated population object.
@@ -105,14 +108,3 @@ The Populations API provides endpoints for managing and retrieving population da
   - `404 Not Found`: If the population is not found or has no associated plots.
   - `500 Internal Server Error`: If an error occurs during the process.
 
-## Get Associated Plants
-
-- **Endpoint:** `/id/{population_id}/plants`
-- **Method:** `GET`
-- **Description:** Retrieves all plants associated with a specific population.
-- **Path Parameter:**
-  - `population_id`: The ID of the population.
-- **Responses:**
-  - `200 OK`: A list of associated plant objects.
-  - `404 Not Found`: If the population is not found or has no associated plants.
-  - `500 Internal Server Error`: If an error occurs during the process.

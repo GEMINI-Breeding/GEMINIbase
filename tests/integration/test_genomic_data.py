@@ -68,44 +68,44 @@ class TestVariantCRUD:
         assert len(ids) == 10
 
 
-class TestGenotypeCRUD:
+class TestGenotypingStudyCRUD:
 
     def test_create(self, setup_real_db):
-        from gemini.db.models.genotypes import GenotypeModel
-        g = GenotypeModel.create(genotype_name="GBS_Study_1")
-        assert g.genotype_name == "GBS_Study_1"
+        from gemini.db.models.genotyping_studies import GenotypingStudyModel
+        g = GenotypingStudyModel.create(study_name="GBS_Study_1")
+        assert g.study_name == "GBS_Study_1"
         assert g.id is not None
 
     def test_unique_constraint(self, setup_real_db):
-        from gemini.db.models.genotypes import GenotypeModel
-        GenotypeModel.create(genotype_name="GBS_Study_2")
-        dup = GenotypeModel.get_or_create(genotype_name="GBS_Study_2")
-        assert len(GenotypeModel.search(genotype_name="GBS_Study_2")) == 1
+        from gemini.db.models.genotyping_studies import GenotypingStudyModel
+        GenotypingStudyModel.create(study_name="GBS_Study_2")
+        dup = GenotypingStudyModel.get_or_create(study_name="GBS_Study_2")
+        assert len(GenotypingStudyModel.search(study_name="GBS_Study_2")) == 1
 
     def test_update_info(self, setup_real_db):
-        from gemini.db.models.genotypes import GenotypeModel
-        g = GenotypeModel.create(genotype_name="GBS_Study_3")
-        GenotypeModel.update(g, genotype_info={"platform": "GBS", "species": "cowpea"})
-        refreshed = GenotypeModel.get(g.id)
-        assert refreshed.genotype_info["platform"] == "GBS"
+        from gemini.db.models.genotyping_studies import GenotypingStudyModel
+        g = GenotypingStudyModel.create(study_name="GBS_Study_3")
+        GenotypingStudyModel.update(g, study_info={"platform": "GBS", "species": "cowpea"})
+        refreshed = GenotypingStudyModel.get(g.id)
+        assert refreshed.study_info["platform"] == "GBS"
 
 
-class TestExperimentGenotypeAssociation:
+class TestExperimentGenotypingStudyAssociation:
 
     def test_association(self, setup_real_db):
         from gemini.db.models.experiments import ExperimentModel
-        from gemini.db.models.genotypes import GenotypeModel
-        from gemini.db.models.associations import ExperimentGenotypeModel
+        from gemini.db.models.genotyping_studies import GenotypingStudyModel
+        from gemini.db.models.associations import ExperimentGenotypingStudyModel
 
         exp = ExperimentModel.get_or_create(experiment_name="Genomic Exp")
-        geno = GenotypeModel.get_or_create(genotype_name="Assoc_Study")
-        assoc = ExperimentGenotypeModel.get_or_create(
-            experiment_id=exp.id, genotype_id=geno.id
+        geno = GenotypingStudyModel.get_or_create(study_name="Assoc_Study")
+        assoc = ExperimentGenotypingStudyModel.get_or_create(
+            experiment_id=exp.id, study_id=geno.id
         )
         assert assoc is not None
 
-        found = ExperimentGenotypeModel.get_by_parameters(
-            experiment_id=exp.id, genotype_id=geno.id
+        found = ExperimentGenotypingStudyModel.get_by_parameters(
+            experiment_id=exp.id, study_id=geno.id
         )
         assert found is not None
 
@@ -114,33 +114,30 @@ class TestGenotypeRecordCRUD:
 
     def _create_prereqs(self):
         from gemini.db.models.variants import VariantModel
-        from gemini.db.models.genotypes import GenotypeModel
-        from gemini.db.models.populations import PopulationModel
+        from gemini.db.models.genotyping_studies import GenotypingStudyModel
+        from gemini.db.models.accessions import AccessionModel
 
         v = VariantModel.get_or_create(
             variant_name="rec_1_100", chromosome=1, position=10.0, alleles="T/C"
         )
-        g = GenotypeModel.get_or_create(genotype_name="RecordStudy")
-        p = PopulationModel.get_or_create(
-            population_accession="IT89KD-288", population_name="IT89KD-288"
-        )
-        return v, g, p
+        g = GenotypingStudyModel.get_or_create(study_name="RecordStudy")
+        a = AccessionModel.get_or_create(accession_name="IT89KD-288")
+        return v, g, a
 
     def test_bulk_insert(self, setup_real_db):
         from gemini.db.models.columnar.genotype_records import GenotypeRecordModel
-        v, g, p = self._create_prereqs()
+        v, g, a = self._create_prereqs()
 
         records = [
             {
-                "genotype_id": str(g.id),
-                "genotype_name": g.genotype_name,
+                "study_id": str(g.id),
+                "study_name": g.study_name,
                 "variant_id": str(v.id),
                 "variant_name": v.variant_name,
                 "chromosome": v.chromosome,
                 "position": v.position,
-                "population_id": str(p.id),
-                "population_name": p.population_name,
-                "population_accession": p.population_accession,
+                "accession_id": str(a.id),
+                "accession_name": a.accession_name,
                 "call_value": "TT",
                 "record_info": {},
             }
@@ -151,27 +148,24 @@ class TestGenotypeRecordCRUD:
     def test_unique_constraint(self, setup_real_db):
         from gemini.db.models.columnar.genotype_records import GenotypeRecordModel
         from gemini.db.models.variants import VariantModel
-        from gemini.db.models.genotypes import GenotypeModel
-        from gemini.db.models.populations import PopulationModel
+        from gemini.db.models.genotyping_studies import GenotypingStudyModel
+        from gemini.db.models.accessions import AccessionModel
 
         v = VariantModel.get_or_create(
             variant_name="uniq_test", chromosome=1, position=5.0, alleles="A/G"
         )
-        g = GenotypeModel.get_or_create(genotype_name="UniqStudy")
-        p = PopulationModel.get_or_create(
-            population_accession="CB27", population_name="CB27"
-        )
+        g = GenotypingStudyModel.get_or_create(study_name="UniqStudy")
+        a = AccessionModel.get_or_create(accession_name="CB27")
 
         record = {
-            "genotype_id": str(g.id),
-            "genotype_name": g.genotype_name,
+            "study_id": str(g.id),
+            "study_name": g.study_name,
             "variant_id": str(v.id),
             "variant_name": v.variant_name,
             "chromosome": 1,
             "position": 5.0,
-            "population_id": str(p.id),
-            "population_name": "CB27",
-            "population_accession": "CB27",
+            "accession_id": str(a.id),
+            "accession_name": "CB27",
             "call_value": "AA",
             "record_info": {},
         }
@@ -179,7 +173,7 @@ class TestGenotypeRecordCRUD:
         # Inserting the same record again should not duplicate
         ids2 = GenotypeRecordModel.insert_bulk("genotype_records_unique", [record])
         all_records = GenotypeRecordModel.search(
-            genotype_name="UniqStudy", variant_name="uniq_test", population_name="CB27"
+            study_name="UniqStudy", variant_name="uniq_test", accession_name="CB27"
         )
         assert len(all_records) == 1
 
@@ -189,13 +183,13 @@ class TestGenotypeRecordBulkWithFixture:
 
     def test_fixture_bulk_load(self, setup_real_db):
         from gemini.db.models.variants import VariantModel
-        from gemini.db.models.genotypes import GenotypeModel
-        from gemini.db.models.populations import PopulationModel
+        from gemini.db.models.genotyping_studies import GenotypingStudyModel
+        from gemini.db.models.accessions import AccessionModel
         from gemini.db.models.columnar.genotype_records import GenotypeRecordModel
         from tests.fixtures.genomic_data import (
             FIXTURE_VARIANTS,
-            FIXTURE_POPULATIONS,
-            FIXTURE_GENOTYPE,
+            FIXTURE_ACCESSIONS,
+            FIXTURE_GENOTYPING_STUDY,
             FIXTURE_GENOTYPE_CALLS,
         )
 
@@ -203,12 +197,15 @@ class TestGenotypeRecordBulkWithFixture:
         variant_ids = VariantModel.insert_bulk("variant_unique", FIXTURE_VARIANTS)
         assert len(variant_ids) == 50
 
-        # Create populations
-        for pop in FIXTURE_POPULATIONS:
-            PopulationModel.get_or_create(**pop)
+        # Create accessions (one per population entry in fixture data)
+        for pop in FIXTURE_ACCESSIONS:
+            AccessionModel.get_or_create(accession_name=pop["accession_name"])
 
-        # Create genotype study
-        geno = GenotypeModel.get_or_create(**FIXTURE_GENOTYPE)
+        # Create genotyping study
+        geno = GenotypingStudyModel.get_or_create(
+            study_name=FIXTURE_GENOTYPING_STUDY["study_name"],
+            study_info=FIXTURE_GENOTYPING_STUDY.get("study_info", {}),
+        )
         assert geno is not None
 
         # Build lookup maps
@@ -217,29 +214,25 @@ class TestGenotypeRecordBulkWithFixture:
             db_v = VariantModel.get_by_parameters(variant_name=v["variant_name"])
             variant_map[v["variant_name"]] = db_v
 
-        pop_map = {}
-        for p in FIXTURE_POPULATIONS:
-            db_p = PopulationModel.get_by_parameters(
-                population_name=p["population_name"],
-                population_accession=p["population_accession"],
-            )
-            pop_map[p["population_name"]] = db_p
+        acc_map = {}
+        for p in FIXTURE_ACCESSIONS:
+            db_a = AccessionModel.get_by_parameters(accession_name=p["accession_name"])
+            acc_map[p["accession_name"]] = db_a
 
         # Build genotype records
         records = []
         for call in FIXTURE_GENOTYPE_CALLS:
             v = variant_map[call["variant_name"]]
-            p = pop_map[call["population_name"]]
+            a = acc_map[call["accession_name"]]
             records.append({
-                "genotype_id": str(geno.id),
-                "genotype_name": geno.genotype_name,
+                "study_id": str(geno.id),
+                "study_name": geno.study_name,
                 "variant_id": str(v.id),
                 "variant_name": v.variant_name,
                 "chromosome": v.chromosome,
                 "position": v.position,
-                "population_id": str(p.id),
-                "population_name": p.population_name,
-                "population_accession": p.population_accession,
+                "accession_id": str(a.id),
+                "accession_name": a.accession_name,
                 "call_value": call["call_value"],
                 "record_info": {},
             })
@@ -250,58 +243,57 @@ class TestGenotypeRecordBulkWithFixture:
     def test_export_hapmap_from_fixture(self, setup_real_db):
         """Load fixture data and export as HapMap to verify end-to-end."""
         from gemini.db.models.variants import VariantModel
-        from gemini.db.models.genotypes import GenotypeModel
-        from gemini.db.models.populations import PopulationModel
+        from gemini.db.models.genotyping_studies import GenotypingStudyModel
+        from gemini.db.models.accessions import AccessionModel
         from gemini.db.models.columnar.genotype_records import GenotypeRecordModel
-        from gemini.api.genotype import Genotype
+        from gemini.api.genotyping_study import GenotypingStudy
         from tests.fixtures.genomic_data import (
             FIXTURE_VARIANTS,
-            FIXTURE_POPULATIONS,
-            FIXTURE_GENOTYPE,
+            FIXTURE_ACCESSIONS,
+            FIXTURE_GENOTYPING_STUDY,
             FIXTURE_GENOTYPE_CALLS,
         )
 
         # Load data
         VariantModel.insert_bulk("variant_unique", FIXTURE_VARIANTS)
-        for pop in FIXTURE_POPULATIONS:
-            PopulationModel.get_or_create(**pop)
-        geno = GenotypeModel.get_or_create(**FIXTURE_GENOTYPE)
+        for pop in FIXTURE_ACCESSIONS:
+            AccessionModel.get_or_create(accession_name=pop["accession_name"])
+        geno = GenotypingStudyModel.get_or_create(
+            study_name=FIXTURE_GENOTYPING_STUDY["study_name"],
+            study_info=FIXTURE_GENOTYPING_STUDY.get("study_info", {}),
+        )
 
         variant_map = {}
         for v in FIXTURE_VARIANTS:
             db_v = VariantModel.get_by_parameters(variant_name=v["variant_name"])
             variant_map[v["variant_name"]] = db_v
 
-        pop_map = {}
-        for p in FIXTURE_POPULATIONS:
-            db_p = PopulationModel.get_by_parameters(
-                population_name=p["population_name"],
-                population_accession=p["population_accession"],
-            )
-            pop_map[p["population_name"]] = db_p
+        acc_map = {}
+        for p in FIXTURE_ACCESSIONS:
+            db_a = AccessionModel.get_by_parameters(accession_name=p["accession_name"])
+            acc_map[p["accession_name"]] = db_a
 
         records = []
         for call in FIXTURE_GENOTYPE_CALLS:
             v = variant_map[call["variant_name"]]
-            p = pop_map[call["population_name"]]
+            a = acc_map[call["accession_name"]]
             records.append({
-                "genotype_id": str(geno.id),
-                "genotype_name": geno.genotype_name,
+                "study_id": str(geno.id),
+                "study_name": geno.study_name,
                 "variant_id": str(v.id),
                 "variant_name": v.variant_name,
                 "chromosome": v.chromosome,
                 "position": v.position,
-                "population_id": str(p.id),
-                "population_name": p.population_name,
-                "population_accession": p.population_accession,
+                "accession_id": str(a.id),
+                "accession_name": a.accession_name,
                 "call_value": call["call_value"],
                 "record_info": {},
             })
         GenotypeRecordModel.insert_bulk("genotype_records_unique", records)
 
         # Export
-        genotype_api = Genotype(genotype_name=geno.genotype_name, id=geno.id)
-        hapmap = genotype_api.export(format="hapmap")
+        study_api = GenotypingStudy(study_name=geno.study_name, id=geno.id)
+        hapmap = study_api.export(format="hapmap")
 
         lines = hapmap.strip().split("\n")
         header = lines[0].split("\t")
@@ -313,5 +305,5 @@ class TestGenotypeRecordBulkWithFixture:
         assert len(lines) == 51  # 1 header + 50 variants
 
         # Check sample names are present
-        for pop in FIXTURE_POPULATIONS:
-            assert pop["population_name"] in header
+        for pop in FIXTURE_ACCESSIONS:
+            assert pop["accession_name"] in header

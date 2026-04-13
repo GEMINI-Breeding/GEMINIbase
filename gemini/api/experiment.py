@@ -526,7 +526,7 @@ class Experiment(APIBase):
             >>> populations = experiment.get_associated_populations()
             >>> for population in populations:
             ...     print(population)
-            Population(population_name=Population A, population_accession=Accession 123, id=UUID(...))
+            Population(population_name=Population A, population_type=breeding, species=Triticum aestivum, id=UUID(...))
 
         Returns:
             Optional[List["Population"]]: A list of associated populations, or None if not found.
@@ -546,32 +546,18 @@ class Experiment(APIBase):
     def create_new_population(
         self,
         population_name: str,
-        population_accession: str,
+        population_type: str = None,
+        species: str = None,
         population_info: dict = None,
     ) -> Optional["Population"]:
-        """
-        Create and associate a new population with this experiment.
-
-        Examples:
-            >>> experiment = Experiment.get("My Experiment")
-            >>> new_population = experiment.create_new_population("Population A", "Accession 123", {"description": "New population"})
-            >>> print(new_population)
-            Population(population_name=Population A, population_accession=Accession 123, id=UUID(...))
-
-        Args:
-            population_name (str): The population of the new population.
-            population_accession (str): The accession of the new population.
-            population_info (dict, optional): Additional information about the population. Defaults to {{}}.
-        Returns:
-            Optional["Population"]: The created and associated population, or None if an error occurred.
-        """
         try:
             from gemini.api.population import Population
             new_population = Population.create(
                 population_name=population_name,
-                population_accession=population_accession,
+                population_type=population_type,
+                species=species,
                 population_info=population_info,
-                experiment_name=self.experiment_name
+                experiment_name=self.experiment_name,
             )
             if not new_population:
                 logger.error("Error creating new population.")
@@ -581,29 +567,10 @@ class Experiment(APIBase):
             logger.error(f"Error creating new population: {e}")
             return None
 
-    def associate_population(
-        self,
-        population_name: str,
-        population_accession: str,
-    ) -> Optional["Population"]:
-        """
-        Associate an existing population with this experiment.
-
-        Examples:
-            >>> experiment = Experiment.get("My Experiment")
-            >>> population = experiment.associate_population("Population A", "Accession 123")
-            >>> print(population)
-            Population(population_name=Population A, population_accession=Accession 123, id=UUID(...))
-
-        Args:
-            population_name (str): The population of the population.
-            population_accession (str): The accession of the population.
-        Returns:
-            Optional["Population"]: The associated population, or None if an error occurred.
-        """
+    def associate_population(self, population_name: str) -> Optional["Population"]:
         try:
             from gemini.api.population import Population
-            population = Population.get(population_name=population_name, population_accession=population_accession)
+            population = Population.get(population_name=population_name)
             if not population:
                 logger.debug("Population not found.")
                 return None
@@ -613,29 +580,10 @@ class Experiment(APIBase):
             logger.error(f"Error associating population: {e}")
             return None
 
-    def unassociate_population(
-        self,
-        population_name: str,
-        population_accession: str,
-    ) -> Optional["Population"]:
-        """
-        Unassociate a population from this experiment.
-
-        Examples:
-            >>> experiment = Experiment.get("My Experiment")
-            >>> population = experiment.unassociate_population("Population A", "Accession 123")
-            >>> print(population)
-            Population(population_name=Population A, population_accession=Accession 123, id=UUID(...))
-
-        Args:
-            population_name (str): The population of the population.
-            population_accession (str): The accession of the population.
-        Returns:
-            Optional["Population"]: The unassociated population, or None if an error occurred.
-        """
+    def unassociate_population(self, population_name: str) -> Optional["Population"]:
         try:
             from gemini.api.population import Population
-            population = Population.get(population_name=population_name, population_accession=population_accession)
+            population = Population.get(population_name=population_name)
             if not population:
                 logger.debug("Population not found.")
                 return None
@@ -645,34 +593,14 @@ class Experiment(APIBase):
             logger.error(f"Error unassociating population: {e}")
             return None
 
-    def belongs_to_population(
-        self,
-        population_name: str,
-        population_accession: str,
-    ) -> bool:
-        """
-        Check if the experiment is associated with a specific population.
-
-        Examples:
-            >>> experiment = Experiment.get("My Experiment")
-            >>> is_associated = experiment.belongs_to_population("Population A", "Accession 123")
-            >>> print(is_associated)
-            True
-
-        Args:
-            population_name (str): The population of the population.
-            population_accession (str): The accession of the population.
-        Returns:
-            bool: True if associated, False otherwise.
-        """
+    def belongs_to_population(self, population_name: str) -> bool:
         try:
             from gemini.api.population import Population
-            population = Population.get(population_name=population_name, population_accession=population_accession)
+            population = Population.get(population_name=population_name)
             if not population:
                 logger.debug("Population not found.")
                 return False
-            association_exists = population.belongs_to_experiment(experiment_name=self.experiment_name)
-            return association_exists
+            return population.belongs_to_experiment(experiment_name=self.experiment_name)
         except Exception as e:
             logger.error(f"Error checking if belongs to population: {e}")
             return False

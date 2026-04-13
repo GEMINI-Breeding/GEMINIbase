@@ -254,31 +254,31 @@ CREATE INDEX model_records_record_info_idx ON gemini.model_records USING GIN (re
 
 ------------------------------------------------------------------------------
 -- Genotype Records Table
+-- Each row = one allele call: one variant in one accession within one study
 ------------------------------------------------------------------------------
 
 CREATE TABLE IF NOT EXISTS gemini.genotype_records (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    genotype_id UUID,
-    genotype_name TEXT,
+    study_id UUID,
+    study_name TEXT,
     variant_id UUID,
     variant_name TEXT,
     chromosome INTEGER,
     position FLOAT,
-    population_id UUID,
-    population_name TEXT,
-    population_accession TEXT,
+    accession_id UUID,
+    accession_name TEXT,
     call_value VARCHAR(10),
     record_info JSONB NOT NULL DEFAULT '{}'
 ) USING columnar;
 
 ALTER TABLE gemini.genotype_records ADD CONSTRAINT genotype_records_unique UNIQUE (
-    genotype_id,
+    study_id,
     variant_id,
-    population_id
+    accession_id
 );
 
-CREATE INDEX genotype_records_genotype_variant_idx ON gemini.genotype_records (genotype_id, variant_id);
-CREATE INDEX genotype_records_genotype_population_idx ON gemini.genotype_records (genotype_id, population_id);
+CREATE INDEX genotype_records_study_variant_idx ON gemini.genotype_records (study_id, variant_id);
+CREATE INDEX genotype_records_study_accession_idx ON gemini.genotype_records (study_id, accession_id);
 CREATE INDEX genotype_records_chromosome_idx ON gemini.genotype_records (chromosome);
 CREATE INDEX genotype_records_record_info_idx ON gemini.genotype_records USING GIN (record_info);
 

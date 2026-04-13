@@ -15,6 +15,8 @@ The `plots` table defines the spatial layout of an experiment, breaking it down 
 | `plot_column_number` | `Integer`   | The column number of the plot in a grid layout.                                                  |
 | `plot_geometry_info` | `JSONB`     | A JSONB column for storing additional, unstructured information about the plot's geometry.       |
 | `plot_info`          | `JSONB`     | A JSONB column for storing additional, unstructured information about the plot.                  |
+| `accession_id`       | `UUID`      | **Foreign Key.** References the `id` of the accession planted in this plot.                      |
+| `population_id`      | `UUID`      | **Foreign Key.** References the `id` of the population planted in this plot.                     |
 | `created_at`         | `TIMESTAMP` | The timestamp when the record was created. Defaults to the current time.                         |
 | `updated_at`         | `TIMESTAMP` | The timestamp when the record was last updated. Automatically updates on any modification.       |
 
@@ -28,4 +30,5 @@ The `plots` table defines the spatial layout of an experiment, breaking it down 
 - **`experiment`:** A many-to-one relationship with the `experiments` table.
 - **`season`:** A many-to-one relationship with the `seasons` table.
 - **`site`:** A many-to-one relationship with the `sites` table.
-- **`plants`:** A one-to-many relationship with the `plants` table, where one plot can contain multiple plants.
+- **`accession`:** A many-to-one relationship with the `accessions` table via `accession_id`.
+- **`population`:** A many-to-one relationship with the `populations` table via `population_id`.
