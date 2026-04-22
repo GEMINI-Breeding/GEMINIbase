@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import type { FileWithPath } from '@/components/upload/dropzone'
 import type {
   ColumnMapping,
@@ -7,6 +8,7 @@ import type {
   MetadataColumn,
 } from '@/components/import-wizard/wizard-shell'
 import { parseSpreadsheet, type ParsedSheet } from '@/lib/spreadsheet-parser'
+import { populationsApi } from '@/api/endpoints/populations'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select } from '@/components/ui/select'
@@ -23,6 +25,9 @@ import { Loader2, ChevronLeft, ChevronRight, X, Plus } from 'lucide-react'
 
 interface StepColumnMappingProps {
   files: FileWithPath[]
+  /** When the user navigates back to this step, restore their prior mapping
+   *  instead of re-parsing the file and discarding every selection. */
+  initial: ColumnMapping | null
   onNext: (mapping: ColumnMapping) => void
   onBack: () => void
 }
@@ -36,8 +41,20 @@ function emptySheetConfig(sheet: ParsedSheet): SheetMapping {
     plotNumberColumn: null,
     plotRowColumn: null,
     plotColumnColumn: null,
+    populationName: '',
     traitColumns: [],
-    genotypeColumn: null,
+    accessionNameColumn: null,
+    lineNameColumn: null,
+    aliasColumn: null,
+    collectionDateMode: 'fixed',
+    collectionDate: '',
+    collectionDateColumn: null,
+    seasonMode: 'fixed',
+    seasonName: '',
+    seasonColumn: null,
+    siteMode: 'fixed',
+    siteName: '',
+    siteColumn: null,
     timestampColumn: null,
     metadataColumns: [],
   }
@@ -63,10 +80,22 @@ function seedSheetConfig(
     plotNumberColumn: copyIfPresent(prev.plotNumberColumn),
     plotRowColumn: copyIfPresent(prev.plotRowColumn),
     plotColumnColumn: copyIfPresent(prev.plotColumnColumn),
+    populationName: prev.populationName,
     traitColumns: prev.traitColumns
       .filter((tc) => headerSet.has(tc.columnHeader))
       .map((tc) => ({ ...tc })),
-    genotypeColumn: copyIfPresent(prev.genotypeColumn),
+    accessionNameColumn: copyIfPresent(prev.accessionNameColumn),
+    lineNameColumn: copyIfPresent(prev.lineNameColumn),
+    aliasColumn: copyIfPresent(prev.aliasColumn),
+    collectionDateMode: prev.collectionDateMode,
+    collectionDate: prev.collectionDate,
+    collectionDateColumn: copyIfPresent(prev.collectionDateColumn),
+    seasonMode: prev.seasonMode,
+    seasonName: prev.seasonName,
+    seasonColumn: copyIfPresent(prev.seasonColumn),
+    siteMode: prev.siteMode,
+    siteName: prev.siteName,
+    siteColumn: copyIfPresent(prev.siteColumn),
     timestampColumn: copyIfPresent(prev.timestampColumn),
     metadataColumns: prev.metadataColumns
       .filter((mc) => headerSet.has(mc.columnHeader))
@@ -74,33 +103,150 @@ function seedSheetConfig(
   }
 }
 
+/** True if the sheet config looks untouched — matches defaults produced by
+ * emptySheetConfig. If so it's safe to re-seed from the previous sheet. */
+function isPristine(config: SheetMapping): boolean {
+  return (
+    !config.skipped &&
+    config.plotNumberColumn === null &&
+    config.plotRowColumn === null &&
+    config.plotColumnColumn === null &&
+    config.populationName === '' &&
+    config.traitColumns.length === 0 &&
+    config.accessionNameColumn === null &&
+    config.lineNameColumn === null &&
+    config.aliasColumn === null &&
+    config.collectionDateMode === 'fixed' &&
+    config.collectionDate === '' &&
+    config.collectionDateColumn === null &&
+    config.seasonMode === 'fixed' &&
+    config.seasonName === '' &&
+    config.seasonColumn === null &&
+    config.siteMode === 'fixed' &&
+    config.siteName === '' &&
+    config.siteColumn === null &&
+    config.timestampColumn === null &&
+    config.metadataColumns.length === 0
+  )
+}
+
+const CREATE_NEW = '__create_new__'
+const NOT_SPECIFIED = ''
+
+function PopulationField({
+  value,
+  onChange,
+  existing,
+}: {
+  value: string
+  onChange: (v: string) => void
+  existing: string[]
+}) {
+  // Derived mode from the current value: if blank, not specified; if it
+  // matches an existing population, that one is selected; otherwise the
+  // user is in "create new" mode.
+  const derivedMode: 'none' | 'existing' | 'new' =
+    value.trim() === ''
+      ? 'none'
+      : existing.includes(value.trim())
+        ? 'existing'
+        : 'new'
+  // Local override lets the user enter "create new" mode even before they
+  // type anything (blank populationName).
+  const [localMode, setLocalMode] = useState<'none' | 'existing' | 'new' | null>(null)
+  const mode = localMode ?? derivedMode
+
+  const selectValue =
+    mode === 'none' ? NOT_SPECIFIED
+    : mode === 'new' ? CREATE_NEW
+    : value
+
+  return (
+    <div className="rounded-lg border p-4 space-y-3">
+      <h3 className="font-medium">Population name (optional)</h3>
+      <p className="text-sm text-muted-foreground">
+        The germplasm population that all rows in this sheet belong to (e.g.
+        a diversity panel or RIL population). Pick an existing population or
+        create a new one. Leave unspecified if it doesn't apply.
+      </p>
+      <Select
+        value={selectValue}
+        onChange={(e) => {
+          const v = e.target.value
+          if (v === NOT_SPECIFIED) {
+            setLocalMode('none')
+            onChange('')
+          } else if (v === CREATE_NEW) {
+            setLocalMode('new')
+            onChange('')
+          } else {
+            setLocalMode('existing')
+            onChange(v)
+          }
+        }}
+        data-testid="population-select"
+      >
+        <option value={NOT_SPECIFIED}>-- Not specified --</option>
+        <option value={CREATE_NEW}>+ Create new...</option>
+        {existing.map((name) => (
+          <option key={name} value={name}>{name}</option>
+        ))}
+      </Select>
+      {mode === 'new' && (
+        <Input
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="e.g. UC Davis Diversity Panel"
+          data-testid="population-name"
+          autoFocus
+        />
+      )}
+    </div>
+  )
+}
+
 function isSheetConfigValid(config: SheetMapping): boolean {
   if (config.skipped) return true
-  // Plot number is the primary row identifier — required.
   if (!config.plotNumberColumn) return false
-  // At least one enabled trait column with a non-empty label.
   const enabledTraits = config.traitColumns.filter((tc) => tc.enabled)
   if (enabledTraits.length === 0) return false
   if (!enabledTraits.every((tc) => tc.traitName.trim() !== '')) return false
-  // Every metadata column needs a non-empty label.
   if (!config.metadataColumns.every((mc) => mc.label.trim() !== '')) return false
+  if (config.seasonMode === 'fixed' && !config.seasonName.trim()) return false
+  if (config.seasonMode === 'column' && !config.seasonColumn) return false
+  if (config.siteMode === 'fixed' && !config.siteName.trim()) return false
+  if (config.siteMode === 'column' && !config.siteColumn) return false
+  if (config.collectionDateMode === 'fixed' && !config.collectionDate) return false
+  if (config.collectionDateMode === 'column' && !config.collectionDateColumn) return false
   return true
 }
 
 export function StepColumnMapping({
   files,
+  initial,
   onNext,
   onBack,
 }: StepColumnMappingProps) {
-  const [sheets, setSheets] = useState<ParsedSheet[]>([])
-  const [loading, setLoading] = useState(true)
+  // Seed from `initial` so a round-trip through later steps (and the Back
+  // button after a failed upload) doesn't discard the user's work.
+  const [sheets, setSheets] = useState<ParsedSheet[]>(() => initial?.sheets ?? [])
+  const [loading, setLoading] = useState(() => !initial)
   const [parseError, setParseError] = useState<string | null>(null)
   const [sheetIdx, setSheetIdx] = useState(0)
-  const [configs, setConfigs] = useState<SheetMapping[]>([])
+  const [configs, setConfigs] = useState<SheetMapping[]>(() => initial?.sheetConfigs ?? [])
   const [pendingMetadataSelect, setPendingMetadataSelect] = useState<string>(NOT_MAPPED)
 
-  // Parse spreadsheet files on mount
+  // Existing populations from the backend — lets the user pick one instead
+  // of re-typing a name that already exists.
+  const { data: existingPopulations } = useQuery({
+    queryKey: ['populations', 'all'],
+    queryFn: () => populationsApi.getAll(500, 0),
+  })
+
+  // Parse spreadsheet files on mount. Skip when we're restoring from a
+  // prior visit (sheets already populated).
   useEffect(() => {
+    if (initial) return
     async function parse() {
       setLoading(true)
       setParseError(null)
@@ -132,7 +278,7 @@ export function StepColumnMapping({
       }
     }
     parse()
-  }, [files])
+  }, [files, initial])
 
   const currentSheet = sheets[sheetIdx] || null
   const currentConfig: SheetMapping | null = configs[sheetIdx] || null
@@ -149,7 +295,12 @@ export function StepColumnMapping({
     if (currentConfig.plotNumberColumn) s.add(currentConfig.plotNumberColumn)
     if (currentConfig.plotRowColumn) s.add(currentConfig.plotRowColumn)
     if (currentConfig.plotColumnColumn) s.add(currentConfig.plotColumnColumn)
-    if (currentConfig.genotypeColumn) s.add(currentConfig.genotypeColumn)
+    if (currentConfig.accessionNameColumn) s.add(currentConfig.accessionNameColumn)
+    if (currentConfig.lineNameColumn) s.add(currentConfig.lineNameColumn)
+    if (currentConfig.aliasColumn) s.add(currentConfig.aliasColumn)
+    if (currentConfig.collectionDateColumn) s.add(currentConfig.collectionDateColumn)
+    if (currentConfig.seasonColumn) s.add(currentConfig.seasonColumn)
+    if (currentConfig.siteColumn) s.add(currentConfig.siteColumn)
     if (currentConfig.timestampColumn) s.add(currentConfig.timestampColumn)
     for (const mc of currentConfig.metadataColumns) s.add(mc.columnHeader)
     return s
@@ -192,7 +343,7 @@ export function StepColumnMapping({
       } else {
         traitColumns = [
           ...config.traitColumns,
-          { columnHeader: header, traitName: header, enabled },
+          { columnHeader: header, traitName: header, units: '', enabled },
         ]
       }
       next[sheetIdx] = { ...config, traitColumns }
@@ -209,6 +360,21 @@ export function StepColumnMapping({
         ...config,
         traitColumns: config.traitColumns.map((tc) =>
           tc.columnHeader === header ? { ...tc, traitName: label } : tc,
+        ),
+      }
+      return next
+    })
+  }
+
+  function updateTraitUnits(header: string, units: string) {
+    setConfigs((prev) => {
+      const next = [...prev]
+      const config = next[sheetIdx]
+      if (!config) return prev
+      next[sheetIdx] = {
+        ...config,
+        traitColumns: config.traitColumns.map((tc) =>
+          tc.columnHeader === header ? { ...tc, units } : tc,
         ),
       }
       return next
@@ -263,7 +429,12 @@ export function StepColumnMapping({
   function goToSheet(nextIdx: number) {
     if (nextIdx < 0 || nextIdx >= sheets.length) return
     setConfigs((prev) => {
-      if (prev[nextIdx]) return prev
+      const existing = prev[nextIdx]
+      // Seed from the current sheet when the target is missing or still a
+      // pristine empty config (never edited). This lets us pre-init all
+      // sheets on mount while still carrying forward user choices when they
+      // navigate to a fresh sheet.
+      if (existing && !isPristine(existing)) return prev
       const next = [...prev]
       const prevConfig = prev[sheetIdx] || null
       next[nextIdx] = seedSheetConfig(prevConfig, sheets[nextIdx])
@@ -298,7 +469,9 @@ export function StepColumnMapping({
     if (currentConfig.plotNumberColumn) previewHeaders.push('Plot #')
     if (currentConfig.plotRowColumn) previewHeaders.push('Row')
     if (currentConfig.plotColumnColumn) previewHeaders.push('Col')
-    if (currentConfig.genotypeColumn) previewHeaders.push('Genotype')
+    if (currentConfig.accessionNameColumn) previewHeaders.push('Accession')
+    if (currentConfig.lineNameColumn) previewHeaders.push('Line')
+    if (currentConfig.aliasColumn) previewHeaders.push('Alias')
     for (const tc of enabledTraits) previewHeaders.push(tc.traitName || tc.columnHeader)
     for (const mc of currentConfig.metadataColumns) previewHeaders.push(`[${mc.label}]`)
 
@@ -316,9 +489,17 @@ export function StepColumnMapping({
         const v = row[currentConfig.plotColumnColumn]
         r.push(v != null ? String(v) : '')
       }
-      if (currentConfig.genotypeColumn) {
-        const v = row[currentConfig.genotypeColumn]
-        r.push(v != null ? String(v) : '')
+      if (currentConfig.accessionNameColumn) {
+        const v = row[currentConfig.accessionNameColumn]
+        r.push(v != null ? String(v).trim() : '')
+      }
+      if (currentConfig.lineNameColumn) {
+        const v = row[currentConfig.lineNameColumn]
+        r.push(v != null ? String(v).trim() : '')
+      }
+      if (currentConfig.aliasColumn) {
+        const v = row[currentConfig.aliasColumn]
+        r.push(v != null ? String(v).trim() : '')
       }
       for (const tc of enabledTraits) {
         const v = row[tc.columnHeader]
@@ -363,39 +544,15 @@ export function StepColumnMapping({
 
   return (
     <div className="space-y-6">
-      {/* Sheet navigation header */}
-      <div className="rounded-lg border p-4 space-y-3">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => goToSheet(sheetIdx - 1)}
-              disabled={sheetIdx === 0}
-              data-testid="sheet-prev"
-            >
-              <ChevronLeft className="w-4 h-4" />
-              Previous sheet
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => goToSheet(sheetIdx + 1)}
-              disabled={sheetIdx === sheets.length - 1 || !currentValid}
-              data-testid="sheet-next"
-            >
-              Next sheet
-              <ChevronRight className="w-4 h-4" />
-            </Button>
-          </div>
-          <div className="text-sm">
-            <span className="font-medium">
-              Sheet {sheetIdx + 1} of {sheets.length}:
-            </span>{' '}
-            <span className="text-muted-foreground">
-              {currentSheet.name} ({currentSheet.totalRows} rows)
-            </span>
-          </div>
+      {/* Current sheet indicator */}
+      <div className="rounded-lg border p-4 flex items-center justify-between gap-3">
+        <div className="text-sm">
+          <span className="font-medium">
+            Sheet {sheetIdx + 1} of {sheets.length}:
+          </span>{' '}
+          <span className="text-muted-foreground">
+            {currentSheet.name} ({currentSheet.totalRows} rows)
+          </span>
         </div>
         {sheets.length > 1 && (
           <label className="flex items-center gap-2 cursor-pointer text-sm">
@@ -542,8 +699,8 @@ export function StepColumnMapping({
         </div>
         <p className="text-sm text-muted-foreground">
           Select every column that contains trait measurements. Each selected
-          column becomes a separate trait. You can edit the label that will be
-          used as the trait name.
+          column becomes a separate trait. Edit the trait name and optionally
+          specify its units (e.g., cm, count, g/m²).
         </p>
         <div className="space-y-2">
           {headers
@@ -554,6 +711,7 @@ export function StepColumnMapping({
               )
               const checked = entry?.enabled ?? false
               const label = entry?.traitName ?? header
+              const units = entry?.units ?? ''
               return (
                 <div key={header} className="flex items-center gap-3">
                   <label className="flex items-center gap-2 cursor-pointer w-48 shrink-0">
@@ -574,6 +732,14 @@ export function StepColumnMapping({
                     className="flex-1"
                     data-testid={`trait-label-${header}`}
                   />
+                  <Input
+                    value={units}
+                    onChange={(e) => updateTraitUnits(header, e.target.value)}
+                    placeholder="units"
+                    disabled={!checked}
+                    className="w-28 shrink-0"
+                    data-testid={`trait-units-${header}`}
+                  />
                 </div>
               )
             })}
@@ -587,38 +753,270 @@ export function StepColumnMapping({
         </div>
       </div>
 
-      {/* Optional: genotype */}
+      {/* Germplasm columns — accession, line, and alias roles */}
       <div className="rounded-lg border p-4 space-y-3">
-        <h3 className="font-medium">Genotype column (optional)</h3>
+        <h3 className="font-medium">Germplasm columns (optional)</h3>
         <p className="text-sm text-muted-foreground">
-          If the sheet has an accession/genotype column, map it here. Its value
-          is saved with each trait record as metadata.
+          Tag the columns that identify the germplasm for each row. An
+          <em> accession </em> is a canonical germplasm unit (e.g.
+          <code> SL-58-6-8-09</code>); a <em>line</em> is a pedigree anchor
+          (e.g. <code>MAGIC110</code>, <code>B73</code>); an <em>alias</em> is
+          a field-book shorthand (e.g. <code>1</code>, <code>Check1</code>)
+          that points at an accession or line. You can map any combination —
+          sheets often have a line name + a numeric alias, or an accession
+          name on its own.
         </p>
-        <Select
-          value={currentConfig.genotypeColumn || NOT_MAPPED}
-          onChange={(e) =>
-            updateCurrentConfig({
-              genotypeColumn:
-                e.target.value === NOT_MAPPED ? null : e.target.value,
-            })
-          }
-          data-testid="genotype-column-select"
-        >
-          <option value={NOT_MAPPED}>-- Not mapped --</option>
-          {headers.map((header) => (
-            <option key={header} value={header}>
-              {header}
-            </option>
-          ))}
-        </Select>
+        <div className="space-y-2">
+          <div className="flex items-center gap-3">
+            <div className="w-36 shrink-0 text-sm">Accession name</div>
+            <Select
+              value={currentConfig.accessionNameColumn || NOT_MAPPED}
+              onChange={(e) =>
+                updateCurrentConfig({
+                  accessionNameColumn:
+                    e.target.value === NOT_MAPPED ? null : e.target.value,
+                })
+              }
+              className="flex-1"
+              data-testid="accession-name-column-select"
+            >
+              <option value={NOT_MAPPED}>-- Not mapped --</option>
+              {headers.map((header) => (
+                <option key={header} value={header}>
+                  {header}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="w-36 shrink-0 text-sm">Line name</div>
+            <Select
+              value={currentConfig.lineNameColumn || NOT_MAPPED}
+              onChange={(e) =>
+                updateCurrentConfig({
+                  lineNameColumn:
+                    e.target.value === NOT_MAPPED ? null : e.target.value,
+                })
+              }
+              className="flex-1"
+              data-testid="line-name-column-select"
+            >
+              <option value={NOT_MAPPED}>-- Not mapped --</option>
+              {headers.map((header) => (
+                <option key={header} value={header}>
+                  {header}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="w-36 shrink-0 text-sm">Alias</div>
+            <Select
+              value={currentConfig.aliasColumn || NOT_MAPPED}
+              onChange={(e) =>
+                updateCurrentConfig({
+                  aliasColumn:
+                    e.target.value === NOT_MAPPED ? null : e.target.value,
+                })
+              }
+              className="flex-1"
+              data-testid="alias-column-select"
+            >
+              <option value={NOT_MAPPED}>-- Not mapped --</option>
+              {headers.map((header) => (
+                <option key={header} value={header}>
+                  {header}
+                </option>
+              ))}
+            </Select>
+          </div>
+        </div>
+      </div>
+
+      {/* Optional: population name */}
+      <PopulationField
+        value={currentConfig.populationName}
+        onChange={(v) => updateCurrentConfig({ populationName: v })}
+        existing={(existingPopulations ?? []).map((p) => p.population_name).filter(Boolean) as string[]}
+      />
+
+      {/* Collection date */}
+      <div className="rounded-lg border p-4 space-y-3">
+        <h3 className="font-medium">Collection date</h3>
+        <p className="text-sm text-muted-foreground">
+          The date measurements were collected. Choose a fixed date, a column
+          with per-row dates, or mark it unknown (e.g., for post-harvest
+          measurements like yield with no meaningful collection date).
+        </p>
+        <div className="flex items-center gap-3">
+          <Select
+            value={currentConfig.collectionDateMode}
+            onChange={(e) => {
+              const mode = e.target.value as 'fixed' | 'column' | 'unknown'
+              updateCurrentConfig({
+                collectionDateMode: mode,
+                ...(mode !== 'column' ? { collectionDateColumn: null } : {}),
+                ...(mode !== 'fixed' ? { collectionDate: '' } : {}),
+              })
+            }}
+            className="w-44 shrink-0"
+            data-testid="collection-date-mode"
+          >
+            <option value="fixed">Fixed date</option>
+            <option value="column">From column</option>
+            <option value="unknown">Unknown / not defined</option>
+          </Select>
+          {currentConfig.collectionDateMode === 'fixed' && (
+            <Input
+              type="date"
+              value={currentConfig.collectionDate}
+              onChange={(e) => updateCurrentConfig({ collectionDate: e.target.value })}
+              className="flex-1"
+              data-testid="collection-date-fixed"
+            />
+          )}
+          {currentConfig.collectionDateMode === 'column' && (
+            <Select
+              value={currentConfig.collectionDateColumn || NOT_MAPPED}
+              onChange={(e) =>
+                updateCurrentConfig({
+                  collectionDateColumn:
+                    e.target.value === NOT_MAPPED ? null : e.target.value,
+                })
+              }
+              className="flex-1"
+              data-testid="collection-date-column"
+            >
+              <option value={NOT_MAPPED}>-- Select a column --</option>
+              {headers.map((header) => (
+                <option key={header} value={header}>
+                  {header}
+                </option>
+              ))}
+            </Select>
+          )}
+        </div>
+      </div>
+
+      {/* Season */}
+      <div className="rounded-lg border p-4 space-y-3">
+        <div className="flex items-center gap-2">
+          <h3 className="font-medium">Season</h3>
+          <Badge variant="destructive" className="text-[10px] px-1.5 py-0">Required</Badge>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          Specify a fixed season name for every row in this sheet, or read it
+          from a column (useful when a sheet contains data from multiple years).
+        </p>
+        <div className="flex items-center gap-3">
+          <Select
+            value={currentConfig.seasonMode}
+            onChange={(e) => {
+              const mode = e.target.value as 'fixed' | 'column'
+              updateCurrentConfig({
+                seasonMode: mode,
+                ...(mode === 'fixed' ? { seasonColumn: null } : { seasonName: '' }),
+              })
+            }}
+            className="w-44 shrink-0"
+            data-testid="season-mode"
+          >
+            <option value="fixed">Fixed value</option>
+            <option value="column">From column</option>
+          </Select>
+          {currentConfig.seasonMode === 'fixed' ? (
+            <Input
+              value={currentConfig.seasonName}
+              onChange={(e) => updateCurrentConfig({ seasonName: e.target.value })}
+              placeholder="e.g. Summer 2022"
+              className="flex-1"
+              data-testid="season-fixed"
+            />
+          ) : (
+            <Select
+              value={currentConfig.seasonColumn || NOT_MAPPED}
+              onChange={(e) =>
+                updateCurrentConfig({
+                  seasonColumn:
+                    e.target.value === NOT_MAPPED ? null : e.target.value,
+                })
+              }
+              className="flex-1"
+              data-testid="season-column"
+            >
+              <option value={NOT_MAPPED}>-- Select a column --</option>
+              {headers.map((header) => (
+                <option key={header} value={header}>
+                  {header}
+                </option>
+              ))}
+            </Select>
+          )}
+        </div>
+      </div>
+
+      {/* Site */}
+      <div className="rounded-lg border p-4 space-y-3">
+        <div className="flex items-center gap-2">
+          <h3 className="font-medium">Site</h3>
+          <Badge variant="destructive" className="text-[10px] px-1.5 py-0">Required</Badge>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          Specify a fixed site name for every row in this sheet, or read it
+          from a column (useful when a sheet contains data from multiple locations).
+        </p>
+        <div className="flex items-center gap-3">
+          <Select
+            value={currentConfig.siteMode}
+            onChange={(e) => {
+              const mode = e.target.value as 'fixed' | 'column'
+              updateCurrentConfig({
+                siteMode: mode,
+                ...(mode === 'fixed' ? { siteColumn: null } : { siteName: '' }),
+              })
+            }}
+            className="w-44 shrink-0"
+            data-testid="site-mode"
+          >
+            <option value="fixed">Fixed value</option>
+            <option value="column">From column</option>
+          </Select>
+          {currentConfig.siteMode === 'fixed' ? (
+            <Input
+              value={currentConfig.siteName}
+              onChange={(e) => updateCurrentConfig({ siteName: e.target.value })}
+              placeholder="e.g. Davis Field A"
+              className="flex-1"
+              data-testid="site-fixed"
+            />
+          ) : (
+            <Select
+              value={currentConfig.siteColumn || NOT_MAPPED}
+              onChange={(e) =>
+                updateCurrentConfig({
+                  siteColumn:
+                    e.target.value === NOT_MAPPED ? null : e.target.value,
+                })
+              }
+              className="flex-1"
+              data-testid="site-column"
+            >
+              <option value={NOT_MAPPED}>-- Select a column --</option>
+              {headers.map((header) => (
+                <option key={header} value={header}>
+                  {header}
+                </option>
+              ))}
+            </Select>
+          )}
+        </div>
       </div>
 
       {/* Optional: timestamp */}
       <div className="rounded-lg border p-4 space-y-3">
         <h3 className="font-medium">Timestamp column (optional)</h3>
         <p className="text-sm text-muted-foreground">
-          If unmapped, timestamps will be auto-generated using the current
-          time.
+          If unmapped, timestamps will be derived from the collection date.
         </p>
         <Select
           value={currentConfig.timestampColumn || NOT_MAPPED}
@@ -741,6 +1139,39 @@ export function StepColumnMapping({
       )}
 
       </>
+      )}
+
+      {/* Sheet navigation (only when multiple sheets) */}
+      {sheets.length > 1 && (
+        <div className="rounded-lg border p-3 flex items-center justify-between gap-3">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => goToSheet(sheetIdx - 1)}
+            disabled={sheetIdx === 0}
+            data-testid="sheet-prev"
+          >
+            <ChevronLeft className="w-4 h-4" />
+            Previous sheet
+          </Button>
+          <span className="text-sm text-muted-foreground">
+            Sheet {sheetIdx + 1} of {sheets.length}
+          </span>
+          <Button
+            // Highlight as the primary action when the user has finished
+            // the current sheet but more sheets still need configuring —
+            // makes it obvious that "Next sheet" is the step before
+            // "Continue to Upload" becomes available.
+            variant={currentValid && !canContinue && sheetIdx < sheets.length - 1 ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => goToSheet(sheetIdx + 1)}
+            disabled={sheetIdx === sheets.length - 1 || !currentValid}
+            data-testid="sheet-next"
+          >
+            Next sheet
+            <ChevronRight className="w-4 h-4" />
+          </Button>
+        </div>
       )}
 
       {/* Navigation */}

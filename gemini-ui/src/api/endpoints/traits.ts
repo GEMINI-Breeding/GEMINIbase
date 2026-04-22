@@ -1,4 +1,4 @@
-import { get, getOrEmpty, getNdjson, post, patch, del } from '@/api/client'
+import { get, getOrEmpty, getNdjson, post, postNdjson, patch, del } from '@/api/client'
 import type {
   TraitOutput,
   TraitInput,
@@ -30,7 +30,7 @@ export const traitsApi = {
     getNdjson<TraitRecordOutput>(`api/traits/id/${traitId}/records`, params),
 
   filterRecords: (traitId: string, filter: TraitRecordFilter) =>
-    post<TraitRecordOutput[]>(`api/traits/id/${traitId}/records/filter`, filter),
+    postNdjson<TraitRecordOutput>(`api/traits/id/${traitId}/records/filter`, filter),
 
   getExperiments: (traitId: string) =>
     getOrEmpty<string>(`api/traits/id/${traitId}/experiments`),

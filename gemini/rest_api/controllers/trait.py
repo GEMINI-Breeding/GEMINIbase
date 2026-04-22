@@ -10,6 +10,8 @@ from pydantic import BaseModel
 
 from collections.abc import AsyncGenerator, Generator
 
+from sqlalchemy.exc import DBAPIError
+
 from gemini.api.trait import Trait, GEMINITraitLevel
 from gemini.api.trait_record import TraitRecord
 from gemini.rest_api.models import TraitInput, TraitOutput, TraitUpdate, JSONB, str_to_dict
@@ -48,13 +50,7 @@ class TraitController(Controller):
     def get_all_traits(self, limit: int = 100, offset: int = 0) -> List[TraitOutput]:
         try:
             traits = Trait.get_all(limit=limit, offset=offset)
-            if traits is None:
-                error = RESTAPIError(
-                    error="No traits found",
-                    error_description="No traits were found"
-                )
-                return Response(content=error, status_code=404)
-            return traits
+            return traits or []
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),
@@ -87,13 +83,7 @@ class TraitController(Controller):
                 trait_metrics=trait_metrics,
                 experiment_name=experiment_name
             )
-            if traits is None:
-                error = RESTAPIError(
-                    error="No traits found",
-                    error_description="No traits were found with the given search criteria"
-                )
-                return Response(content=error, status_code=404)
-            return traits
+            return traits or []
         except Exception as e:
             error_message = RESTAPIError(
                 error=str(e),
@@ -228,14 +218,7 @@ class TraitController(Controller):
                     error_description="The trait with the given ID was not found"
                 )
                 return Response(content=error, status_code=404)
-            experiments = trait.get_associated_experiments()
-            if experiments is None:
-                error = RESTAPIError(
-                    error="No experiments found",
-                    error_description="No experiments were found for the given trait"
-                )
-                return Response(content=error, status_code=404)
-            return experiments
+            return trait.get_associated_experiments() or []
         except Exception as e:
             error_message = RESTAPIError(
                 error=str(e),
@@ -256,14 +239,7 @@ class TraitController(Controller):
                     error_description="The trait with the given ID was not found"
                 )
                 return Response(content=error, status_code=404)
-            datasets = trait.get_associated_datasets()
-            if datasets is None:
-                error = RESTAPIError(
-                    error="No datasets found",
-                    error_description="No datasets were found for the given trait"
-                )
-                return Response(content=error, status_code=404)
-            return datasets
+            return trait.get_associated_datasets() or []
         except Exception as e:
             error_message = RESTAPIError(
                 error=str(e),
@@ -381,6 +357,10 @@ class TraitController(Controller):
                 inserted_count=len(record_ids),
                 record_ids=[str(rid) for rid in record_ids],
             )
+        except DBAPIError:
+            # Let the app-level handler surface the Postgres message
+            # (e.g. trigger RAISE, constraint violation) as a structured 422.
+            raise
         except Exception as e:
             return Response(
                 content=RESTAPIError(error=str(e), error_description="An error occurred during bulk trait record insert"),

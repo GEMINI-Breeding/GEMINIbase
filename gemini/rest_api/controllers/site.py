@@ -16,13 +16,7 @@ class SiteController(Controller):
     def get_all_sites(self, limit: int = 100, offset: int = 0) -> List[SiteOutput]:
         try:
             sites = Site.get_all(limit=limit, offset=offset)
-            if sites is None:
-                error = RESTAPIError(
-                    error="No sites found",
-                    error_description="No sites were found"
-                )
-                return Response(content=error, status_code=404)
-            return sites
+            return sites or []
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),
@@ -53,13 +47,7 @@ class SiteController(Controller):
                 site_info=site_info,
                 experiment_name=experiment_name
             )
-            if sites is None:
-                error = RESTAPIError(
-                    error="No sites found",
-                    error_description="No sites were found with the given search criteria"
-                )
-                return Response(content=error, status_code=404)
-            return sites
+            return sites or []
         except Exception as e:
             error_message = RESTAPIError(
                 error=str(e),
@@ -189,14 +177,7 @@ class SiteController(Controller):
                     error_description="The site with the given ID was not found"
                 )
                 return Response(content=error, status_code=404)
-            experiments = site.get_associated_experiments()
-            if experiments is None:
-                error = RESTAPIError(
-                    error="No experiments found",
-                    error_description="No experiments were found for the given site ID"
-                )
-                return Response(content=error, status_code=404)
-            return experiments
+            return site.get_associated_experiments() or []
         except Exception as e:
             error_message = RESTAPIError(
                 error=str(e),
@@ -217,14 +198,7 @@ class SiteController(Controller):
                     error_description="The site with the given ID was not found"
                 )
                 return Response(content=error, status_code=404)
-            plots = site.get_associated_plots()
-            if plots is None:
-                error = RESTAPIError(
-                    error="No plots found",
-                    error_description="No plots were found for the given site ID"
-                )
-                return Response(content=error, status_code=404)
-            return plots
+            return site.get_associated_plots() or []
         except Exception as e:
             error_message = RESTAPIError(
                 error=str(e),

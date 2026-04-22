@@ -1,5 +1,10 @@
 import { get, post, patch, del } from '@/api/client'
-import type { PlotOutput, PlotInput, PlotUpdate } from '@/api/types'
+import type {
+  PlotOutput,
+  PlotInput,
+  PlotUpdate,
+  PlotBulkResponse,
+} from '@/api/types'
 
 export const plotsApi = {
   getAll: (limit = 100, offset = 0) =>
@@ -13,6 +18,9 @@ export const plotsApi = {
 
   create: (data: PlotInput) =>
     post<PlotOutput>('api/plots', data),
+
+  createBulk: (plots: PlotInput[]) =>
+    post<PlotBulkResponse>('api/plots/bulk', { plots }),
 
   update: (id: string, data: PlotUpdate) =>
     patch<PlotOutput>(`api/plots/id/${id}`, data),

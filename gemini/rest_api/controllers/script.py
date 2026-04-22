@@ -59,13 +59,7 @@ class ScriptController(Controller):
     def get_all_scripts(self, limit: int = 100, offset: int = 0) -> List[ScriptOutput]:
         try:
             scripts = Script.get_all(limit=limit, offset=offset)
-            if scripts is None:
-                error = RESTAPIError(
-                    error="No scripts found",
-                    error_description="No scripts were found"
-                )
-                return Response(content=error, status_code=404)
-            return scripts
+            return scripts or []
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),
@@ -94,13 +88,7 @@ class ScriptController(Controller):
                 script_info=script_info,
                 experiment_name=experiment_name
             )
-            if scripts is None:
-                error = RESTAPIError(
-                    error="No scripts found",
-                    error_description="No scripts were found with the given search criteria"
-                )
-                return Response(content=error, status_code=404)
-            return scripts
+            return scripts or []
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),
@@ -235,14 +223,7 @@ class ScriptController(Controller):
                     error_description="The script with the given ID was not found"
                 )
                 return Response(content=error, status_code=404)
-            experiments = script.get_associated_experiments()
-            if experiments is None:
-                error = RESTAPIError(
-                    error="No experiments found",
-                    error_description="No experiments were found for the given script"
-                )
-                return Response(content=error, status_code=404)
-            return experiments
+            return script.get_associated_experiments() or []
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),
@@ -264,14 +245,7 @@ class ScriptController(Controller):
                     error_description="The script with the given ID was not found"
                 )
                 return Response(content=error, status_code=404)
-            script_runs = script.get_associated_runs()
-            if script_runs is None:
-                error = RESTAPIError(
-                    error="No script runs found",
-                    error_description="No script runs were found for the given script"
-                )
-                return Response(content=error, status_code=404)
-            return script_runs
+            return script.get_associated_runs() or []
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),
@@ -292,14 +266,7 @@ class ScriptController(Controller):
                     error_description="The script with the given ID was not found"
                 )
                 return Response(content=error, status_code=404)
-            datasets = script.get_associated_datasets()
-            if datasets is None:
-                error = RESTAPIError(
-                    error="No datasets found",
-                    error_description="No datasets were found for the given script"
-                )
-                return Response(content=error, status_code=404)
-            return datasets
+            return script.get_associated_datasets() or []
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),

@@ -24,13 +24,7 @@ class VariantController(Controller):
     def get_all_variants(self, limit: int = 100, offset: int = 0) -> List[VariantOutput]:
         try:
             variants = Variant.get_all(limit=limit, offset=offset)
-            if variants is None:
-                error = RESTAPIError(
-                    error="No variants found",
-                    error_description="There are no variants available in the database"
-                )
-                return Response(content=error, status_code=404)
-            return variants
+            return variants or []
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),
@@ -55,13 +49,7 @@ class VariantController(Controller):
                 alleles=alleles,
                 variant_info=variant_info,
             )
-            if variants is None:
-                error = RESTAPIError(
-                    error="No variants found",
-                    error_description="No variants were found with the given search criteria"
-                )
-                return Response(content=error, status_code=404)
-            return variants
+            return variants or []
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),

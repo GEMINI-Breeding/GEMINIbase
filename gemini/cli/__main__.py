@@ -10,8 +10,14 @@ import os, subprocess
 from pathlib import Path
 
 from gemini.config.settings import GEMINISettings
-from gemini.manager import GEMINIManager
+from gemini.manager import GEMINIManager, DockerUnavailableError
 from gemini.cli.settings import settings as settings_group # Import the settings group
+
+
+def _require(ok: bool, failure_message: str) -> None:
+    """Abort the current click command cleanly if `ok` is False."""
+    if not ok:
+        raise click.ClickException(failure_message)
 
 class GEMINICLIContext:
     """
@@ -24,7 +30,18 @@ class GEMINICLIContext:
         self.script_dir = Path(__file__).parent
         self.pipeline_dir = self.script_dir.parent / "pipeline"
 
-@click.group()
+
+class _DockerAwareGroup(click.Group):
+    """Click group that renders DockerUnavailableError as a clean CLI error."""
+
+    def invoke(self, ctx: click.Context):
+        try:
+            return super().invoke(ctx)
+        except DockerUnavailableError as e:
+            raise click.ClickException(str(e)) from e
+
+
+@click.group(cls=_DockerAwareGroup)
 @click.pass_context
 def cli(ctx):
     """
@@ -39,7 +56,7 @@ def build(ctx: GEMINICLIContext):
     Builds the GEMINI pipeline.
     """
     click.echo(click.style("Building GEMINI pipeline", fg="blue"))
-    ctx.manager.build()
+    _require(ctx.manager.build(), "Build failed. See Docker output above.")
     click.echo(click.style("GEMINI pipeline built", fg="blue"))
 
 @cli.command()
@@ -49,7 +66,7 @@ def start(ctx: GEMINICLIContext):
     Starts the GEMINI pipeline.
     """
     click.echo(click.style("Starting GEMINI pipeline", fg="blue"))
-    ctx.manager.start()
+    _require(ctx.manager.start(), "Start failed. See Docker output above.")
     click.echo(click.style("GEMINI pipeline started", fg="blue"))
 
 @cli.command()
@@ -59,7 +76,7 @@ def stop(ctx: GEMINICLIContext):
     Stops the GEMINI pipeline.
     """
     click.echo(click.style("Stopping GEMINI pipeline", fg="blue"))
-    ctx.manager.stop()
+    _require(ctx.manager.stop(), "Stop failed. See Docker output above.")
     click.echo(click.style("GEMINI pipeline stopped", fg="blue"))
 
 @cli.command()
@@ -69,7 +86,7 @@ def clean(ctx: GEMINICLIContext):
     Cleans the GEMINI pipeline.
     """
     click.echo(click.style("Cleaning GEMINI pipeline", fg="blue"))
-    ctx.manager.clean()
+    _require(ctx.manager.clean(), "Clean failed. See Docker output above.")
     click.echo(click.style("GEMINI pipeline cleaned", fg="blue"))
 
 @cli.command()
@@ -80,7 +97,7 @@ def reset(ctx: GEMINICLIContext):
     """
     click.echo(click.style("Resetting GEMINI pipeline", fg="blue"))
     ctx.manager.save_settings()
-    ctx.manager.rebuild()
+    _require(ctx.manager.rebuild(), "Reset failed. See Docker output above.")
     click.echo(click.style("GEMINI pipeline reset", fg="blue"))
 
 @cli.command()
@@ -95,7 +112,7 @@ def setup(ctx: GEMINICLIContext, default: bool = False):
     """
     click.echo(click.style("Setting up GEMINI pipeline", fg="blue"))
     ctx.manager.save_settings()
-    ctx.manager.rebuild()
+    _require(ctx.manager.rebuild(), "Setup failed. See Docker output above.")
     click.echo(click.style("GEMINI pipeline setup complete", fg="blue"))
 
 
@@ -106,9 +123,9 @@ def update(ctx: GEMINICLIContext):
     Updates the GEMINI pipeline.
     """
     click.echo(click.style("Updating GEMINI pipeline", fg="blue"))
-    ctx.manager.update()
+    _require(ctx.manager.update(), "Update script failed.")
     ctx.manager.save_settings()
-    ctx.manager.rebuild()
+    _require(ctx.manager.rebuild(), "Update failed during rebuild. See Docker output above.")
     click.echo(click.style("GEMINI pipeline updated", fg="blue"))
 
 # Add the settings command group to the main CLI

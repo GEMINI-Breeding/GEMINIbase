@@ -96,7 +96,8 @@ class TestGetAllJobs:
     def test_get_all_empty(self, mock_job_cls, test_client):
         mock_job_cls.get_all.return_value = None
         response = test_client.get("/api/jobs/all")
-        assert response.status_code == 404
+        assert response.status_code == 200
+        assert response.json() == []
 
 
 class TestCancelJob:

@@ -1,10 +1,12 @@
+import shutil
+import subprocess, os
 from enum import Enum
 from pathlib import Path
-from typing import Any
-import subprocess, os
+from typing import Any, Optional
 
 import docker
 from docker import DockerClient
+from docker.errors import DockerException
 from pydantic import BaseModel, ConfigDict, PrivateAttr
 
 from gemini.config.settings import GEMINISettings
@@ -12,6 +14,29 @@ from gemini.logger.interfaces import logger_provider
 from gemini.logger.providers.redis_logger import RedisLogger
 from gemini.storage.interfaces import storage_provider
 from gemini.storage.providers.minio_storage import MinioStorageProvider
+
+
+DOCKER_SETUP_HINT = (
+    "GEMINI requires Docker. Make sure it is installed and running.\n"
+    "Install guide: https://docs.docker.com/engine/install/\n"
+    "\n"
+    "macOS:   Docker Desktop, OrbStack, or Colima\n"
+    "           https://www.docker.com/products/docker-desktop/\n"
+    "           https://orbstack.dev/  |  https://github.com/abiosoft/colima\n"
+    "Linux:   Docker Engine via your package manager, then:\n"
+    "           sudo systemctl start docker\n"
+    "Windows: Docker Desktop (WSL 2 backend)\n"
+    "           https://docs.docker.com/desktop/install/windows-install/\n"
+    "\n"
+    "If already installed, make sure the daemon is running."
+)
+
+
+class DockerUnavailableError(RuntimeError):
+    """Raised when the Docker CLI or daemon is not reachable."""
+
+    def __init__(self, reason: str):
+        super().__init__(f"{reason}\n\n{DOCKER_SETUP_HINT}")
 
 class GEMINIComponentType(str, Enum):
     META = "meta"
@@ -30,22 +55,44 @@ class GEMINIContainerInfo(BaseModel):
 
 
 class GEMINIManager(BaseModel):
-    
+
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     env_file_path : str = Path(__file__).parent / "pipeline" / ".env"
     compose_file_path : str = Path(__file__).parent / "pipeline" / "docker-compose.yaml"
-    docker_client: DockerClient = docker.from_env()
 
     # Pipeline Settings
     pipeline_settings: GEMINISettings = GEMINISettings()
 
     docker_containers: dict[str, GEMINIContainerInfo] = {}
 
+    _docker_client: Optional[DockerClient] = PrivateAttr(default=None)
+
+    @property
+    def docker_client(self) -> DockerClient:
+        if self._docker_client is None:
+            if shutil.which("docker") is None:
+                raise DockerUnavailableError(
+                    "The `docker` command was not found on your PATH."
+                )
+            try:
+                self._docker_client = docker.from_env()
+            except DockerException as e:
+                raise DockerUnavailableError(
+                    f"Could not connect to the Docker daemon ({e})."
+                ) from e
+        return self._docker_client
+
     def model_post_init(self, __context: Any) -> None:
-        self.scan_containers()
+        # Best-effort container scan — don't fail import/construction just
+        # because Docker isn't up. Commands that need Docker will surface a
+        # clear error when invoked.
+        try:
+            self.scan_containers()
+        except DockerUnavailableError:
+            pass
         return super().model_post_init(__context)
-    
+
     def scan_containers(self) -> None:
         try:
             containers = self.docker_client.containers.list()
@@ -63,6 +110,9 @@ class GEMINIManager(BaseModel):
                     name=container_name,
                     ip_address=container_ip
                 )
+        except DockerUnavailableError:
+            # Let callers decide how to report it.
+            raise
         except Exception as e:
             print(f"Error scanning containers: {e}")
 
@@ -100,68 +150,53 @@ class GEMINIManager(BaseModel):
         except Exception as e:
             print(f"Error deleting settings file: {e}")
     
+    def _run_compose(self, *compose_args: str) -> bool:
+        if shutil.which("docker") is None:
+            raise DockerUnavailableError("The `docker` command was not found on your PATH.")
+        # Preflight the daemon so we surface one clean hint instead of letting
+        # a cryptic `docker` error reach the user on top of our own.
+        if not self._daemon_reachable():
+            raise DockerUnavailableError("The Docker daemon is not reachable.")
+        cmd = [
+            "docker", "compose",
+            "-f", str(self.compose_file_path),
+            "--env-file", str(self.env_file_path),
+            *compose_args,
+        ]
+        try:
+            subprocess.run(cmd, check=True)
+            return True
+        except FileNotFoundError as e:
+            raise DockerUnavailableError("The `docker` command was not found on your PATH.") from e
+        except subprocess.CalledProcessError:
+            # compose ran and printed its own error; don't double up.
+            return False
+
+    def _daemon_reachable(self) -> bool:
+        try:
+            _ = self.docker_client
+            return True
+        except DockerUnavailableError:
+            return False
+
     def build(self) -> bool:
-        try:
-            subprocess.run(
-                ["docker", "compose", "-f", self.compose_file_path, "--env-file", self.env_file_path, "build"],
-                check=True
-            )
-            return True
-        except Exception as e:
-            print(e)
-            return False
-        
+        return self._run_compose("build")
+
     def rebuild(self) -> bool:
-        try:
-            subprocess.run(
-                ["docker", "compose", "-f", self.compose_file_path, "--env-file", self.env_file_path, "down", "--remove-orphans", "--volumes"],
-                check=True
-            )
-            subprocess.run(
-                ["docker", "compose", "-f", self.compose_file_path, "--env-file", self.env_file_path, "build", "--no-cache"],
-                check=True
-            )
-            subprocess.run(
-                ["docker", "compose", "-f", self.compose_file_path, "--env-file", self.env_file_path, "up", "--detach"],
-                check=True
-            )
-            return True
-        except Exception as e:
-            print(e)
-            return False
-        
+        return (
+            self._run_compose("down", "--remove-orphans", "--volumes")
+            and self._run_compose("build", "--no-cache")
+            and self._run_compose("up", "--detach")
+        )
+
     def start(self) -> bool:
-        try:
-            subprocess.run(
-                ["docker", "compose", "-f", self.compose_file_path, "--env-file", self.env_file_path, "up", "--detach"],
-                check=True
-            )
-            return True
-        except Exception as e:
-            print(e)
-            return False
-        
+        return self._run_compose("up", "--detach")
+
     def clean(self) -> bool:
-        try:
-            subprocess.run(
-                ["docker", "compose", "-f", self.compose_file_path, "--env-file", self.env_file_path, "down", "--volumes", "--remove-orphans"],
-                check=True
-            )
-            return True
-        except Exception as e:
-            print(e)
-            return False
-        
+        return self._run_compose("down", "--volumes", "--remove-orphans")
+
     def stop(self) -> bool:
-        try:
-            subprocess.run(
-                ["docker","compose", "-f", self.compose_file_path, "--env-file", self.env_file_path, "stop"],
-                check=True
-            )
-            return True
-        except Exception as e:
-            print(e)
-            return False
+        return self._run_compose("stop")
 
 
     def update(self) -> bool:

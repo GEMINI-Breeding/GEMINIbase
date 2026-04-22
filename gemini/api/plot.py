@@ -20,13 +20,17 @@ This module includes the following methods:
 
 """
 
-from typing import Optional, List, TYPE_CHECKING
+from typing import Optional, List, Tuple, TYPE_CHECKING
 from uuid import UUID
 
 from pydantic import Field, AliasChoices
 import logging
+from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+
 from gemini.api.types import ID
 from gemini.api.base import APIBase
+from gemini.db.core.base import db_engine
 from gemini.db.models.plots import PlotModel
 from gemini.db.models.views.plot_view import PlotViewModel
 
@@ -191,7 +195,145 @@ class Plot(APIBase):
         except Exception as e:
             logger.error(f"Error creating plot: {e}")
             return None
-        
+
+    @classmethod
+    def create_bulk(cls, plots: List[dict]) -> Tuple[bool, int, int]:
+        """
+        Bulk-create plots in a small, fixed number of queries.
+
+        Resolves experiment / season / site / accession / population names to IDs
+        via one SELECT per entity type, then issues a single
+        ``INSERT ... ON CONFLICT DO NOTHING`` for all rows. This replaces the
+        per-plot path (5 SELECTs + 1 get_or_create per plot) used by
+        :meth:`create`, which does not scale for the import wizard where a
+        single spreadsheet can carry thousands of unique plots.
+
+        Args:
+            plots: A list of dicts matching ``PlotInput`` — each with
+                ``plot_number``, ``plot_row_number``, ``plot_column_number`` and
+                optional name-based references (``experiment_name``,
+                ``season_name``, ``site_name``, ``accession_name``,
+                ``population_name``) plus optional ``plot_info`` /
+                ``plot_geometry_info``.
+        Returns:
+            Tuple of (success, submitted_count, skipped_count). ``skipped_count``
+            counts rows whose required FKs (experiment / season / site) could
+            not be resolved.
+        """
+        try:
+            from gemini.db.models.experiments import ExperimentModel
+            from gemini.db.models.seasons import SeasonModel
+            from gemini.db.models.sites import SiteModel
+            from gemini.db.models.accessions import AccessionModel
+            from gemini.db.models.populations import PopulationModel
+
+            if not plots:
+                return True, 0, 0
+
+            experiment_names = {p.get("experiment_name") for p in plots if p.get("experiment_name")}
+            season_names = {p.get("season_name") for p in plots if p.get("season_name")}
+            site_names = {p.get("site_name") for p in plots if p.get("site_name")}
+            accession_names = {p.get("accession_name") for p in plots if p.get("accession_name")}
+            population_names = {p.get("population_name") for p in plots if p.get("population_name")}
+
+            with db_engine.get_session() as session:
+                exp_id_by_name: dict = {}
+                if experiment_names:
+                    rows = session.execute(
+                        select(ExperimentModel.id, ExperimentModel.experiment_name)
+                        .where(ExperimentModel.experiment_name.in_(experiment_names))
+                    ).all()
+                    exp_id_by_name = {r.experiment_name: r.id for r in rows}
+
+                season_id_by_key: dict = {}
+                if season_names and exp_id_by_name:
+                    rows = session.execute(
+                        select(SeasonModel.id, SeasonModel.season_name, SeasonModel.experiment_id)
+                        .where(SeasonModel.season_name.in_(season_names))
+                        .where(SeasonModel.experiment_id.in_(list(exp_id_by_name.values())))
+                    ).all()
+                    season_id_by_key = {(r.season_name, r.experiment_id): r.id for r in rows}
+
+                site_id_by_name: dict = {}
+                if site_names:
+                    rows = session.execute(
+                        select(SiteModel.id, SiteModel.site_name)
+                        .where(SiteModel.site_name.in_(site_names))
+                    ).all()
+                    site_id_by_name = {r.site_name: r.id for r in rows}
+
+                acc_id_by_name: dict = {}
+                if accession_names:
+                    rows = session.execute(
+                        select(AccessionModel.id, AccessionModel.accession_name)
+                        .where(AccessionModel.accession_name.in_(accession_names))
+                    ).all()
+                    acc_id_by_name = {r.accession_name: r.id for r in rows}
+
+                pop_id_by_name: dict = {}
+                if population_names:
+                    rows = session.execute(
+                        select(PopulationModel.id, PopulationModel.population_name)
+                        .where(PopulationModel.population_name.in_(population_names))
+                    ).all()
+                    pop_id_by_name = {r.population_name: r.id for r in rows}
+
+            rows_to_insert = []
+            skipped = 0
+            for p in plots:
+                exp_name = p.get("experiment_name")
+                experiment_id = exp_id_by_name.get(exp_name) if exp_name else None
+                season_id = (
+                    season_id_by_key.get((p.get("season_name"), experiment_id))
+                    if experiment_id and p.get("season_name")
+                    else None
+                )
+                site_id = site_id_by_name.get(p.get("site_name")) if p.get("site_name") else None
+
+                if experiment_id is None or season_id is None or site_id is None:
+                    skipped += 1
+                    continue
+
+                rows_to_insert.append({
+                    "plot_number": p["plot_number"],
+                    "plot_row_number": p["plot_row_number"],
+                    "plot_column_number": p["plot_column_number"],
+                    "experiment_id": experiment_id,
+                    "season_id": season_id,
+                    "site_id": site_id,
+                    "accession_id": acc_id_by_name.get(p.get("accession_name")) if p.get("accession_name") else None,
+                    "population_id": pop_id_by_name.get(p.get("population_name")) if p.get("population_name") else None,
+                    "plot_info": p.get("plot_info") or {},
+                    "plot_geometry_info": p.get("plot_geometry_info") or {},
+                })
+
+            if skipped:
+                logger.warning(
+                    f"Skipping {skipped}/{len(plots)} plots with unresolved experiment/season/site references."
+                )
+
+            if not rows_to_insert:
+                return True, 0, skipped
+
+            with db_engine.get_session() as session:
+                stmt = pg_insert(PlotModel.__table__).values(rows_to_insert).on_conflict_do_nothing(
+                    index_elements=[
+                        "experiment_id",
+                        "season_id",
+                        "site_id",
+                        "plot_number",
+                        "plot_row_number",
+                        "plot_column_number",
+                    ]
+                )
+                session.execute(stmt)
+
+            logger.info(f"Bulk-inserted {len(rows_to_insert)} plots ({skipped} skipped).")
+            return True, len(rows_to_insert), skipped
+        except Exception as e:
+            logger.error(f"Error bulk-creating plots: {e}")
+            return False, 0, len(plots)
+
     @classmethod
     def get(
         cls,

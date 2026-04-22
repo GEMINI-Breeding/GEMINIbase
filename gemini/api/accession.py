@@ -116,6 +116,8 @@ class Accession(APIBase):
         species: str = None,
         accession_info: dict = None,
         line_id: UUID = None,
+        include_aliases: bool = False,
+        experiment_id: UUID = None,
     ) -> Optional[List["Accession"]]:
         try:
             if not any([accession_name, species, accession_info, line_id]):
@@ -126,8 +128,17 @@ class Accession(APIBase):
                 species=species,
                 accession_info=accession_info,
                 line_id=line_id,
-            )
-            if not accessions or len(accessions) == 0:
+            ) or []
+            if include_aliases and accession_name:
+                from gemini.api.germplasm_resolver import resolve_germplasm
+                hit = resolve_germplasm([accession_name], experiment_id=experiment_id)
+                if hit and hit[0].accession_id:
+                    existing_ids = {str(a.id) for a in accessions}
+                    if hit[0].accession_id not in existing_ids:
+                        extra = AccessionModel.get(hit[0].accession_id)
+                        if extra is not None:
+                            accessions = list(accessions) + [extra]
+            if not accessions:
                 return None
             return [cls.model_validate(a) for a in accessions]
         except Exception as e:
@@ -142,7 +153,11 @@ class Accession(APIBase):
             db_instance = AccessionModel.get(self.id)
             if not db_instance:
                 return None
+            rename = accession_name is not None and accession_name != db_instance.accession_name
             db_instance = AccessionModel.update(db_instance, accession_name=accession_name, species=species, accession_info=accession_info)
+            if rename:
+                from gemini.api._rename_cascade import cascade_rename
+                cascade_rename(self.id, "accession_id", "accession_name", accession_name)
             accession = self.model_validate(db_instance)
             self.refresh()
             return accession

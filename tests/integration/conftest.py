@@ -125,6 +125,7 @@ def clean_db(setup_real_db):
         "gemini.sensors", "gemini.sensor_platforms",
         "gemini.scripts", "gemini.models", "gemini.procedures",
         "gemini.datasets", "gemini.traits",
+        "gemini.accession_aliases",
         "gemini.accessions", "gemini.populations", "gemini.lines",
         "gemini.resources",
         "gemini.variants", "gemini.genotyping_studies",

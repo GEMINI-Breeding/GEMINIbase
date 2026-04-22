@@ -31,7 +31,8 @@ class TestGetAllVariants:
     def test_empty(self, mock_cls, test_client):
         mock_cls.get_all.return_value = None
         response = test_client.get("/api/variants/all")
-        assert response.status_code == 404
+        assert response.status_code == 200
+        assert response.json() == []
 
     @patch(API_PATH)
     def test_exception(self, mock_cls, test_client):
@@ -51,7 +52,8 @@ class TestGetVariants:
     def test_search_empty(self, mock_cls, test_client):
         mock_cls.search.return_value = None
         response = test_client.get("/api/variants/?chromosome=99")
-        assert response.status_code == 404
+        assert response.status_code == 200
+        assert response.json() == []
 
 
 class TestGetVariantById:

@@ -81,6 +81,35 @@ CREATE TABLE IF NOT EXISTS gemini.accessions (
 CREATE INDEX IF NOT EXISTS idx_accessions_info ON gemini.accessions USING GIN (accession_info);
 ALTER TABLE gemini.accessions ADD CONSTRAINT accession_unique UNIQUE (accession_name);
 
+CREATE TABLE IF NOT EXISTS gemini.accession_aliases (
+    id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+    alias VARCHAR(255) NOT NULL,
+    accession_id uuid REFERENCES gemini.accessions(id) ON DELETE CASCADE,
+    line_id uuid REFERENCES gemini.lines(id) ON DELETE CASCADE,
+    scope VARCHAR(16) NOT NULL DEFAULT 'global',
+    experiment_id uuid REFERENCES gemini.experiments(id) ON DELETE CASCADE,
+    source VARCHAR(512),
+    alias_info JSONB DEFAULT '{}',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT accession_alias_scope_check CHECK (scope IN ('global','experiment')),
+    CONSTRAINT accession_alias_target_check CHECK (
+        (accession_id IS NOT NULL)::int + (line_id IS NOT NULL)::int = 1
+    ),
+    CONSTRAINT accession_alias_scope_experiment_check CHECK (
+        (scope = 'experiment') = (experiment_id IS NOT NULL)
+    )
+);
+CREATE UNIQUE INDEX IF NOT EXISTS accession_alias_unique
+    ON gemini.accession_aliases (scope, experiment_id, lower(alias))
+    NULLS NOT DISTINCT;
+CREATE INDEX IF NOT EXISTS idx_accession_aliases_lower_alias
+    ON gemini.accession_aliases (lower(alias));
+CREATE INDEX IF NOT EXISTS idx_accession_aliases_exp_lower_alias
+    ON gemini.accession_aliases (experiment_id, lower(alias));
+CREATE INDEX IF NOT EXISTS idx_accession_aliases_info
+    ON gemini.accession_aliases USING GIN (alias_info);
+
 CREATE TABLE IF NOT EXISTS gemini.populations (
     id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
     population_name VARCHAR(255) NOT NULL,

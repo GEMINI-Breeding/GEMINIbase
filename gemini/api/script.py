@@ -309,6 +309,7 @@ class Script(APIBase):
             if not script:
                 logger.warning(f"Script with ID {current_id} does not exist.")
                 return None
+            rename = script_name is not None and script_name != script.script_name
             script = ScriptModel.update(
                 script,
                 script_name=script_name,
@@ -316,6 +317,9 @@ class Script(APIBase):
                 script_extension=script_extension,
                 script_info=script_info
             )
+            if rename:
+                from gemini.api._rename_cascade import cascade_rename
+                cascade_rename(current_id, "script_id", "script_name", script_name)
             script = self.model_validate(script)
             self.refresh()
             return script
@@ -342,7 +346,18 @@ class Script(APIBase):
             if not script:
                 logger.warning(f"Script with ID {current_id} does not exist.")
                 return False
+
+            experiments = self.get_associated_experiments() or []
+            prefixes = [
+                f"script_data/{exp.experiment_name}/{self.script_name}/"
+                for exp in experiments
+                if getattr(exp, "experiment_name", None)
+            ]
+
             ScriptModel.delete(script)
+
+            from gemini.api.base import sweep_minio_prefixes
+            sweep_minio_prefixes(prefixes)
             return True
         except Exception as e:
             logger.error(f"Error deleting script: {e}")

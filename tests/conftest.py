@@ -18,12 +18,27 @@ import pytest
 # ============================================================
 # PHASE 1: Patch Docker SDK before gemini.manager is imported
 # ============================================================
-mock_docker_module = MagicMock()
+import types as _types_docker
+mock_docker_module = _types_docker.ModuleType("docker")
 mock_docker_client = MagicMock()
 mock_docker_client.containers.list.return_value = []
-mock_docker_module.from_env.return_value = mock_docker_client
+mock_docker_module.from_env = MagicMock(return_value=mock_docker_client)
 mock_docker_module.DockerClient = type(mock_docker_client)
+
+mock_docker_errors = _types_docker.ModuleType("docker.errors")
+class _DockerException(Exception):
+    pass
+class _APIError(_DockerException):
+    pass
+class _NotFound(_DockerException):
+    pass
+mock_docker_errors.DockerException = _DockerException
+mock_docker_errors.APIError = _APIError
+mock_docker_errors.NotFound = _NotFound
+mock_docker_module.errors = mock_docker_errors
+
 sys.modules["docker"] = mock_docker_module
+sys.modules["docker.errors"] = mock_docker_errors
 
 # ============================================================
 # PHASE 2: Set environment variables for GEMINISettings

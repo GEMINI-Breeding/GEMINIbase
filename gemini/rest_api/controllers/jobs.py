@@ -145,12 +145,7 @@ class JobController(Controller):
             else:
                 jobs = Job.get_all(limit=limit, offset=offset)
 
-            if jobs is None:
-                return Response(
-                    content=RESTAPIError(error="No jobs found", error_description="No jobs found"),
-                    status_code=404,
-                )
-            return jobs
+            return jobs or []
         except Exception as e:
             return Response(
                 content=RESTAPIError(error=str(e), error_description="Failed to list jobs"),

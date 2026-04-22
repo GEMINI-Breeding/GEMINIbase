@@ -36,7 +36,8 @@ class TestGetAllPlots:
     def test_not_found(self, mock_cls, test_client):
         mock_cls.get_all.return_value = None
         response = test_client.get("/api/plots/all")
-        assert response.status_code == 404
+        assert response.status_code == 200
+        assert response.json() == []
 
     @patch(PLOT_API_PATH)
     def test_error(self, mock_cls, test_client):
@@ -57,7 +58,8 @@ class TestGetPlots:
     def test_search_not_found(self, mock_cls, test_client):
         mock_cls.search.return_value = None
         response = test_client.get("/api/plots", params={"plot_number": 999})
-        assert response.status_code == 404
+        assert response.status_code == 200
+        assert response.json() == []
 
 
 class TestGetPlotById:

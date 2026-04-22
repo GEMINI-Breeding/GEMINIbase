@@ -28,7 +28,8 @@ class TestGetAllSensorPlatforms:
     def test_not_found(self, mock_cls, test_client):
         mock_cls.get_all.return_value = None
         response = test_client.get("/api/sensor_platforms/all")
-        assert response.status_code == 404
+        assert response.status_code == 200
+        assert response.json() == []
 
     @patch(API_PATH)
     def test_error(self, mock_cls, test_client):
@@ -49,7 +50,8 @@ class TestGetSensorPlatforms:
     def test_search_not_found(self, mock_cls, test_client):
         mock_cls.search.return_value = None
         response = test_client.get("/api/sensor_platforms", params={"sensor_platform_name": "Missing"})
-        assert response.status_code == 404
+        assert response.status_code == 200
+        assert response.json() == []
 
 
 class TestGetSensorPlatformById:

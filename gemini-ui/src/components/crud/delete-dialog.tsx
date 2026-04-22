@@ -37,7 +37,7 @@ export function DeleteDialog({
           </DialogDescription>
         </DialogHeader>
         <DialogFooter className="mt-4">
-          <Button variant="outline" onClick={onClose} disabled={isLoading} data-testid="cancel-delete">
+          <Button variant="outline" onClick={onClose} data-testid="cancel-delete">
             Cancel
           </Button>
           <Button variant="destructive" onClick={onConfirm} disabled={isLoading} data-testid="confirm-delete">

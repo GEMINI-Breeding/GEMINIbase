@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 import { useForm } from 'react-hook-form'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -27,7 +27,7 @@ interface EntityFormProps {
 
 export function EntityForm({
   fields,
-  defaultValues = {},
+  defaultValues,
   onSubmit,
   onCancel,
   isLoading,
@@ -45,20 +45,33 @@ export function EntityForm({
     }, {})
   }
 
+  // Callers often pass the defaults as an object literal (or omit the prop
+  // entirely, in which case the old `defaultValues = {}` parameter default
+  // was a fresh object every render). Either case would make `[defaultValues]`
+  // a changing dep and trigger an infinite reset → re-render loop via
+  // react-hook-form. Serialize once per render and key the reset effect on
+  // that stable string instead.
+  const defaultValuesKey = useMemo(
+    () => JSON.stringify(defaultValues ?? {}),
+    [defaultValues],
+  )
+
   const {
     register,
     handleSubmit,
     reset,
     formState: { errors },
   } = useForm<Record<string, unknown>>({
-    defaultValues: computeValues(defaultValues),
+    defaultValues: computeValues(defaultValues ?? {}),
   })
 
   useEffect(() => {
-    if (defaultValues) {
-      reset(computeValues(defaultValues))
-    }
-  }, [defaultValues]) // eslint-disable-line react-hooks/exhaustive-deps
+    reset(computeValues(defaultValues ?? {}))
+    // `defaultValues` is captured via closure; we deliberately key the effect
+    // on its serialized contents so re-renders with an equivalent-but-new
+    // object reference don't retrigger reset.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [defaultValuesKey])
 
   function processSubmit(data: Record<string, unknown>) {
     const processed = { ...data }

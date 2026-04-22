@@ -78,6 +78,46 @@ class APIBase(BaseModel):
     def refresh(self):
         pass
 
+def sweep_minio_prefixes(prefixes: list[str]) -> list[str]:
+    """Idempotently delete every object under each given MinIO prefix.
+
+    Called from entity ``delete()`` methods AFTER the DB transaction
+    commits, so removing a Dataset/Experiment/Sensor/… also cleans up
+    the files it owns. Failures here are best-effort: the DB delete is
+    the source of truth, a stale prefix is recoverable, but a partial
+    DB delete is not. We log failures at ERROR with the prefix so an
+    operator can re-run the sweep by hand, and return the list of
+    failed prefixes so the caller can surface a single summary line
+    (the experiment no longer exists at that point, so this is the
+    only place the orphan is recorded).
+    """
+    import time
+    failed: list[str] = []
+    for prefix in prefixes:
+        if not prefix:
+            continue
+        t0 = time.monotonic()
+        try:
+            removed = minio_storage_provider.delete_prefix(prefix)
+            elapsed = time.monotonic() - t0
+            # Always log duration so a stuck prefix is visible even when
+            # the call eventually returns 0 — the delay, not the count,
+            # is the signal we care about here.
+            logger.info(
+                f"Swept {removed} MinIO object(s) under prefix {prefix!r} in {elapsed:.2f}s."
+            )
+        except Exception as e:
+            elapsed = time.monotonic() - t0
+            failed.append(prefix)
+            logger.error(
+                f"ORPHANED MinIO prefix {prefix!r} — sweep failed after "
+                f"{elapsed:.2f}s: {e}. Clean up manually with "
+                f"`mc rm -r --force <alias>/<bucket>/{prefix}` or re-run "
+                f"the sweep once the storage issue is resolved."
+            )
+    return failed
+
+
 class FileHandlerMixin(BaseModel):
 
     model_config = ConfigDict(

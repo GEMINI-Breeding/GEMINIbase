@@ -46,13 +46,7 @@ class DatasetController(Controller):
     def get_all_datasets(self, limit: int = 100, offset: int = 0) -> List[DatasetOutput]:
         try:
             datasets = Dataset.get_all(limit=limit, offset=offset)
-            if datasets is None:
-                error = RESTAPIError(
-                    error="No datasets found",
-                    error_description="No datasets were found"
-                )
-                return Response(content=error, status_code=404)
-            return datasets
+            return datasets or []
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),
@@ -81,13 +75,7 @@ class DatasetController(Controller):
                 experiment_name=experiment_name,
                 collection_date=collection_date
             )
-            if datasets is None:
-                error = RESTAPIError(
-                    error="No datasets found",
-                    error_description="No datasets were found with the given search criteria"
-                )
-                return Response(content=error, status_code=404)
-            return datasets
+            return datasets or []
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),
@@ -218,14 +206,7 @@ class DatasetController(Controller):
                     error_description="No dataset was found with the given ID"
                 )
                 return Response(content=error, status_code=404)
-            experiments = dataset.get_associated_experiments()
-            if experiments is None:
-                error = RESTAPIError(
-                    error="No experiments found",
-                    error_description="No experiments were found associated with the dataset"
-                )
-                return Response(content=error, status_code=404)
-            return experiments
+            return dataset.get_associated_experiments() or []
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),

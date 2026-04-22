@@ -22,13 +22,7 @@ class DatasetTypeController(Controller):
     def get_all_dataset_types(self, limit: int = 100, offset: int = 0) -> List[DatasetTypeOutput]:
         try:
             dataset_types = DatasetType.get_all(limit=limit, offset=offset)
-            if dataset_types is None:
-                error = RESTAPIError(
-                    error="No dataset types found",
-                    error_description="No dataset types were found"
-                )
-                return Response(content=error, status_code=404)
-            return dataset_types
+            return dataset_types or []
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),
@@ -51,13 +45,7 @@ class DatasetTypeController(Controller):
                 dataset_type_name=dataset_type_name,
                 dataset_type_info=dataset_type_info
             )
-            if dataset_types is None:
-                error = RESTAPIError(
-                    error="No dataset types found",
-                    error_description="No dataset types were found with the given search criteria"
-                )
-                return Response(content=error, status_code=404)
-            return dataset_types
+            return dataset_types or []
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),

@@ -6,7 +6,16 @@ from litestar.controller import Controller
 from pydantic import BaseModel
 
 from gemini.api.plot import Plot
-from gemini.rest_api.models import PlotInput, PlotOutput, PlotUpdate, RESTAPIError, JSONB, str_to_dict
+from gemini.rest_api.models import (
+    PlotInput,
+    PlotOutput,
+    PlotUpdate,
+    PlotBulkInput,
+    PlotBulkResponse,
+    RESTAPIError,
+    JSONB,
+    str_to_dict,
+)
 from gemini.rest_api.models import (
     AccessionOutput,
     PopulationOutput,
@@ -25,13 +34,7 @@ class PlotController(Controller):
     def get_all_plots(self, limit: int = 100, offset: int = 0) -> List[PlotOutput]:
         try:
             plots = Plot.get_all(limit=limit, offset=offset)
-            if plots is None:
-                error = RESTAPIError(
-                    error="No plots found",
-                    error_description="No plots were found"
-                )
-                return Response(content=error, status_code=404)
-            return plots
+            return plots or []
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),
@@ -61,13 +64,7 @@ class PlotController(Controller):
                 site_name=site_name
             )
 
-            if plots is None:
-                error = RESTAPIError(
-                    error="No plots found",
-                    error_description="No plots were found with the given search criteria"
-                )
-                return Response(content=error, status_code=404)
-            return plots
+            return plots or []
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),
@@ -128,6 +125,36 @@ class PlotController(Controller):
             )
             return Response(content=error, status_code=500)
         
+    # Bulk-create Plots
+    #
+    # The import wizard pre-creates thousands of plots before ingesting
+    # trait records. The single-plot POST route resolves five name-keyed
+    # FKs per request (experiment/season/site/accession/population), so
+    # a 3k-plot spreadsheet fired ~20k queries across ~3k HTTP round
+    # trips. This endpoint collapses that into 5 batched SELECTs plus one
+    # INSERT ... ON CONFLICT DO NOTHING.
+    @post(path="/bulk", sync_to_thread=True)
+    def create_plots_bulk(
+        self,
+        data: Annotated[PlotBulkInput, Body]
+    ) -> PlotBulkResponse:
+        try:
+            plot_dicts = [p.model_dump() for p in data.plots]
+            success, submitted, skipped = Plot.create_bulk(plot_dicts)
+            if not success:
+                error = RESTAPIError(
+                    error="Bulk plot creation failed",
+                    error_description="The plots could not be created"
+                )
+                return Response(content=error, status_code=500)
+            return PlotBulkResponse(submitted_count=submitted, skipped_count=skipped)
+        except Exception as e:
+            error = RESTAPIError(
+                error=str(e),
+                error_description="An error occurred while bulk-creating plots"
+            )
+            return Response(content=error, status_code=500)
+
     # Update Plot
     @patch(path="/id/{plot_id:str}", sync_to_thread=True)
     def update_plot(

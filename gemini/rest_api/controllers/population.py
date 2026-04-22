@@ -24,13 +24,7 @@ class PopulationController(Controller):
     def get_all_populations(self, limit: int = 100, offset: int = 0) -> List[PopulationOutput]:
         try:
             populations = Population.get_all(limit=limit, offset=offset)
-            if populations is None:
-                error = RESTAPIError(
-                    error="No populations found in the database",
-                    error_description="There are no populations available in the database"
-                )
-                return Response(content=error, status_code=404)
-            return populations
+            return populations or []
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),
@@ -59,13 +53,7 @@ class PopulationController(Controller):
                 population_info=population_info,
                 experiment_name=experiment_name,
             )
-            if populations is None:
-                error= RESTAPIError(
-                    error="No populations found",
-                    error_description="No populations were found with the given search criteria"
-                )
-                return Response(content=error, status_code=404)
-            return populations
+            return populations or []
         except Exception as e:
             error_message = RESTAPIError(
                 error=str(e),
@@ -196,14 +184,7 @@ class PopulationController(Controller):
                     error_description="The population with the given ID was not found"
                 )
                 return Response(content=error, status_code=404)
-            experiments = population.get_associated_experiments()
-            if not experiments:
-                error = RESTAPIError(
-                    error="No associated experiments found",
-                    error_description="The population has no associated experiments"
-                )
-                return Response(content=error, status_code=404)
-            return experiments
+            return population.get_associated_experiments() or []
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),

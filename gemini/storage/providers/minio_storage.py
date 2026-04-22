@@ -239,6 +239,41 @@ class MinioStorageProvider(StorageProvider):
         except Exception as e:
             raise StorageDownloadError(f"Unexpected error during download: {e}")
 
+    def delete_prefix(self, prefix: str, bucket_name: Optional[str] = None) -> int:
+        """Bulk-delete every object under ``prefix``.
+
+        MinIO has no real directories; a "folder" is just a shared key
+        prefix. This is the entity-cascade cleanup path — single-file
+        deletes should use ``delete_file``.
+
+        Returns the number of objects removed. A missing prefix is not an
+        error: returns 0.
+        """
+        from minio.deleteobjects import DeleteObject
+
+        bucket = self.bucket_name if bucket_name is None else bucket_name
+        try:
+            objects = list(self.client.list_objects(
+                bucket_name=bucket,
+                prefix=prefix,
+                recursive=True,
+            ))
+            if not objects:
+                return 0
+            delete_targets = [DeleteObject(obj.object_name) for obj in objects]
+            errors = list(self.client.remove_objects(
+                bucket_name=bucket,
+                delete_object_list=iter(delete_targets),
+            ))
+            removed = len(delete_targets) - len(errors)
+            return removed
+        except S3Error as e:
+            if 'AccessDenied' in str(e):
+                raise StorageAuthError(f"Access denied while deleting prefix: {e}")
+            raise StorageDeleteError(f"Failed to delete prefix {prefix}: {e}")
+        except ConnectionError as e:
+            raise StorageConnectionError(f"Connection failed during prefix deletion: {e}")
+
     def delete_file(self, object_name: str, bucket_name: str = None) -> bool:
         """Delete a file from MinIO storage.
         

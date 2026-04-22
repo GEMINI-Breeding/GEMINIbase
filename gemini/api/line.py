@@ -94,6 +94,8 @@ class Line(APIBase):
         line_name: str = None,
         species: str = None,
         line_info: dict = None,
+        include_aliases: bool = False,
+        experiment_id: UUID = None,
     ) -> Optional[List["Line"]]:
         try:
             if not any([line_name, species, line_info]):
@@ -103,8 +105,17 @@ class Line(APIBase):
                 line_name=line_name,
                 species=species,
                 line_info=line_info,
-            )
-            if not lines or len(lines) == 0:
+            ) or []
+            if include_aliases and line_name:
+                from gemini.api.germplasm_resolver import resolve_germplasm
+                hit = resolve_germplasm([line_name], experiment_id=experiment_id)
+                if hit and hit[0].line_id:
+                    existing_ids = {str(l.id) for l in lines}
+                    if hit[0].line_id not in existing_ids:
+                        extra = LineModel.get(hit[0].line_id)
+                        if extra is not None:
+                            lines = list(lines) + [extra]
+            if not lines:
                 return None
             return [cls.model_validate(l) for l in lines]
         except Exception as e:

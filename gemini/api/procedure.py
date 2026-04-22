@@ -286,11 +286,15 @@ class Procedure(APIBase):
             if not procedure:
                 logger.warning(f"Procedure with ID {current_id} does not exist.")
                 return None
+            rename = procedure_name is not None and procedure_name != procedure.procedure_name
             procedure = ProcedureModel.update(
                 procedure,
                 procedure_name=procedure_name,
                 procedure_info=procedure_info
             )
+            if rename:
+                from gemini.api._rename_cascade import cascade_rename
+                cascade_rename(current_id, "procedure_id", "procedure_name", procedure_name)
             procedure = self.model_validate(procedure)
             self.refresh()
             return procedure
@@ -317,7 +321,18 @@ class Procedure(APIBase):
             if not procedure:
                 logger.warning(f"Procedure with ID {current_id} does not exist.")
                 return False
+
+            experiments = self.get_associated_experiments() or []
+            prefixes = [
+                f"procedure_data/{exp.experiment_name}/{self.procedure_name}/"
+                for exp in experiments
+                if getattr(exp, "experiment_name", None)
+            ]
+
             ProcedureModel.delete(procedure)
+
+            from gemini.api.base import sweep_minio_prefixes
+            sweep_minio_prefixes(prefixes)
             return True
         except Exception as e:
             logger.error(f"Error deleting procedure: {e}")

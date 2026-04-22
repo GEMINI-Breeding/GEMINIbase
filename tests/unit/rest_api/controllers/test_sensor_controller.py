@@ -35,7 +35,8 @@ class TestGetAllSensors:
     def test_not_found(self, mock_cls, test_client):
         mock_cls.get_all.return_value = None
         response = test_client.get("/api/sensors/all")
-        assert response.status_code == 404
+        assert response.status_code == 200
+        assert response.json() == []
 
     @patch(API_PATH)
     def test_error(self, mock_cls, test_client):
@@ -56,7 +57,8 @@ class TestGetSensors:
     def test_search_not_found(self, mock_cls, test_client):
         mock_cls.search.return_value = None
         response = test_client.get("/api/sensors", params={"sensor_name": "Missing"})
-        assert response.status_code == 404
+        assert response.status_code == 200
+        assert response.json() == []
 
     @patch(API_PATH)
     def test_search_error(self, mock_cls, test_client):
@@ -206,7 +208,8 @@ class TestSensorAssociations:
         mock_obj.get_associated_experiments.return_value = None
         mock_cls.get_by_id.return_value = mock_obj
         response = test_client.get("/api/sensors/id/sensor-uuid/experiments")
-        assert response.status_code == 404
+        assert response.status_code == 200
+        assert response.json() == []
 
     @patch(API_PATH)
     def test_get_experiments_error(self, mock_cls, test_client):
@@ -226,7 +229,8 @@ class TestSensorAssociations:
         mock_obj.get_associated_sensor_platforms.return_value = None
         mock_cls.get_by_id.return_value = mock_obj
         response = test_client.get("/api/sensors/id/sensor-uuid/sensor_platforms")
-        assert response.status_code == 404
+        assert response.status_code == 200
+        assert response.json() == []
 
     @patch(API_PATH)
     def test_get_sensor_platforms_error(self, mock_cls, test_client):
@@ -246,7 +250,8 @@ class TestSensorAssociations:
         mock_obj.get_associated_datasets.return_value = None
         mock_cls.get_by_id.return_value = mock_obj
         response = test_client.get("/api/sensors/id/sensor-uuid/datasets")
-        assert response.status_code == 404
+        assert response.status_code == 200
+        assert response.json() == []
 
     @patch(API_PATH)
     def test_get_datasets_error(self, mock_cls, test_client):

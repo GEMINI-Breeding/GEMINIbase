@@ -57,13 +57,7 @@ class ModelController(Controller):
     def get_all_models(self, limit: int = 100, offset: int = 0) -> List[ModelOutput]:
         try:
             models = Model.get_all(limit=limit, offset=offset)
-            if models is None:
-                error = RESTAPIError(
-                    error="No models found",
-                    error_description="No models were found"
-                )
-                return Response(content=error, status_code=404)
-            return models
+            return models or []
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),
@@ -89,13 +83,7 @@ class ModelController(Controller):
                 model_url=model_url,
                 experiment_name=experiment_name
             )
-            if models is None:
-                error = RESTAPIError(
-                    error="No models found",
-                    error_description="No models were found with the given search criteria"
-                )
-                return Response(content=error, status_code=404)
-            return models
+            return models or []
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),
@@ -226,14 +214,7 @@ class ModelController(Controller):
                     error_description="The model with the given ID was not found"
                 )
                 return Response(content=error, status_code=404)
-            experiments = model.get_associated_experiments()
-            if experiments is None:
-                error = RESTAPIError(
-                    error="No model experiments found",
-                    error_description="No model experiments were found for the given model"
-                )
-                return Response(content=error, status_code=404)
-            return experiments
+            return model.get_associated_experiments() or []
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),
@@ -254,14 +235,7 @@ class ModelController(Controller):
                     error_description="The model with the given ID was not found"
                 )
                 return Response(content=error, status_code=404)
-            model_runs = model.get_associated_runs()
-            if model_runs is None:
-                error = RESTAPIError(
-                    error="No model runs found",
-                    error_description="No model runs were found for the given model"
-                )
-                return Response(content=error, status_code=404)
-            return model_runs
+            return model.get_associated_runs() or []
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),
@@ -282,14 +256,7 @@ class ModelController(Controller):
                     error_description="The model with the given ID was not found"
                 )
                 return Response(content=error, status_code=404)
-            model_datasets = model.get_associated_datasets()
-            if model_datasets is None:
-                error = RESTAPIError(
-                    error="No model datasets found",
-                    error_description="No model datasets were found for the given model"
-                )
-                return Response(content=error, status_code=404)
-            return model_datasets
+            return model.get_associated_datasets() or []
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),

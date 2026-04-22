@@ -264,22 +264,21 @@ class TraitRecord(APIBase):
         Returns:
             tuple[bool, List[str]]: Success status and list of inserted record IDs.
         """
-        try:
-            if not records or len(records) == 0:
-                logger.info(f"No records provided to insert.")
-                return False, []
-            records_to_insert = []
-            for record in records:
-                record_dict = record.model_dump()
-                record_dict = {k: v for k, v in record_dict.items() if v is not None}
-                records_to_insert.append(record_dict)
-            logger.info(f"Inserting {len(records_to_insert)} TraitRecords.")
-            inserted_record_ids = TraitRecordModel.insert_bulk('trait_records_unique', records_to_insert)
-            logger.info(f"Inserted {len(inserted_record_ids)} TraitRecords.")
-            return True, inserted_record_ids
-        except Exception as e:
-            logger.error(f"Error inserting TraitRecords: {e}")
+        if not records or len(records) == 0:
+            logger.info(f"No records provided to insert.")
             return False, []
+        records_to_insert = []
+        for record in records:
+            record_dict = record.model_dump()
+            record_dict = {k: v for k, v in record_dict.items() if v is not None}
+            records_to_insert.append(record_dict)
+        logger.info(f"Inserting {len(records_to_insert)} TraitRecords.")
+        # Deliberately does NOT swallow DB errors: Postgres trigger RAISEs
+        # (e.g. "No matching plot found for the given parameters") carry the
+        # actual cause the caller needs to surface to the user.
+        inserted_record_ids = TraitRecordModel.insert_bulk('trait_records_unique', records_to_insert)
+        logger.info(f"Inserted {len(inserted_record_ids)} TraitRecords.")
+        return True, inserted_record_ids
         
     @classmethod
     def get(

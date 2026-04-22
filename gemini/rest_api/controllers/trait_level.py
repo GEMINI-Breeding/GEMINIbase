@@ -15,13 +15,7 @@ class TraitLevelController(Controller):
     def get_all_trait_levels(self, limit: int = 100, offset: int = 0) -> List[TraitLevelOutput]:
         try:
             trait_levels = TraitLevel.get_all(limit=limit, offset=offset)
-            if trait_levels is None:
-                error = RESTAPIError(
-                    error="No trait levels found",
-                    error_description="No trait levels were found"
-                )
-                return Response(content=error, status_code=404)
-            return trait_levels
+            return trait_levels or []
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),
@@ -45,13 +39,7 @@ class TraitLevelController(Controller):
                 trait_level_info=trait_level_info
             )
 
-            if trait_levels is None:
-                error = RESTAPIError(
-                    error="No trait levels found",
-                    error_description="No trait levels were found with the given search criteria"
-                )
-                return Response(content=error, status_code=404)
-            return trait_levels
+            return trait_levels or []
         except Exception as e:
             error_message = RESTAPIError(
                 error=str(e),

@@ -63,6 +63,7 @@ pytest-mock = ">=3.14.0,<4.0.0"
 pytest-xdist = ">=3.5.0,<4.0.0"
 factory-boy = ">=3.3.0,<4.0.0"
 faker = ">=28.0.0,<30.0.0"
+pillow = ">=10.0.0,<12.0.0"
 
 [tool.poetry.scripts]
 gemini = "gemini.cli.__main__:cli"

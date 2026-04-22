@@ -30,38 +30,55 @@ async function safeList<T>(fn: () => Promise<T[]>): Promise<T[]> {
   }
 }
 
+async function safeDelete(fn: () => Promise<void>): Promise<void> {
+  try {
+    await fn()
+  } catch {
+    // already gone or inaccessible — safe to ignore
+  }
+}
+
 async function cleanupOrphans(datasetId: string) {
   const experiments = await safeList(() => datasetsApi.getExperiments(datasetId))
 
-  await datasetsApi.remove(datasetId)
+  // Dataset delete on the backend already cascades its MinIO prefix.
+  await safeDelete(() => datasetsApi.remove(datasetId))
 
+  // For each experiment the dataset was linked to: if no datasets remain
+  // under it, delete the experiment (backend cascades its files too).
   for (const exp of experiments) {
     if (!exp.id) continue
     const remainingDatasets = await safeList(() => experimentsApi.getDatasets(exp.id!))
     if (remainingDatasets.length > 0) continue
+    await safeDelete(() => experimentsApi.remove(exp.id!))
+  }
 
-    const [traits, populations] = await Promise.all([
-      safeList(() => experimentsApi.getTraits(exp.id!)),
-      safeList(() => experimentsApi.getPopulations(exp.id!)),
-    ])
+  // Global orphan sweep — catches traits/populations/datasets left over from
+  // partial prior deletes.
+  await sweepOrphans()
+}
 
-    for (const trait of traits) {
-      if (!trait.id) continue
-      const traitExps = await traitsApi.getExperiments(trait.id)
-      if (traitExps.length <= 1) {
-        await traitsApi.remove(trait.id)
-      }
-    }
+async function sweepOrphans() {
+  const [traits, populations, datasets] = await Promise.all([
+    safeList(() => traitsApi.getAll(500, 0)),
+    safeList(() => populationsApi.getAll(500, 0)),
+    safeList(() => datasetsApi.getAll(500, 0)),
+  ])
 
-    for (const pop of populations) {
-      if (!pop.id) continue
-      const popExps = await populationsApi.getExperiments(pop.id)
-      if (popExps.length <= 1) {
-        await populationsApi.remove(pop.id)
-      }
-    }
-
-    await experimentsApi.remove(exp.id)
+  for (const trait of traits) {
+    if (!trait.id) continue
+    const exps = await safeList(() => traitsApi.getExperiments(trait.id!))
+    if (exps.length === 0) await safeDelete(() => traitsApi.remove(trait.id!))
+  }
+  for (const pop of populations) {
+    if (!pop.id) continue
+    const exps = await safeList(() => populationsApi.getExperiments(pop.id!))
+    if (exps.length === 0) await safeDelete(() => populationsApi.remove(pop.id!))
+  }
+  for (const ds of datasets) {
+    if (!ds.id) continue
+    const exps = await safeList(() => datasetsApi.getExperiments(ds.id!))
+    if (exps.length === 0) await safeDelete(() => datasetsApi.remove(ds.id!))
   }
 }
 

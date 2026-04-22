@@ -304,6 +304,7 @@ class Season(APIBase):
             if not season:
                 logger.warning(f"Season with ID {current_id} does not exist.")
                 return None
+            rename = season_name is not None and season_name != season.season_name
             season = SeasonModel.update(
                 season,
                 season_name=season_name,
@@ -311,6 +312,9 @@ class Season(APIBase):
                 season_end_date=season_end_date,
                 season_info=season_info
             )
+            if rename:
+                from gemini.api._rename_cascade import cascade_rename
+                cascade_rename(current_id, "season_id", "season_name", season_name)
             updated_season = self.model_validate(season)
             self.refresh()  # Update the current instance
             return updated_season

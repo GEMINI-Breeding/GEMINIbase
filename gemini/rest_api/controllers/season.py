@@ -23,13 +23,7 @@ class SeasonController(Controller):
     def get_all_seasons(self, limit: int = 100, offset: int = 0) -> List[SeasonOutput]:
         try:
             seasons = Season.get_all(limit=limit, offset=offset)
-            if seasons is None:
-                error = RESTAPIError(
-                    error="No seasons found",
-                    error_description="No seasons were found"
-                )
-                return Response(content=error, status_code=404)
-            return seasons
+            return seasons or []
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),
@@ -58,13 +52,7 @@ class SeasonController(Controller):
                 season_end_date=season_end_date,
                 experiment_name=experiment_name,
             )
-            if seasons is None:
-                error = RESTAPIError(
-                    error="No seasons found",
-                    error_description="No seasons were found with the given search criteria"
-                )
-                return Response(content=error, status_code=404)
-            return seasons
+            return seasons or []
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),

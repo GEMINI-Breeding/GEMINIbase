@@ -179,6 +179,7 @@ class Variant(APIBase):
             if not db_instance:
                 logger.warning(f"Variant with ID {self.id} does not exist.")
                 return None
+            rename = variant_name is not None and variant_name != db_instance.variant_name
             db_instance = VariantModel.update(
                 db_instance,
                 variant_name=variant_name,
@@ -188,6 +189,9 @@ class Variant(APIBase):
                 design_sequence=design_sequence,
                 variant_info=variant_info,
             )
+            if rename:
+                from gemini.api._rename_cascade import cascade_rename
+                cascade_rename(self.id, "variant_id", "variant_name", variant_name)
             variant = self.model_validate(db_instance)
             self.refresh()
             return variant

@@ -34,7 +34,8 @@ class TestGetAllExperiments:
     def test_not_found(self, mock_cls, test_client):
         mock_cls.get_all.return_value = None
         response = test_client.get("/api/experiments/all")
-        assert response.status_code == 404
+        assert response.status_code == 200
+        assert response.json() == []
 
     @patch(EXP_API_PATH)
     def test_error(self, mock_cls, test_client):
@@ -55,7 +56,8 @@ class TestGetExperiments:
     def test_search_not_found(self, mock_cls, test_client):
         mock_cls.search.return_value = None
         response = test_client.get("/api/experiments", params={"experiment_name": "Missing"})
-        assert response.status_code == 404
+        assert response.status_code == 200
+        assert response.json() == []
 
     @patch(EXP_API_PATH)
     def test_search_error(self, mock_cls, test_client):
@@ -279,7 +281,8 @@ class TestExperimentAssociations:
         mock_exp.get_associated_seasons.return_value = None
         mock_cls.get_by_id.return_value = mock_exp
         response = test_client.get("/api/experiments/id/exp-uuid/seasons")
-        assert response.status_code == 404
+        assert response.status_code == 200
+        assert response.json() == []
 
     @patch(EXP_API_PATH)
     def test_get_seasons_error(self, mock_cls, test_client):
@@ -299,7 +302,8 @@ class TestExperimentAssociations:
         mock_exp.get_associated_sites.return_value = None
         mock_cls.get_by_id.return_value = mock_exp
         response = test_client.get("/api/experiments/id/exp-uuid/sites")
-        assert response.status_code == 404
+        assert response.status_code == 200
+        assert response.json() == []
 
     @patch(EXP_API_PATH)
     def test_get_sites_error(self, mock_cls, test_client):
@@ -319,7 +323,8 @@ class TestExperimentAssociations:
         mock_exp.get_associated_populations.return_value = None
         mock_cls.get_by_id.return_value = mock_exp
         response = test_client.get("/api/experiments/id/exp-uuid/populations")
-        assert response.status_code == 404
+        assert response.status_code == 200
+        assert response.json() == []
 
     @patch(EXP_API_PATH)
     def test_get_populations_error(self, mock_cls, test_client):
@@ -339,7 +344,8 @@ class TestExperimentAssociations:
         mock_exp.get_associated_sensor_platforms.return_value = None
         mock_cls.get_by_id.return_value = mock_exp
         response = test_client.get("/api/experiments/id/exp-uuid/sensor_platforms")
-        assert response.status_code == 404
+        assert response.status_code == 200
+        assert response.json() == []
 
     @patch(EXP_API_PATH)
     def test_get_sensor_platforms_error(self, mock_cls, test_client):
@@ -359,7 +365,8 @@ class TestExperimentAssociations:
         mock_exp.get_associated_traits.return_value = None
         mock_cls.get_by_id.return_value = mock_exp
         response = test_client.get("/api/experiments/id/exp-uuid/traits")
-        assert response.status_code == 404
+        assert response.status_code == 200
+        assert response.json() == []
 
     @patch(EXP_API_PATH)
     def test_get_traits_error(self, mock_cls, test_client):
@@ -379,7 +386,8 @@ class TestExperimentAssociations:
         mock_exp.get_associated_sensors.return_value = None
         mock_cls.get_by_id.return_value = mock_exp
         response = test_client.get("/api/experiments/id/exp-uuid/sensors")
-        assert response.status_code == 404
+        assert response.status_code == 200
+        assert response.json() == []
 
     @patch(EXP_API_PATH)
     def test_get_sensors_error(self, mock_cls, test_client):
@@ -399,7 +407,8 @@ class TestExperimentAssociations:
         mock_exp.get_associated_scripts.return_value = None
         mock_cls.get_by_id.return_value = mock_exp
         response = test_client.get("/api/experiments/id/exp-uuid/scripts")
-        assert response.status_code == 404
+        assert response.status_code == 200
+        assert response.json() == []
 
     @patch(EXP_API_PATH)
     def test_get_scripts_error(self, mock_cls, test_client):
@@ -419,7 +428,8 @@ class TestExperimentAssociations:
         mock_exp.get_associated_procedures.return_value = None
         mock_cls.get_by_id.return_value = mock_exp
         response = test_client.get("/api/experiments/id/exp-uuid/procedures")
-        assert response.status_code == 404
+        assert response.status_code == 200
+        assert response.json() == []
 
     @patch(EXP_API_PATH)
     def test_get_procedures_error(self, mock_cls, test_client):
@@ -439,7 +449,8 @@ class TestExperimentAssociations:
         mock_exp.get_associated_models.return_value = None
         mock_cls.get_by_id.return_value = mock_exp
         response = test_client.get("/api/experiments/id/exp-uuid/models")
-        assert response.status_code == 404
+        assert response.status_code == 200
+        assert response.json() == []
 
     @patch(EXP_API_PATH)
     def test_get_models_error(self, mock_cls, test_client):
@@ -459,7 +470,8 @@ class TestExperimentAssociations:
         mock_exp.get_associated_datasets.return_value = None
         mock_cls.get_by_id.return_value = mock_exp
         response = test_client.get("/api/experiments/id/exp-uuid/datasets")
-        assert response.status_code == 404
+        assert response.status_code == 200
+        assert response.json() == []
 
     @patch(EXP_API_PATH)
     def test_get_datasets_error(self, mock_cls, test_client):

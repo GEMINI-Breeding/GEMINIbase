@@ -29,46 +29,36 @@ if [ -z "${POSTGRESQL_DATABASE}" ]; then
     exit 1
 fi
 
-# Set password for authentication
-export POSTGRES_CONNECTION_STRING="postgresql://postgres:${POSTGRESQL_PASSWORD}@localhost:5432/${POSTGRESQL_DATABASE}"
+# docker-entrypoint sources this script while postgres is already running on
+# the Unix socket at /var/run/postgresql — connect via peer auth over the
+# socket (no host/port), using the superuser created by POSTGRES_USER.
+PSQL=(psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB")
 
-# Wait for PostgreSQL to be ready
-echo "Waiting for PostgreSQL to be ready..."
-until psql "${POSTGRES_CONNECTION_STRING}" -c '\q' &>/dev/null; do
-    echo "PostgreSQL not ready yet, retrying in 5 seconds..."
-    sleep 5
-done
-
-# Execute SQL with password authentication
-psql "${POSTGRES_CONNECTION_STRING}" <<EOSQL
+"${PSQL[@]}" <<EOSQL
     -- Create a schema for the GEMINI Database
     CREATE SCHEMA IF NOT EXISTS gemini;
-    
+
     -- Initialize Extensions
     CREATE EXTENSION IF NOT EXISTS "uuid-ossp"; -- Used for generating UUIDs
     CREATE EXTENSION IF NOT EXISTS "pgcrypto";  -- Used for generating passwords
     CREATE EXTENSION IF NOT EXISTS columnar;    -- Used for columnar storage
     CREATE EXTENSION IF NOT EXISTS pg_ivm;
-    
+
     -- Set default table access method
     ALTER DATABASE $POSTGRESQL_DATABASE SET default_table_access_method = 'heap';
 
     -- Grant Permissions
     GRANT ALL PRIVILEGES ON SCHEMA gemini TO $POSTGRESQL_USERNAME;
-    GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA gemini TO $POSTGRESQL_USERNAME;    
+    GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA gemini TO $POSTGRESQL_USERNAME;
     GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA gemini TO $POSTGRESQL_USERNAME;
     GRANT ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA gemini TO $POSTGRESQL_USERNAME;
     GRANT ALL PRIVILEGES ON DATABASE $POSTGRESQL_DATABASE TO $POSTGRESQL_USERNAME;
-
 EOSQL
-
 
 echo "Database initialization completed successfully"
 
-export POSTGRES_CONNECTION_STRING="postgresql://${POSTGRESQL_USERNAME}:${POSTGRESQL_PASSWORD}@localhost:5432/${POSTGRESQL_DATABASE}"
-
-# Run all the sql scripts that are in the /docker-entrypoint-initdb.d directory
+# Run the rest of the SQL scripts (schema, views, functions, seed data)
 for f in /docker-entrypoint-initdb.d/scripts/*.sql; do
     echo "Running $f"
-    psql "${POSTGRES_CONNECTION_STRING}" -f "$f"
+    "${PSQL[@]}" -f "$f"
 done

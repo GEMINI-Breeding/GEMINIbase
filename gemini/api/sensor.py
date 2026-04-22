@@ -334,7 +334,9 @@ class Sensor(APIBase):
             if not sensor:
                 logger.warning(f"Sensor with ID {current_id} does not exist.")
                 return None
-            
+
+            rename = sensor_name is not None and sensor_name != sensor.sensor_name
+
             sensor = SensorModel.update(
                 sensor,
                 sensor_name=sensor_name,
@@ -343,6 +345,9 @@ class Sensor(APIBase):
                 sensor_data_format_id=sensor_data_format.value if sensor_data_format else None,
                 sensor_info=sensor_info
             )
+            if rename:
+                from gemini.api._rename_cascade import cascade_rename
+                cascade_rename(current_id, "sensor_id", "sensor_name", sensor_name)
             updated_sensor = self.model_validate(sensor)
             self.refresh()
             return updated_sensor
@@ -369,7 +374,19 @@ class Sensor(APIBase):
             if not sensor:
                 logger.warning(f"Sensor with ID {current_id} does not exist.")
                 return False
+
+            # Collect MinIO prefixes owned by this sensor BEFORE delete.
+            experiments = self.get_associated_experiments() or []
+            prefixes = [
+                f"sensor_data/{exp.experiment_name}/{self.sensor_name}/"
+                for exp in experiments
+                if getattr(exp, "experiment_name", None)
+            ]
+
             SensorModel.delete(sensor)
+
+            from gemini.api.base import sweep_minio_prefixes
+            sweep_minio_prefixes(prefixes)
             return True
         except Exception as e:
             logger.error(f"Error deleting sensor: {e}")

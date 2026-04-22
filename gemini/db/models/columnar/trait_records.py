@@ -14,6 +14,7 @@ from sqlalchemy import (
     ForeignKey,
     TIMESTAMP,
     DATE,
+    delete as sa_delete,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy import text, bindparam
@@ -147,3 +148,60 @@ class TraitRecordModel(ColumnarBaseModel):
             result = session.execute(stmt, execution_options={"yield_per": 1000})
             for record in result:
                 yield record
+
+    # Bulk deletes on this table go through a helper that skips the
+    # pg_ivm DEL triggers and keeps trait_records_immv consistent by
+    # applying the same WHERE to both tables. pg_ivm's incremental
+    # maintenance path recomputes the IMMV delta by scanning the
+    # columnar source row-by-row — for a 20k-row DELETE that means
+    # minutes of IO:BufFileRead. The IMMV is defined as
+    # `select * from trait_records` (both columnar), so a same-predicate
+    # delete on both tables leaves them byte-equivalent without the
+    # trigger overhead.
+    #
+    # Callers that already hold a session (e.g. Experiment.delete(),
+    # which bundles every DB mutation into one transaction) pass it in
+    # so the columnar delete participates in the outer atomic unit.
+    @classmethod
+    def _bulk_delete_in_session(cls, session, column_name: str, value: str) -> int:
+        from sqlalchemy import text
+
+        # Narrow the replica role to just these two statements: outside
+        # this helper, callers (notably Experiment.delete) rely on FK
+        # cascades firing normally. SET LOCAL persists to end of txn by
+        # default, so we explicitly flip it back to 'origin' after.
+        session.execute(text("SET LOCAL session_replication_role = 'replica'"))
+        try:
+            base_col = cls.__table__.c[column_name]
+            result = session.execute(
+                sa_delete(cls.__table__).where(base_col == value)
+            )
+            session.execute(
+                text(
+                    f"DELETE FROM gemini.trait_records_immv "
+                    f"WHERE {column_name} = :value"
+                ),
+                {"value": value},
+            )
+            return result.rowcount
+        finally:
+            session.execute(text("SET LOCAL session_replication_role = 'origin'"))
+
+    @classmethod
+    def _bulk_delete(cls, column_name: str, value: str, session=None) -> int:
+        if session is not None:
+            return cls._bulk_delete_in_session(session, column_name, value)
+        with db_engine.get_session() as s:
+            return cls._bulk_delete_in_session(s, column_name, value)
+
+    @classmethod
+    def delete_by_trait(cls, trait_name: str, session=None) -> int:
+        return cls._bulk_delete("trait_name", trait_name, session=session)
+
+    @classmethod
+    def delete_by_experiment(cls, experiment_name: str, session=None) -> int:
+        return cls._bulk_delete("experiment_name", experiment_name, session=session)
+
+    @classmethod
+    def delete_by_dataset(cls, dataset_name: str, session=None) -> int:
+        return cls._bulk_delete("dataset_name", dataset_name, session=session)

@@ -1,9 +1,14 @@
-from litestar import Litestar, Router, get
+from litestar import Litestar, Router, get, Response
 from litestar.openapi.config import OpenAPIConfig
 from litestar.openapi.plugins import StoplightRenderPlugin
 from litestar.config.cors import CORSConfig
 from gemini.rest_api.controllers import controllers
 from gemini.rest_api.auth import create_api_key_middleware
+from gemini.rest_api.infrastructure import (
+    database_health,
+    exception_handlers as infra_exception_handlers,
+    infrastructure_gate,
+)
 from gemini.config.settings import GEMINISettings
 
 settings = GEMINISettings()
@@ -42,6 +47,20 @@ def root_handler() -> dict:
 def settings_handler() -> dict:
     return GEMINISettings().model_dump()
 
+@get(path="/healthz", sync_to_thread=True, tags=["GEMINI"])
+def healthz_handler() -> Response:
+    """Liveness + readiness probe. 200 when all infra components are reachable,
+    503 otherwise — the compose healthcheck hits this path."""
+    status = database_health.status()
+    payload = {
+        "status": "ok" if status.healthy else "degraded",
+        "database": {
+            "healthy": status.healthy,
+            "detail": status.detail,
+        },
+    }
+    return Response(content=payload, status_code=200 if status.healthy else 503)
+
 routers = []
 for key, value in controllers.items():
     router = Router(
@@ -54,8 +73,10 @@ for key, value in controllers.items():
 
 # Entry point for the application
 app = Litestar(
-    route_handlers=[root_handler, settings_handler] + routers,
+    route_handlers=[root_handler, settings_handler, healthz_handler] + routers,
     openapi_config=openapi_config,
     cors_config=cors_config,
     middleware=middleware,
+    before_request=infrastructure_gate,
+    exception_handlers=infra_exception_handlers,
 )

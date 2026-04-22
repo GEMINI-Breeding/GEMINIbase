@@ -1,7 +1,14 @@
 import { useState, useEffect, useRef } from 'react'
 import type { FileWithPath } from '@/components/upload/dropzone'
 import type { DetectionResult } from '@/components/import-wizard/detection-engine'
-import type { ImportMetadata, UploadResults, ColumnMapping } from '@/components/import-wizard/wizard-shell'
+import type {
+  ImportMetadata,
+  UploadResults,
+  ColumnMapping,
+  GermplasmReview,
+  SheetMapping,
+} from '@/components/import-wizard/wizard-shell'
+import { germplasmMappingMode } from '@/components/import-wizard/wizard-shell'
 import { useUpload } from '@/hooks/use-upload'
 import { UploadProgress } from '@/components/upload/upload-progress'
 import { Button } from '@/components/ui/button'
@@ -13,6 +20,9 @@ import { sensorsApi } from '@/api/endpoints/sensors'
 import { datasetsApi } from '@/api/endpoints/datasets'
 import { traitsApi } from '@/api/endpoints/traits'
 import { populationsApi } from '@/api/endpoints/populations'
+import { plotsApi } from '@/api/endpoints/plots'
+import { accessionsApi } from '@/api/endpoints/accessions'
+import { linesApi } from '@/api/endpoints/lines'
 import { Loader2, CheckCircle, XCircle, AlertTriangle } from 'lucide-react'
 
 interface StepUploadProps {
@@ -20,8 +30,35 @@ interface StepUploadProps {
   detection: DetectionResult
   metadata: ImportMetadata
   columnMapping?: ColumnMapping | null
+  /** Output of the germplasm review step (null when no germplasm columns
+   *  were mapped — in that case plots are created without accession links,
+   *  matching the pre-resolver behavior). */
+  germplasmReview?: GermplasmReview | null
   onNext: (results: UploadResults) => void
   onBack: () => void
+}
+
+/**
+ * For a row, return the germplasm cell value + which column role it came
+ * from. Preference order matches the resolver's precedence: accession >
+ * line > alias. This lets us use the most specific column the user tagged.
+ */
+function pickGermplasmFromRow(
+  row: Record<string, unknown>,
+  config: SheetMapping,
+): string | null {
+  const tryColumn = (col: string | null): string | null => {
+    if (!col) return null
+    const v = row[col]
+    if (v == null) return null
+    const trimmed = String(v).trim()
+    return trimmed || null
+  }
+  return (
+    tryColumn(config.accessionNameColumn) ??
+    tryColumn(config.lineNameColumn) ??
+    tryColumn(config.aliasColumn)
+  )
 }
 
 interface CreationStep {
@@ -45,7 +82,31 @@ interface IngestionProgress {
   perTraitCurrent: Map<string, number>
 }
 
-export function StepUpload({ files, detection, metadata, columnMapping, onNext, onBack }: StepUploadProps) {
+/**
+ * Visible progress for the setup phase that runs between file upload and
+ * record ingestion. Populating this lets the user see that the wizard is
+ * still working (creating traits, populations, plots, etc.) rather than
+ * staring at a static "File Upload: Complete" card.
+ */
+interface SetupProgress {
+  traits: { done: number; total: number }
+  populations: { done: number; total: number }
+  seasons: { done: number; total: number }
+  sites: { done: number; total: number }
+  germplasm: { done: number; total: number }
+  plots: { done: number; total: number }
+}
+
+const EMPTY_SETUP: SetupProgress = {
+  traits: { done: 0, total: 0 },
+  populations: { done: 0, total: 0 },
+  seasons: { done: 0, total: 0 },
+  sites: { done: 0, total: 0 },
+  germplasm: { done: 0, total: 0 },
+  plots: { done: 0, total: 0 },
+}
+
+export function StepUpload({ files, detection, metadata, columnMapping, germplasmReview, onNext, onBack }: StepUploadProps) {
   const [creationSteps, setCreationSteps] = useState<CreationStep[]>([])
   const [phase, setPhase] = useState<'creating' | 'uploading' | 'ingesting' | 'done' | 'error'>('creating')
   const [ingestionProgress, setIngestionProgress] = useState<IngestionProgress>({
@@ -56,6 +117,7 @@ export function StepUpload({ files, detection, metadata, columnMapping, onNext, 
     perTraitTotal: new Map(),
     perTraitCurrent: new Map(),
   })
+  const [setupProgress, setSetupProgress] = useState<SetupProgress>(EMPTY_SETUP)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
   const abortedRef = useRef(false)
@@ -103,58 +165,279 @@ export function StepUpload({ files, detection, metadata, columnMapping, onNext, 
       try {
         const { sheets, sheetConfigs } = columnMapping
 
-        // Resolve/create trait entities. Cache by trait name so the same trait
-        // appearing on multiple sheets only gets one Trait entity.
-        const traitIdCache = new Map<string, string>()
-        async function resolveTraitId(name: string): Promise<string> {
-          const cached = traitIdCache.get(name)
-          if (cached) return cached
-          let traitId: string | undefined
-          try {
-            const existing = await traitsApi.search({ trait_name: name })
-            if (existing.length > 0) traitId = existing[0].id
-          } catch {
-            // search failed (e.g. 404) — fall through to create
+        // -------------------------------------------------------------
+        // Setup phase: create the entities that the record insert needs
+        // (traits, populations, seasons, sites, plots). We count up the
+        // work first, then execute with visible progress so the user
+        // isn't staring at a static "Upload complete" card while the
+        // wizard churns through hundreds of sequential creates.
+        // -------------------------------------------------------------
+
+        const traitUnits = new Map<string, string>()
+        for (const config of sheetConfigs) {
+          if (!config || config.skipped) continue
+          for (const tc of config.traitColumns.filter((t) => t.enabled)) {
+            if (!traitUnits.has(tc.traitName)) traitUnits.set(tc.traitName, tc.units || '')
           }
-          if (!traitId) {
-            const created = await traitsApi.create({
-              trait_name: name,
-              trait_level_id: 0 as unknown as string,
-              experiment_name: metadata.experimentName,
-            })
-            traitId = created.id
-          }
-          if (!traitId) throw new Error(`Failed to resolve trait ID for "${name}"`)
-          traitIdCache.set(name, traitId)
-          return traitId
         }
 
-        // Create population entities from unique genotype values across all sheets.
-        const genotypeNames = new Set<string>()
+        const populationNames = new Set<string>()
+        for (const config of sheetConfigs) {
+          if (!config || config.skipped) continue
+          if (config.populationName.trim()) populationNames.add(config.populationName.trim())
+        }
+
+        const seasonNamesToCreate = new Set<string>()
+        const siteNamesToCreate = new Set<string>()
         for (let si = 0; si < sheets.length; si++) {
           const config = sheetConfigs[si]
-          if (!config || config.skipped || !config.genotypeColumn) continue
-          for (const row of sheets[si].rows) {
-            const gv = row[config.genotypeColumn]
-            if (gv != null && String(gv).trim() !== '') genotypeNames.add(String(gv).trim())
-          }
-        }
-        if (genotypeNames.size > 0) {
-          for (const name of genotypeNames) {
-            if (abortedRef.current) return
-            try {
-              await populationsApi.create({
-                population_name: name,
-                experiment_name: metadata.experimentName,
-              })
-            } catch {
-              try {
-                await populationsApi.search({ population_name: name })
-              } catch {
-                // population may already exist — safe to ignore
-              }
+          if (!config || config.skipped) continue
+          if (config.seasonMode === 'fixed' && config.seasonName.trim()) {
+            seasonNamesToCreate.add(config.seasonName.trim())
+          } else if (config.seasonMode === 'column' && config.seasonColumn) {
+            for (const row of sheets[si].rows) {
+              const v = row[config.seasonColumn]
+              if (v != null && String(v).trim() !== '') seasonNamesToCreate.add(String(v).trim())
             }
           }
+          if (config.siteMode === 'fixed' && config.siteName.trim()) {
+            siteNamesToCreate.add(config.siteName.trim())
+          } else if (config.siteMode === 'column' && config.siteColumn) {
+            for (const row of sheets[si].rows) {
+              const v = row[config.siteColumn]
+              if (v != null && String(v).trim() !== '') siteNamesToCreate.add(String(v).trim())
+            }
+          }
+        }
+
+        // Collect unique plot specs up front so we can show a total.
+        // Matching defaults (row/col = 0 when unmapped) used again below
+        // when building trait records.
+        type PlotSpec = {
+          plotNumber: number
+          plotRow: number
+          plotCol: number
+          season: string
+          site: string
+          population?: string
+          /** Canonical accession name resolved from the spreadsheet's
+           *  germplasm cell via the review step, or — when the mapping is
+           *  unambiguous — derived inline from the row value. Undefined
+           *  when no germplasm column was mapped or the row was marked
+           *  'skip'. */
+          accessionName?: string
+        }
+        // Determine the germplasm-creation mode. When the mapping is
+        // unambiguous ('accession-only' or 'line-only') the wizard skips
+        // the review step and auto-creates entities inline here. Only
+        // 'ambiguous' reaches the review step and provides a
+        // `germplasmReview` object.
+        const gplasmMode = germplasmMappingMode(columnMapping)
+        const plotSpecs: PlotSpec[] = []
+        const plotKeySeen = new Set<string>()
+        const resolutionMap = germplasmReview?.resolved ?? {}
+        const missingGermplasmRefs = new Set<string>()
+        // Set of unique raw germplasm values encountered across every
+        // sheet — used when gplasmMode is accession-only / line-only so
+        // we can pre-create entities before plot creation.
+        const inlineGermplasmNames = new Set<string>()
+        for (let si = 0; si < sheets.length; si++) {
+          const sheet = sheets[si]
+          const config = sheetConfigs[si]
+          if (!config || config.skipped || !config.plotNumberColumn) continue
+          const populationName = config.populationName.trim() || undefined
+          for (const row of sheet.rows) {
+            const plotRaw = row[config.plotNumberColumn]
+            if (plotRaw == null || plotRaw === '') continue
+            const plotNumber = Number(plotRaw)
+            if (Number.isNaN(plotNumber)) continue
+
+            let plotRow = 0
+            if (config.plotRowColumn && row[config.plotRowColumn] != null) {
+              const v = Number(row[config.plotRowColumn])
+              if (!Number.isNaN(v)) plotRow = v
+            }
+            let plotCol = 0
+            if (config.plotColumnColumn && row[config.plotColumnColumn] != null) {
+              const v = Number(row[config.plotColumnColumn])
+              if (!Number.isNaN(v)) plotCol = v
+            }
+
+            const rowSeason = config.seasonMode === 'column' && config.seasonColumn
+              ? (row[config.seasonColumn] != null ? String(row[config.seasonColumn]).trim() : '')
+              : config.seasonName.trim()
+            const rowSite = config.siteMode === 'column' && config.siteColumn
+              ? (row[config.siteColumn] != null ? String(row[config.siteColumn]).trim() : '')
+              : config.siteName.trim()
+            if (!rowSeason || !rowSite) continue
+
+            // Resolve germplasm for this row. Two branches:
+            //   - ambiguous mapping → trust the review step's `resolved`
+            //     map, keyed on the raw input name. Unresolved rows get
+            //     no accession link.
+            //   - unambiguous (accession-only or line-only) → use the
+            //     raw value as the canonical accession name. For
+            //     line-only we still land on accession_name because
+            //     plot only has an accession_id FK; the inline create
+            //     step below materializes a Line AND an Accession (with
+            //     line_id linking them) so a later genomic import
+            //     resolves against either.
+            let accessionName: string | undefined
+            const rowGermplasm = pickGermplasmFromRow(row, config)
+            if (rowGermplasm) {
+              if (gplasmMode === 'ambiguous') {
+                const hit = resolutionMap[rowGermplasm]
+                if (hit && hit.canonical_name && hit.match_kind !== 'unresolved') {
+                  accessionName = hit.canonical_name
+                } else if (!hit) {
+                  missingGermplasmRefs.add(rowGermplasm)
+                }
+              } else {
+                accessionName = rowGermplasm
+                inlineGermplasmNames.add(rowGermplasm)
+              }
+            }
+
+            const key = `${rowSeason}::${rowSite}::${plotNumber}::${plotRow}::${plotCol}`
+            if (plotKeySeen.has(key)) continue
+            plotKeySeen.add(key)
+            plotSpecs.push({
+              plotNumber,
+              plotRow,
+              plotCol,
+              season: rowSeason,
+              site: rowSite,
+              population: populationName,
+              accessionName,
+            })
+          }
+        }
+
+        // Seed totals so the UI immediately shows the scope of the work.
+        setSetupProgress({
+          traits: { done: 0, total: traitUnits.size },
+          populations: { done: 0, total: populationNames.size },
+          seasons: { done: 0, total: seasonNamesToCreate.size },
+          sites: { done: 0, total: siteNamesToCreate.size },
+          germplasm: { done: 0, total: inlineGermplasmNames.size },
+          plots: { done: 0, total: plotSpecs.length },
+        })
+
+        const tick = (key: keyof SetupProgress) =>
+          setSetupProgress((prev) => ({
+            ...prev,
+            [key]: { done: prev[key].done + 1, total: prev[key].total },
+          }))
+
+        // Resolve/create trait entities. `Trait.create` uses get_or_create
+        // at the DB layer, so we skip the pre-search that was otherwise
+        // producing a noisy trail of 404s in the browser console.
+        const traitIdCache = new Map<string, string>()
+        for (const [name, units] of traitUnits) {
+          if (abortedRef.current) return
+          const created = await traitsApi.create({
+            trait_name: name,
+            trait_units: units.trim() || undefined,
+            trait_level_id: 0 as unknown as string,
+            experiment_name: metadata.experimentName,
+          })
+          if (!created.id) throw new Error(`Failed to resolve trait ID for "${name}"`)
+          traitIdCache.set(name, created.id)
+          tick('traits')
+        }
+
+        for (const name of populationNames) {
+          if (abortedRef.current) return
+          try {
+            await populationsApi.create({
+              population_name: name,
+              experiment_name: metadata.experimentName,
+            })
+          } catch {
+            // population may already exist — safe to ignore
+          }
+          tick('populations')
+        }
+
+        for (const name of seasonNamesToCreate) {
+          if (abortedRef.current) return
+          try {
+            await seasonsApi.create({ season_name: name, experiment_name: metadata.experimentName })
+          } catch {
+            // already exists — safe to ignore
+          }
+          tick('seasons')
+        }
+        for (const name of siteNamesToCreate) {
+          if (abortedRef.current) return
+          try {
+            await sitesApi.create({ site_name: name, experiment_name: metadata.experimentName })
+          } catch {
+            // already exists — safe to ignore
+          }
+          tick('sites')
+        }
+
+        // Unambiguous-mapping branch: pre-create Accession (and Line, if
+        // the user mapped a line column) entities for every unique raw
+        // value in the germplasm column. For line-only mapping we create
+        // the Line first, then an Accession with the same name linked to
+        // that Line — so plots reference a real accession and a later
+        // genomic import can resolve the sample headers via either
+        // 'accession_exact' or 'line_exact'. Creates are idempotent
+        // thanks to get_or_create in the backend.
+        if (gplasmMode === 'line-only') {
+          for (const name of inlineGermplasmNames) {
+            if (abortedRef.current) return
+            try {
+              await linesApi.create({ line_name: name })
+            } catch {
+              // already exists — safe to ignore
+            }
+            try {
+              await accessionsApi.create({ accession_name: name, line_name: name })
+            } catch {
+              // already exists — safe to ignore
+            }
+            tick('germplasm')
+          }
+        } else if (gplasmMode === 'accession-only') {
+          for (const name of inlineGermplasmNames) {
+            if (abortedRef.current) return
+            try {
+              await accessionsApi.create({ accession_name: name })
+            } catch {
+              // already exists — safe to ignore
+            }
+            tick('germplasm')
+          }
+        }
+
+        // Pre-create plot rows via the bulk endpoint. The single-plot
+        // POST route resolves five name-keyed FKs per request
+        // (experiment/season/site/accession/population), so a
+        // thousand-row spreadsheet fired thousands of HTTP round trips
+        // and tens of thousands of DB queries. The bulk route batches
+        // the FK lookups and issues a single INSERT ... ON CONFLICT DO
+        // NOTHING. We chunk at 500 so the request body stays modest and
+        // progress can tick in visible increments.
+        const PLOT_CHUNK = 500
+        for (let i = 0; i < plotSpecs.length; i += PLOT_CHUNK) {
+          if (abortedRef.current) return
+          const chunk = plotSpecs.slice(i, i + PLOT_CHUNK)
+          await plotsApi.createBulk(
+            chunk.map((spec) => ({
+              plot_number: spec.plotNumber,
+              plot_row_number: spec.plotRow,
+              plot_column_number: spec.plotCol,
+              experiment_name: metadata.experimentName,
+              season_name: spec.season,
+              site_name: spec.site,
+              population_name: spec.population,
+              accession_name: spec.accessionName,
+            })),
+          )
+          for (let j = 0; j < chunk.length; j++) tick('plots')
         }
 
         // Pre-compute per-(sheet, trait) totals so the progress UI can show
@@ -194,8 +477,7 @@ export function StepUpload({ files, detection, metadata, columnMapping, onNext, 
         })
 
         const BATCH_SIZE = 500
-        const now = new Date()
-        let tsOffset = 0 // monotonically increasing so auto-generated timestamps stay unique across sheets/traits
+        let tsOffset = 0
         let runningCurrent = 0
         const perTraitCurrent = new Map<string, number>()
 
@@ -207,6 +489,16 @@ export function StepUpload({ files, detection, metadata, columnMapping, onNext, 
           // somehow got here without one (wizard validation should prevent it).
           if (!config || config.skipped || !config.plotNumberColumn) continue
 
+          // Resolve base date for auto-generated timestamps on this sheet.
+          const sheetBaseDate = config.collectionDateMode === 'fixed' && config.collectionDate
+            ? new Date(config.collectionDate + 'T12:00:00')
+            : new Date()
+
+          // Fixed collection date string for the bulk API call.
+          const sheetCollectionDate = config.collectionDateMode === 'fixed' && config.collectionDate
+            ? config.collectionDate
+            : undefined
+
           const enabledTraits = config.traitColumns.filter((tc) => tc.enabled)
           for (const trait of enabledTraits) {
             if (abortedRef.current) return
@@ -217,10 +509,11 @@ export function StepUpload({ files, detection, metadata, columnMapping, onNext, 
               currentTrait: trait.traitName,
             }))
 
-            const traitId = await resolveTraitId(trait.traitName)
+            const traitId = traitIdCache.get(trait.traitName)
+            if (!traitId) throw new Error(`Trait "${trait.traitName}" was not resolved during setup`)
 
-            // Build all valid records for this (sheet, trait) pair
-            const records: Record<string, unknown>[] = []
+            // Build all valid records for this (sheet, trait) pair, grouped by (season, site).
+            const recordGroups = new Map<string, Record<string, unknown>[]>()
             for (const row of sheet.rows) {
               const raw = row[trait.columnHeader]
               if (raw == null || raw === '') continue
@@ -233,29 +526,49 @@ export function StepUpload({ files, detection, metadata, columnMapping, onNext, 
               const plotNumber = Number(plotRaw)
               if (Number.isNaN(plotNumber)) continue
 
+              // Default row/col to 0 when the user didn't map those columns
+              // so the trigger's exact-match lookup finds the plot we
+              // pre-created above.
+              let plotRow = 0
+              if (config.plotRowColumn && row[config.plotRowColumn] != null) {
+                const v = Number(row[config.plotRowColumn])
+                if (!Number.isNaN(v)) plotRow = v
+              }
+              let plotCol = 0
+              if (config.plotColumnColumn && row[config.plotColumnColumn] != null) {
+                const v = Number(row[config.plotColumnColumn])
+                if (!Number.isNaN(v)) plotCol = v
+              }
+
               const record: Record<string, unknown> = {
                 trait_value: value,
                 plot_number: plotNumber,
+                plot_row_number: plotRow,
+                plot_column_number: plotCol,
               }
 
-              if (config.plotRowColumn && row[config.plotRowColumn] != null) {
-                const v = Number(row[config.plotRowColumn])
-                if (!Number.isNaN(v)) record.plot_row_number = v
-              }
-              if (config.plotColumnColumn && row[config.plotColumnColumn] != null) {
-                const v = Number(row[config.plotColumnColumn])
-                if (!Number.isNaN(v)) record.plot_column_number = v
-              }
-
-              // Build record_info: sheet name, source column, optional
-              // genotype, and any user-selected metadata columns.
+              // Build record_info: sheet name, source column, the raw
+              // germplasm cells (whitespace-trimmed; the canonical accession
+              // lookup happens via plot.accession_id), and any user-selected
+              // metadata columns.
               const recordInfo: Record<string, unknown> = {
                 sheet: sheet.name,
                 source_column: trait.columnHeader,
               }
-              if (config.genotypeColumn) {
-                const gv = row[config.genotypeColumn]
-                recordInfo.genotype = gv != null ? String(gv) : null
+              if (config.populationName.trim()) {
+                recordInfo.population = config.populationName.trim()
+              }
+              if (config.accessionNameColumn) {
+                const v = row[config.accessionNameColumn]
+                recordInfo.accession_name = v != null ? String(v).trim() : null
+              }
+              if (config.lineNameColumn) {
+                const v = row[config.lineNameColumn]
+                recordInfo.line_name = v != null ? String(v).trim() : null
+              }
+              if (config.aliasColumn) {
+                const v = row[config.aliasColumn]
+                recordInfo.germplasm_alias = v != null ? String(v).trim() : null
               }
               for (const mc of config.metadataColumns) {
                 const v = row[mc.columnHeader]
@@ -263,39 +576,60 @@ export function StepUpload({ files, detection, metadata, columnMapping, onNext, 
               }
               record.record_info = recordInfo
 
+              // Timestamp: explicit column > collection-date column > fixed collection date > now
               if (config.timestampColumn && row[config.timestampColumn] != null) {
                 record.timestamp = String(row[config.timestampColumn])
+              } else if (config.collectionDateMode === 'column' && config.collectionDateColumn) {
+                const cdRaw = row[config.collectionDateColumn]
+                if (cdRaw != null && String(cdRaw).trim() !== '') {
+                  record.timestamp = new Date(String(cdRaw) + 'T12:00:00').toISOString()
+                } else {
+                  record.timestamp = new Date(sheetBaseDate.getTime() + tsOffset * 1000).toISOString()
+                }
               } else {
-                record.timestamp = new Date(now.getTime() + tsOffset * 1000).toISOString()
+                record.timestamp = new Date(sheetBaseDate.getTime() + tsOffset * 1000).toISOString()
               }
               tsOffset++
 
-              records.push(record)
+              const rowSeason = config.seasonMode === 'column' && config.seasonColumn
+                ? (row[config.seasonColumn] != null ? String(row[config.seasonColumn]).trim() : '')
+                : config.seasonName.trim()
+              const rowSite = config.siteMode === 'column' && config.siteColumn
+                ? (row[config.siteColumn] != null ? String(row[config.siteColumn]).trim() : '')
+                : config.siteName.trim()
+              const key = `${rowSeason}::${rowSite}`
+              if (!recordGroups.has(key)) recordGroups.set(key, [])
+              recordGroups.get(key)!.push(record)
             }
 
-            // POST in batches
-            for (let offset = 0; offset < records.length; offset += BATCH_SIZE) {
+            // POST in batches, per (season, site) group
+            for (const [groupKey, groupRecords] of recordGroups) {
               if (abortedRef.current) return
-              const batch = records.slice(offset, offset + BATCH_SIZE)
-              await traitsApi.bulkCreateRecords(traitId, {
-                records: batch,
-                experiment_name: metadata.experimentName,
-                season_name: metadata.seasonName,
-                site_name: metadata.siteName,
-                dataset_name: metadata.datasetNames[0] || undefined,
-              })
-              runningCurrent += batch.length
-              perTraitCurrent.set(
-                traitKey,
-                (perTraitCurrent.get(traitKey) || 0) + batch.length,
-              )
-              setIngestionProgress((prev) => ({
-                ...prev,
-                current: runningCurrent,
-                currentSheet: sheet.name,
-                currentTrait: trait.traitName,
-                perTraitCurrent: new Map(perTraitCurrent),
-              }))
+              const [groupSeason, groupSite] = groupKey.split('::')
+              for (let offset = 0; offset < groupRecords.length; offset += BATCH_SIZE) {
+                if (abortedRef.current) return
+                const batch = groupRecords.slice(offset, offset + BATCH_SIZE)
+                await traitsApi.bulkCreateRecords(traitId, {
+                  records: batch,
+                  experiment_name: metadata.experimentName,
+                  season_name: groupSeason,
+                  site_name: groupSite,
+                  dataset_name: metadata.datasetNames[0] || undefined,
+                  collection_date: sheetCollectionDate,
+                })
+                runningCurrent += batch.length
+                perTraitCurrent.set(
+                  traitKey,
+                  (perTraitCurrent.get(traitKey) || 0) + batch.length,
+                )
+                setIngestionProgress((prev) => ({
+                  ...prev,
+                  current: runningCurrent,
+                  currentSheet: sheet.name,
+                  currentTrait: trait.traitName,
+                  perTraitCurrent: new Map(perTraitCurrent),
+                }))
+              }
             }
           }
         }
@@ -359,12 +693,6 @@ export function StepUpload({ files, detection, metadata, columnMapping, onNext, 
       } else {
         steps.push({ type: 'Experiment', name: metadata.experimentName, status: 'skipped', id: metadata.experimentId || undefined })
       }
-      if (metadata.createNew.season) {
-        steps.push({ type: 'Season', name: metadata.seasonName, status: 'pending' })
-      }
-      if (metadata.createNew.site) {
-        steps.push({ type: 'Site', name: metadata.siteName, status: 'pending' })
-      }
       if (metadata.createNew.sensorPlatform) {
         steps.push({ type: 'Sensor Platform', name: metadata.sensorPlatformName, status: 'pending' })
       }
@@ -400,32 +728,6 @@ export function StepUpload({ files, detection, metadata, columnMapping, onNext, 
           created.push({ type: 'Experiment', name: experimentName, id: exp.id || '' })
         }
         stepIdx++
-
-        // Create season
-        if (metadata.createNew.season) {
-          if (abortedRef.current) return
-          updateStep(stepIdx, { status: 'creating' })
-          const season = await createOrGet(
-            () => seasonsApi.create({ season_name: metadata.seasonName, experiment_name: experimentName }),
-            () => seasonsApi.search({ season_name: metadata.seasonName }),
-          )
-          updateStep(stepIdx, { status: 'done', id: season.id })
-          created.push({ type: 'Season', name: metadata.seasonName, id: season.id || '' })
-          stepIdx++
-        }
-
-        // Create site
-        if (metadata.createNew.site) {
-          if (abortedRef.current) return
-          updateStep(stepIdx, { status: 'creating' })
-          const site = await createOrGet(
-            () => sitesApi.create({ site_name: metadata.siteName, experiment_name: experimentName }),
-            () => sitesApi.search({ site_name: metadata.siteName }),
-          )
-          updateStep(stepIdx, { status: 'done', id: site.id })
-          created.push({ type: 'Site', name: metadata.siteName, id: site.id || '' })
-          stepIdx++
-        }
 
         // Create sensor platform
         if (metadata.createNew.sensorPlatform) {
@@ -554,6 +856,49 @@ export function StepUpload({ files, detection, metadata, columnMapping, onNext, 
         <div className="rounded-lg border p-4">
           <h3 className="font-medium mb-3">File Upload</h3>
           <UploadProgress state={uploadState} />
+        </div>
+      )}
+
+      {/* Setup progress — shown while we resolve traits and pre-create
+          populations/seasons/sites/plots before record ingestion begins.
+          Without this, the wizard appeared to hang after file upload for
+          as long as plot creation took on large spreadsheets. */}
+      {(phase === 'ingesting' || (phase === 'done' && columnMapping)) &&
+        (setupProgress.traits.total +
+          setupProgress.populations.total +
+          setupProgress.seasons.total +
+          setupProgress.sites.total +
+          setupProgress.germplasm.total +
+          setupProgress.plots.total) > 0 && (
+        <div className="rounded-lg border p-4 space-y-3" data-testid="setup-progress">
+          <h3 className="font-medium">Preparing Records</h3>
+          <div className="space-y-1.5 text-sm">
+            {([
+              ['Traits', setupProgress.traits],
+              ['Populations', setupProgress.populations],
+              ['Seasons', setupProgress.seasons],
+              ['Sites', setupProgress.sites],
+              ['Germplasm', setupProgress.germplasm],
+              ['Plots', setupProgress.plots],
+            ] as const)
+              .filter(([, p]) => p.total > 0)
+              .map(([label, p]) => {
+                const finished = p.done >= p.total
+                return (
+                  <div key={label} className="flex items-center gap-2">
+                    {finished ? (
+                      <CheckCircle className="w-4 h-4 text-green-600 shrink-0" />
+                    ) : (
+                      <Loader2 className="w-4 h-4 text-primary animate-spin shrink-0" />
+                    )}
+                    <span className="font-medium">{label}</span>
+                    <span className="ml-auto tabular-nums text-muted-foreground">
+                      {p.done} / {p.total}
+                    </span>
+                  </div>
+                )
+              })}
+          </div>
         </div>
       )}
 

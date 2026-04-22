@@ -29,8 +29,8 @@ export const experimentsApi = {
   update: (id: string, data: ExperimentUpdate) =>
     patch<ExperimentOutput>(`api/experiments/id/${id}`, data),
 
-  remove: (id: string) =>
-    del(`api/experiments/id/${id}`),
+  remove: (id: string, opts?: { signal?: AbortSignal }) =>
+    del(`api/experiments/id/${id}`, opts),
 
   getHierarchy: (id: string) =>
     get<unknown>(`api/experiments/id/${id}/hierarchy`),

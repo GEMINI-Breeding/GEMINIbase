@@ -15,13 +15,7 @@ class SensorTypeController(Controller):
     def get_all_sensor_types(self, limit: int = 100, offset: int = 0) -> List[SensorTypeOutput]:
         try:
             sensor_types = SensorType.get_all(limit=limit, offset=offset)
-            if sensor_types is None:
-                error = RESTAPIError(
-                    error="No sensor types found",
-                    error_description="No sensor types were found"
-                )
-                return Response(content=error, status_code=404)
-            return sensor_types
+            return sensor_types or []
         except Exception as e:
             error_message = RESTAPIError(
                 error=str(e),
@@ -46,13 +40,7 @@ class SensorTypeController(Controller):
                 sensor_type_info=sensor_type_info
             )
 
-            if sensor_types is None:
-                error = RESTAPIError(
-                    error="No sensor types found",
-                    error_description="No sensor types were found with the given search criteria"
-                )
-                return Response(content=error, status_code=404)
-            return sensor_types
+            return sensor_types or []
         except Exception as e:
             error_message = RESTAPIError(
                 error=str(e),

@@ -442,6 +442,53 @@ class AccessionOutput(RESTAPIBase):
     accession_info: Optional[JSONB] = None
 
 # --------------------------------
+# Germplasm Resolver Classes
+# --------------------------------
+
+class ResolveRequest(RESTAPIBase):
+    names: List[str]
+    experiment_id: Optional[ID] = None
+
+class ResolveCandidateOutput(RESTAPIBase):
+    id: str
+    kind: str
+    name: str
+    score: float = 1.0
+
+class ResolveResultOutput(RESTAPIBase):
+    input_name: str
+    match_kind: str
+    accession_id: Optional[str] = None
+    line_id: Optional[str] = None
+    canonical_name: Optional[str] = None
+    candidates: List[ResolveCandidateOutput] = []
+
+class ResolveResponse(RESTAPIBase):
+    results: List[ResolveResultOutput]
+
+class AliasBulkEntry(RESTAPIBase):
+    alias: str
+    accession_name: Optional[str] = None
+    line_name: Optional[str] = None
+    source: Optional[str] = None
+
+class AliasBulkRequest(RESTAPIBase):
+    scope: str = "global"
+    experiment_id: Optional[ID] = None
+    entries: List[AliasBulkEntry]
+
+class AliasBulkError(RESTAPIBase):
+    index: int
+    alias: str
+    reason: str
+
+class AliasBulkResponse(RESTAPIBase):
+    created: int
+    updated: int
+    errors: List[AliasBulkError] = []
+
+
+# --------------------------------
 # Plot Classes
 # --------------------------------
 
@@ -456,6 +503,13 @@ class PlotInput(RESTAPIBase):
     site_name: Optional[str] = None
     accession_name: Optional[str] = None
     population_name: Optional[str] = None
+
+class PlotBulkInput(RESTAPIBase):
+    plots: List[PlotInput]
+
+class PlotBulkResponse(RESTAPIBase):
+    submitted_count: int
+    skipped_count: int
 
 class PlotUpdate(RESTAPIBase):
     plot_number: Optional[int] = None
@@ -1231,6 +1285,28 @@ class GenotypeRecordInput(RESTAPIBase):
 
 class GenotypeRecordBulkInput(RESTAPIBase):
     records: List[dict]
+
+
+class GenotypeMatrixVariantRow(RESTAPIBase):
+    variant_name: str
+    chromosome: Optional[int] = None
+    position: Optional[float] = None
+    alleles: Optional[str] = None
+    design_sequence: Optional[str] = None
+    calls: List[Optional[str]]
+
+
+class GenotypeMatrixBatchInput(RESTAPIBase):
+    sample_headers: List[str]
+    variant_rows: List[GenotypeMatrixVariantRow]
+    record_info: Optional[JSONB] = None
+
+
+class GenotypeMatrixBatchResult(RESTAPIBase):
+    variants_inserted: int
+    records_inserted: int
+    errors: List[str] = []
+
 
 class GenotypeRecordOutput(RESTAPIBase):
     id: Optional[ID] = None

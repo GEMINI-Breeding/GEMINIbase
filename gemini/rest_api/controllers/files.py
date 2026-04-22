@@ -219,11 +219,14 @@ class FileController(Controller):
         file_path: str
     ) -> None:
         """
-        Delete a file or all files under a prefix from MinIO.
+        Delete a single file from MinIO.
 
-        Tries exact file match first. If not found, treats the path as a
-        directory prefix and deletes all objects under it (MinIO has no
-        real directories — a "dataset folder" is just a shared key prefix).
+        This endpoint deliberately refuses prefix (folder) deletion —
+        MinIO "folders" that correspond to datasets / experiments /
+        sensors / etc. are owned by DB entities, and wiping the files
+        without cleaning up the DB rows leaves dangling ``record_file``
+        references. Delete via the entity's DELETE endpoint instead;
+        that cascades to MinIO safely.
         """
         try:
             bucket_name = file_path.split('/')[1]
@@ -235,53 +238,32 @@ class FileController(Controller):
                 return Response(content=error, status_code=404)
             object_name = '/'.join(file_path.split('/')[2:])
 
-            # Try exact file first
             file_exists = minio_storage_provider.file_exists(
                 object_name=object_name,
                 bucket_name=bucket_name
             )
-            if file_exists:
-                is_deleted = minio_storage_provider.delete_file(
-                    object_name=object_name,
-                    bucket_name=bucket_name
-                )
-                if not is_deleted:
-                    return Response(
-                        content=RESTAPIError(
-                            error="File deletion failed",
-                            error_description=f"Failed to delete file {file_path}"
-                        ),
-                        status_code=500,
-                    )
-                return None
-
-            # Not an exact file — treat as prefix and delete all objects under it
-            prefix = object_name.rstrip('/') + '/'
-            objects = minio_storage_provider.list_files(
-                prefix=prefix, recursive=True, bucket_name=bucket_name
-            )
-            if not objects:
+            if not file_exists:
                 return Response(
                     content=RESTAPIError(
                         error="Not found",
-                        error_description=f"No files found at {file_path}"
+                        error_description=(
+                            f"No file at {file_path}. Folder (prefix) deletion "
+                            "is not allowed here — delete the owning entity "
+                            "(dataset, experiment, sensor, …) instead."
+                        ),
                     ),
                     status_code=404,
                 )
-            deleted_count = 0
-            for obj_name in objects:
-                try:
-                    minio_storage_provider.delete_file(
-                        object_name=obj_name, bucket_name=bucket_name
-                    )
-                    deleted_count += 1
-                except Exception:
-                    pass
-            if deleted_count == 0:
+
+            is_deleted = minio_storage_provider.delete_file(
+                object_name=object_name,
+                bucket_name=bucket_name
+            )
+            if not is_deleted:
                 return Response(
                     content=RESTAPIError(
-                        error="Deletion failed",
-                        error_description=f"Failed to delete any files under {file_path}"
+                        error="File deletion failed",
+                        error_description=f"Failed to delete file {file_path}"
                     ),
                     status_code=500,
                 )
@@ -417,33 +399,30 @@ class FileController(Controller):
             )
 
     @get(path="/list_nested", sync_to_thread=True)
-    def list_dirs_nested(self) -> dict:
-        """List all directories nested under Raw/ in a tree structure.
-        Returns a dict of {year: {experiment: {location: {population: [dates]}}}}."""
+    def list_dirs_nested(self) -> list:
+        """Flat list of every file under Raw/ with metadata. The frontend
+        groups these into a tree."""
         try:
             bucket = minio_storage_config.bucket_name
-            items = minio_storage_provider.list_files(
-                bucket_name=bucket, prefix="Raw/"
+            client = minio_storage_provider.client
+            objects = client.list_objects(
+                bucket_name=bucket, prefix="Raw/", recursive=True
             )
-            tree = {}
-            for item in items:
-                parts = item.object_name.split("/")
-                # Raw/{year}/{experiment}/{location}/{population}/{date}/...
-                if len(parts) >= 6:
-                    year = parts[1]
-                    experiment = parts[2]
-                    location = parts[3]
-                    population = parts[4]
-                    date = parts[5]
-                    tree.setdefault(year, {}).setdefault(experiment, {}).setdefault(
-                        location, {}
-                    ).setdefault(population, [])
-                    if date not in tree[year][experiment][location][population]:
-                        tree[year][experiment][location][population].append(date)
-            return tree
+            files = []
+            for obj in objects:
+                if obj.is_dir:
+                    continue
+                files.append({
+                    'bucket_name': bucket,
+                    'object_name': obj.object_name,
+                    'size': obj.size or 0,
+                    'last_modified': obj.last_modified.isoformat() if obj.last_modified else None,
+                    'content_type': obj.content_type,
+                })
+            return files
         except Exception as e:
             return Response(
-                content=RESTAPIError(error=str(e), error_description="Failed to list nested dirs"),
+                content=RESTAPIError(error=str(e), error_description="Failed to list nested files"),
                 status_code=500,
             )
 

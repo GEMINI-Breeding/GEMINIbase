@@ -116,6 +116,13 @@ services:
       - "GEMINI_STORAGE_API_PORT=${GEMINI_STORAGE_API_PORT}"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      # Live-reload dev mount: edits to gemini/* on the host take effect immediately.
+      # Without this, the image's April-built copy of gemini/ drifts from the source
+      # and you get stale-code bugs that are invisible until something goes wrong.
+      - ../../gemini:/gemini-framework/gemini:ro
+    command: >
+      poetry run litestar --app gemini.rest_api.app:app run
+      --host 0.0.0.0 --port 7777 --reload --reload-dir /gemini-framework/gemini
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:7777/schema')"]
       interval: 10s

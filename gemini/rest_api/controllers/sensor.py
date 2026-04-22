@@ -47,13 +47,7 @@ class SensorController(Controller):
     def get_all_sensors(self, limit: int = 100, offset: int = 0) -> List[SensorOutput]:
         try:
             sensors = Sensor.get_all(limit=limit, offset=offset)
-            if sensors is None:
-                error = RESTAPIError(
-                    error="No sensors found",
-                    error_description="No sensors were found"
-                )
-                return Response(content=error, status_code=404)
-            return sensors
+            return sensors or []
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),
@@ -84,13 +78,7 @@ class SensorController(Controller):
                 sensor_info=sensor_info,
                 experiment_name=experiment_name
             )
-            if sensors is None:
-                error = RESTAPIError(
-                    error="No sensors found",
-                    error_description="No sensors were found with the given search criteria"
-                )
-                return Response(content=error, status_code=404)
-            return sensors
+            return sensors or []
         except Exception as e:
             error_message = RESTAPIError(
                 error=str(e),
@@ -219,13 +207,7 @@ class SensorController(Controller):
                 )
                 return Response(content=error, status_code=404)
             experiments = sensor.get_associated_experiments()
-            if experiments is None:
-                error = RESTAPIError(
-                    error="No experiments found",
-                    error_description="No experiments were found for the given sensor"
-                )
-                return Response(content=error, status_code=404)
-            return experiments
+            return experiments or []
         except Exception as e:
             error_message = RESTAPIError(
                 error=str(e),
@@ -246,14 +228,7 @@ class SensorController(Controller):
                     error_description="The sensor with the given ID was not found"
                 )
                 return Response(content=error, status_code=404)
-            sensor_platforms = sensor.get_associated_sensor_platforms()
-            if sensor_platforms is None:
-                error = RESTAPIError(
-                    error="No sensor platforms found",
-                    error_description="No sensor platforms were found for the given sensor"
-                )
-                return Response(content=error, status_code=404)
-            return sensor_platforms
+            return sensor.get_associated_sensor_platforms() or []
         except Exception as e:
             error_message = RESTAPIError(
                 error=str(e),
@@ -274,14 +249,7 @@ class SensorController(Controller):
                     error_description="The sensor with the given ID was not found"
                 )
                 return Response(content=error, status_code=404)
-            datasets = sensor.get_associated_datasets()
-            if datasets is None:
-                error = RESTAPIError(
-                    error="No datasets found",
-                    error_description="No datasets were found for the given sensor"
-                )
-                return Response(content=error, status_code=404)
-            return datasets
+            return sensor.get_associated_datasets() or []
         except Exception as e:
             error_message = RESTAPIError(
                 error=str(e),

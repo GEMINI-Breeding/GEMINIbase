@@ -92,6 +92,42 @@ CREATE INDEX IF NOT EXISTS idx_accessions_info ON gemini.accessions USING GIN (a
 ALTER TABLE gemini.accessions ADD CONSTRAINT accession_unique UNIQUE (accession_name);
 
 -------------------------------------------------------------------------------
+-- Accession Aliases Table
+-- An alias is an alternate name (e.g. a numeric field-book shorthand, a BrAPI-
+-- style synonym) that resolves to exactly one canonical Accession OR Line.
+-- Aliases can be global (resolve everywhere) or scoped to a single experiment
+-- so two experiments' numeric "1" aliases don't collide.
+CREATE TABLE IF NOT EXISTS gemini.accession_aliases (
+    id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+    alias VARCHAR(255) NOT NULL,
+    accession_id uuid REFERENCES gemini.accessions(id) ON DELETE CASCADE,
+    line_id uuid REFERENCES gemini.lines(id) ON DELETE CASCADE,
+    scope VARCHAR(16) NOT NULL DEFAULT 'global',
+    experiment_id uuid REFERENCES gemini.experiments(id) ON DELETE CASCADE,
+    source VARCHAR(512),
+    alias_info JSONB DEFAULT '{}',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT accession_alias_scope_check CHECK (scope IN ('global','experiment')),
+    CONSTRAINT accession_alias_target_check CHECK (
+        (accession_id IS NOT NULL)::int + (line_id IS NOT NULL)::int = 1
+    ),
+    CONSTRAINT accession_alias_scope_experiment_check CHECK (
+        (scope = 'experiment') = (experiment_id IS NOT NULL)
+    )
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS accession_alias_unique
+    ON gemini.accession_aliases (scope, experiment_id, lower(alias))
+    NULLS NOT DISTINCT;
+CREATE INDEX IF NOT EXISTS idx_accession_aliases_lower_alias
+    ON gemini.accession_aliases (lower(alias));
+CREATE INDEX IF NOT EXISTS idx_accession_aliases_exp_lower_alias
+    ON gemini.accession_aliases (experiment_id, lower(alias));
+CREATE INDEX IF NOT EXISTS idx_accession_aliases_info
+    ON gemini.accession_aliases USING GIN (alias_info);
+
+-------------------------------------------------------------------------------
 -- Populations Table
 -- A named germplasm grouping within a breeding program
 CREATE TABLE IF NOT EXISTS gemini.populations (

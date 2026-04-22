@@ -295,12 +295,16 @@ class Model(APIBase):
             if not model:
                 logger.warning(f"Model with ID {current_id} does not exist.")
                 return None
+            rename = model_name is not None and model_name != model.model_name
             model = ModelModel.update(
                 model,
                 model_name=model_name,
                 model_url=model_url,
                 model_info=model_info
             )
+            if rename:
+                from gemini.api._rename_cascade import cascade_rename
+                cascade_rename(current_id, "model_id", "model_name", model_name)
             model = self.model_validate(model)
             self.refresh()
             return model
@@ -327,7 +331,18 @@ class Model(APIBase):
             if not model:
                 logger.warning(f"Model with ID {current_id} does not exist.")
                 return False
+
+            experiments = self.get_associated_experiments() or []
+            prefixes = [
+                f"model_data/{exp.experiment_name}/{self.model_name}/"
+                for exp in experiments
+                if getattr(exp, "experiment_name", None)
+            ]
+
             ModelModel.delete(model)
+
+            from gemini.api.base import sweep_minio_prefixes
+            sweep_minio_prefixes(prefixes)
             return True
         except Exception as e:
             logger.error(f"Error deleting model: {e}")

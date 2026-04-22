@@ -58,13 +58,7 @@ class ProcedureController(Controller):
     def get_all_procedures(self, limit: int = 100, offset: int = 0) -> List[ProcedureOutput]:
         try:
             procedures = Procedure.get_all(limit=limit, offset=offset)
-            if procedures is None:
-                error = RESTAPIError(
-                    error="No Procedures Found",
-                    error_description="No procedures found"
-                )
-                return Response(content=error, status_code=404)
-            return procedures
+            return procedures or []
         except Exception as e:
             error = RESTAPIError(
                 error="Internal Server Error",
@@ -89,13 +83,7 @@ class ProcedureController(Controller):
                 procedure_info=procedure_info,
                 experiment_name=experiment_name
             )
-            if procedures is None:
-                error = RESTAPIError(
-                    error="No Procedures Found",
-                    error_description="No procedures found with the given search parameters"
-                )
-                return Response(content=error, status_code=404)
-            return procedures
+            return procedures or []
         except Exception as e:
             error = RESTAPIError(
                 error="Internal Server Error",
@@ -227,14 +215,7 @@ class ProcedureController(Controller):
                     error_description="No procedure found with the given ID"
                 )
                 return Response(content=error, status_code=404)
-            runs = procedure.get_associated_runs()
-            if runs is None:
-                error = RESTAPIError(
-                    error="No Procedure Runs Found",
-                    error_description="No runs found for the given procedure"
-                )
-                return Response(content=error, status_code=404)
-            return runs
+            return procedure.get_associated_runs() or []
         except Exception as e:
             error = RESTAPIError(
                 error="Internal Server Error",
@@ -256,14 +237,7 @@ class ProcedureController(Controller):
                     error_description="No procedure found with the given ID"
                 )
                 return Response(content=error, status_code=404)
-            experiments = procedure.get_associated_experiments()
-            if experiments is None:
-                error = RESTAPIError(
-                    error="No Procedure Experiments Found",
-                    error_description="No experiments found for the given procedure"
-                )
-                return Response(content=error, status_code=404)
-            return experiments
+            return procedure.get_associated_experiments() or []
         except Exception as e:
             error = RESTAPIError(
                 error="Internal Server Error",
@@ -284,14 +258,7 @@ class ProcedureController(Controller):
                     error_description="No procedure found with the given ID"
                 )
                 return Response(content=error, status_code=404)
-            datasets = procedure.get_associated_datasets()
-            if datasets is None:
-                error = RESTAPIError(
-                    error="No Procedure Datasets Found",
-                    error_description="No datasets found for the given procedure"
-                )
-                return Response(content=error, status_code=404)
-            return datasets
+            return procedure.get_associated_datasets() or []
         except Exception as e:
             error = RESTAPIError(
                 error="Internal Server Error",

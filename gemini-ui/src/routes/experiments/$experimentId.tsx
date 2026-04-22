@@ -1,12 +1,9 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Pencil, Trash2, ChevronDown, ChevronRight, ExternalLink } from 'lucide-react'
 import { useExperiments } from '@/hooks/use-entity-hooks'
 import { experimentsApi } from '@/api/endpoints/experiments'
-import { traitsApi } from '@/api/endpoints/traits'
-import { populationsApi } from '@/api/endpoints/populations'
-import { datasetsApi } from '@/api/endpoints/datasets'
 import { EntityForm, type FieldDef } from '@/components/crud/entity-form'
 import { DeleteDialog } from '@/components/crud/delete-dialog'
 import { DatasetFiles } from '@/components/data-viewers/dataset-files'
@@ -51,42 +48,6 @@ const traitCols: ColumnDef<TraitOutput>[] = [
 const genotypeCols: ColumnDef<GenotypingStudyOutput>[] = [
   { accessorKey: 'study_name', header: 'Name' },
 ]
-
-async function safeList<T>(fn: () => Promise<T[]>): Promise<T[]> {
-  try {
-    return await fn()
-  } catch {
-    return []
-  }
-}
-
-async function cleanupExperimentOrphans(experimentId: string) {
-  const [traitsList, populationsList, datasetsList] = await Promise.all([
-    safeList(() => experimentsApi.getTraits(experimentId)),
-    safeList(() => experimentsApi.getPopulations(experimentId)),
-    safeList(() => experimentsApi.getDatasets(experimentId)),
-  ])
-
-  await experimentsApi.remove(experimentId)
-
-  for (const trait of traitsList) {
-    if (!trait.id) continue
-    const exps = await traitsApi.getExperiments(trait.id)
-    if (exps.length === 0) await traitsApi.remove(trait.id)
-  }
-
-  for (const pop of populationsList) {
-    if (!pop.id) continue
-    const exps = await populationsApi.getExperiments(pop.id)
-    if (exps.length === 0) await populationsApi.remove(pop.id)
-  }
-
-  for (const ds of datasetsList) {
-    if (!ds.id) continue
-    const exps = await safeList(() => datasetsApi.getExperiments(ds.id!))
-    if (exps.length === 0) await datasetsApi.remove(ds.id)
-  }
-}
 
 // ── Dataset card with expandable file preview ──
 function DatasetCard({ dataset, experimentName }: { dataset: DatasetOutput; experimentName: string }) {
@@ -159,6 +120,7 @@ function ExperimentDetail() {
   const [showDelete, setShowDelete] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [activeTab, setActiveTab] = useState('data')
+  const deleteAbortRef = useRef<AbortController | null>(null)
 
   // Fetch all sub-entity lists eagerly so tab badge counts are visible immediately.
   // These are lightweight metadata queries (names + IDs only).
@@ -274,15 +236,28 @@ function ExperimentDetail() {
 
       <DeleteDialog
         open={showDelete}
-        onClose={() => setShowDelete(false)}
+        onClose={() => {
+          // If a delete is in flight, abort it so Cancel actually cancels.
+          // The fetch rejects with an AbortError which the catch below swallows.
+          deleteAbortRef.current?.abort()
+          deleteAbortRef.current = null
+          setDeleting(false)
+          setShowDelete(false)
+        }}
         onConfirm={async () => {
+          const controller = new AbortController()
+          deleteAbortRef.current = controller
           setDeleting(true)
           try {
-            await cleanupExperimentOrphans(experimentId)
+            await experimentsApi.remove(experimentId, { signal: controller.signal })
             await queryClient.invalidateQueries()
             navigate({ to: '/experiments' })
-          } catch {
+          } catch (err) {
+            if (controller.signal.aborted) return
             setDeleting(false)
+            alert(`Failed to delete experiment: ${err instanceof Error ? err.message : String(err)}`)
+          } finally {
+            if (deleteAbortRef.current === controller) deleteAbortRef.current = null
           }
         }}
         entityName={experiment.experiment_name}

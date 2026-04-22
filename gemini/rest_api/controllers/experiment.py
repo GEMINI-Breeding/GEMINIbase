@@ -19,6 +19,7 @@ from gemini.rest_api.models import (
     ProcedureOutput,
     ModelOutput,
     DatasetOutput,
+    GenotypingStudyOutput,
 )
 from typing import List, Annotated, Optional
 
@@ -129,13 +130,7 @@ class ExperimentController(Controller):
     def get_all_experiments(self, limit: int = 100, offset: int = 0) -> List[ExperimentOutput]:
         try:
             experiments = Experiment.get_all(limit=limit, offset=offset)
-            if experiments is None:
-                error = RESTAPIError(
-                    error="No experiments found",
-                    error_description="No experiments were found"
-                )
-                return Response(content=error, status_code=404)
-            return experiments
+            return experiments or []
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),
@@ -157,19 +152,12 @@ class ExperimentController(Controller):
             if experiment_info is not None:
                 experiment_info = str_to_dict(experiment_info)
 
-            experiments = Experiment.search(
+            return Experiment.search(
                 experiment_name=experiment_name,
                 experiment_info=experiment_info,
                 experiment_start_date=experiment_start_date,
                 experiment_end_date=experiment_end_date
-            )
-            if experiments is None:
-                error = RESTAPIError(
-                    error="No experiments found",
-                    error_description="No experiments were found with the given search criteria"
-                )
-                return Response(content=error, status_code=404)
-            return experiments
+            ) or []
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),
@@ -289,14 +277,7 @@ class ExperimentController(Controller):
                     error_description="No experiment was found with the given ID"
                 )
                 return Response(content=error, status_code=404)
-            seasons = experiment.get_associated_seasons()
-            if seasons is None:
-                error = RESTAPIError(
-                    error="No seasons found",
-                    error_description="No seasons were found for the given experiment"
-                )
-                return Response(content=error, status_code=404)
-            return seasons
+            return experiment.get_associated_seasons() or []
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),
@@ -354,14 +335,7 @@ class ExperimentController(Controller):
                     error_description="No experiment was found with the given ID"
                 )
                 return Response(content=error, status_code=404)
-            sites = experiment.get_associated_sites()
-            if sites is None:
-                error = RESTAPIError(
-                    error="No sites found",
-                    error_description="No sites were found for the given experiment"
-                )
-                return Response(content=error, status_code=404)
-            return sites
+            return experiment.get_associated_sites() or []
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),
@@ -416,16 +390,9 @@ class ExperimentController(Controller):
                 error = RESTAPIError(
                     error="Experiment not found",
                     error_description="No experiment was found with the given ID"
-                ).to_html()
-                return Response(content=error, status_code=404)
-            populations = experiment.get_associated_populations()
-            if populations is None:
-                error = RESTAPIError(
-                    error="No populations found",
-                    error_description="No populations were found for the given experiment"
                 )
                 return Response(content=error, status_code=404)
-            return populations
+            return experiment.get_associated_populations() or []
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),
@@ -483,14 +450,7 @@ class ExperimentController(Controller):
                     error_description="No experiment was found with the given ID"
                 )
                 return Response(content=error, status_code=404)
-            sensor_platforms = experiment.get_associated_sensor_platforms()
-            if sensor_platforms is None:
-                error = RESTAPIError(
-                    error="No sensor platforms found",
-                    error_description="No sensor platforms were found for the given experiment"
-                )
-                return Response(content=error, status_code=404)
-            return sensor_platforms
+            return experiment.get_associated_sensor_platforms() or []
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),
@@ -544,14 +504,7 @@ class ExperimentController(Controller):
                     error_description="No experiment was found with the given ID"
                 )
                 return Response(content=error, status_code=404)
-            traits = experiment.get_associated_traits()
-            if traits is None:
-                error = RESTAPIError(
-                    error="No traits found",
-                    error_description="No traits were found for the given experiment"
-                )
-                return Response(content=error, status_code=404)
-            return traits
+            return experiment.get_associated_traits() or []
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),
@@ -607,14 +560,7 @@ class ExperimentController(Controller):
                     error_description="No experiment was found with the given ID"
                 )
                 return Response(content=error, status_code=404)
-            sensors = experiment.get_associated_sensors()
-            if sensors is None:
-                error = RESTAPIError(
-                    error="No sensors found",
-                    error_description="No sensors were found for the given experiment"
-                )
-                return Response(content=error, status_code=404)
-            return sensors
+            return experiment.get_associated_sensors() or []
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),
@@ -675,14 +621,7 @@ class ExperimentController(Controller):
                     error_description="No experiment was found with the given ID"
                 )
                 return Response(content=error, status_code=404)
-            scripts = experiment.get_associated_scripts()
-            if scripts is None:
-                error = RESTAPIError(
-                    error="No scripts found",
-                    error_description="No scripts were found for the given experiment"
-                )
-                return Response(content=error, status_code=404)
-            return scripts
+            return experiment.get_associated_scripts() or []
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),
@@ -738,14 +677,7 @@ class ExperimentController(Controller):
                     error_description="No experiment was found with the given ID"
                 )
                 return Response(content=error, status_code=404)
-            procedures = experiment.get_associated_procedures()
-            if procedures is None:
-                error = RESTAPIError(
-                    error="No procedures found",
-                    error_description="No procedures were found for the given experiment"
-                )
-                return Response(content=error, status_code=404)
-            return procedures
+            return experiment.get_associated_procedures() or []
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),
@@ -799,14 +731,7 @@ class ExperimentController(Controller):
                     error_description="No experiment was found with the given ID"
                 )
                 return Response(content=error, status_code=404)
-            models = experiment.get_associated_models()
-            if models is None:
-                error = RESTAPIError(
-                    error="No models found",
-                    error_description="No models were found for the given experiment"
-                )
-                return Response(content=error, status_code=404)
-            return models
+            return experiment.get_associated_models() or []
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),
@@ -861,14 +786,7 @@ class ExperimentController(Controller):
                     error_description="No experiment was found with the given ID"
                 )
                 return Response(content=error, status_code=404)
-            datasets = experiment.get_associated_datasets()
-            if datasets is None:
-                error = RESTAPIError(
-                    error="No datasets found",
-                    error_description="No datasets were found for the given experiment"
-                )
-                return Response(content=error, status_code=404)
-            return datasets
+            return experiment.get_associated_datasets() or []
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),
@@ -911,8 +829,25 @@ class ExperimentController(Controller):
                 error_description="An error occurred while creating the experiment dataset"
             )
             return Response(content=error, status_code=500)
-            
-        
 
-    
-        
+    # Get Experiment Genotyping Studies
+    @get(path="/id/{experiment_id:str}/genotypes", sync_to_thread=True)
+    def get_experiment_genotypes(
+        self, experiment_id: str
+    ) -> List[GenotypingStudyOutput]:
+        try:
+            experiment = Experiment.get_by_id(id=experiment_id)
+            if experiment is None:
+                error = RESTAPIError(
+                    error="Experiment not found",
+                    error_description="No experiment was found with the given ID"
+                )
+                return Response(content=error, status_code=404)
+            studies = experiment.get_associated_genotyping_studies()
+            return studies or []
+        except Exception as e:
+            error = RESTAPIError(
+                error=str(e),
+                error_description="An error occurred while retrieving the experiment genotyping studies"
+            )
+            return Response(content=error, status_code=500)

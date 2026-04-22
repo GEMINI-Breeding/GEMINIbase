@@ -200,8 +200,12 @@ test.describe.serial('Trait Import Workflow — multi-sheet XLSX', () => {
     await page.getByTestId('plot-row-select').selectOption('Row')
     await page.getByTestId('plot-col-select').selectOption('Column')
 
-    // Optional genotype column (now secondary)
-    await page.getByTestId('genotype-column-select').selectOption('Accession')
+    // Germplasm: map the Accession column as the accession-name role. This
+    // opts the run into the germplasm review step, which we then handle
+    // further down (the e2e test asserts every "Accession" value
+    // already exists, so the review step should show 0 unresolved and let
+    // us continue without making decisions).
+    await page.getByTestId('accession-name-column-select').selectOption('Accession')
 
     // Select both trait columns
     await page.getByTestId('trait-checkbox-Yield_kg').check()
@@ -231,7 +235,7 @@ test.describe.serial('Trait Import Workflow — multi-sheet XLSX', () => {
     await expect(page.getByTestId('plot-number-select')).toHaveValue('Plot')
     await expect(page.getByTestId('plot-row-select')).toHaveValue('Row')
     await expect(page.getByTestId('plot-col-select')).toHaveValue('Column')
-    await expect(page.getByTestId('genotype-column-select')).toHaveValue('Accession')
+    await expect(page.getByTestId('accession-name-column-select')).toHaveValue('Accession')
     await expect(page.getByTestId('trait-checkbox-Yield_kg')).toBeChecked()
     await expect(page.getByTestId('trait-checkbox-Moisture')).toBeChecked()
     await expect(page.getByTestId('trait-label-Yield_kg')).toHaveValue(YIELD_TRAIT)
@@ -240,6 +244,13 @@ test.describe.serial('Trait Import Workflow — multi-sheet XLSX', () => {
 
     // Continue is only enabled on the last sheet when all sheets are valid
     await page.getByTestId('mapping-continue').click()
+
+    // ── Germplasm review ──
+    // The fixture's Accession values (G001/G002/G003) are created as real
+    // accessions in test setup, so every name resolves cleanly and we can
+    // move on immediately.
+    await expect(page.getByTestId('germplasm-review-continue')).toBeEnabled({ timeout: 30_000 })
+    await page.getByTestId('germplasm-review-continue').click()
 
     // ── Upload + ingestion ──
     await expect(page.getByText('Creating Entities')).toBeVisible()
@@ -282,8 +293,8 @@ test.describe.serial('Trait Import Workflow — multi-sheet XLSX', () => {
     expect(records.length).toBeGreaterThan(0)
     const first = records[0]
     expect(first.record_info).toBeTruthy()
-    // Genotype came from the Accession column (G001/G002/G003 in fixture)
-    expect(first.record_info?.genotype).toMatch(/^G\d{3}$/)
+    // Accession name came from the Accession column (G001/G002/G003 in fixture)
+    expect(first.record_info?.accession_name).toMatch(/^G\d{3}$/)
     // Notes came from the metadata picker
     expect(first.record_info).toHaveProperty('Notes')
     // Sheet name is always included

@@ -23,13 +23,7 @@ class DataTypeController(Controller):
     def get_all_data_types(self, limit: int = 100, offset: int = 0) -> List[DataTypeOutput]:
         try:
             data_types = DataType.get_all(limit=limit, offset=offset)
-            if data_types is None:
-                error = RESTAPIError(
-                    error="No data types found",
-                    error_description="No data types were found"
-                )
-                return Response(content=error, status_code=404)
-            return data_types
+            return data_types or []
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),
@@ -51,13 +45,7 @@ class DataTypeController(Controller):
                 data_type_name=data_type_name,
                 data_type_info=data_type_info
             )
-            if data_types is None:
-                error = RESTAPIError(
-                    error="No data types found",
-                    error_description="No data types were found with the given search criteria"
-                )
-                return Response(content=error, status_code=404)
-            return data_types
+            return data_types or []
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),
@@ -184,14 +172,7 @@ class DataTypeController(Controller):
                     error_description="The data type with the given ID was not found"
                 )
                 return Response(content=error, status_code=404)
-            data_formats = data_type.get_associated_data_formats()
-            if data_formats is None:
-                error = RESTAPIError(
-                    error="No data formats found",
-                    error_description="No data formats were found for the given data type"
-                )
-                return Response(content=error, status_code=404)
-            return data_formats
+            return data_type.get_associated_data_formats() or []
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),

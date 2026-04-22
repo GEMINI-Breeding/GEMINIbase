@@ -32,7 +32,8 @@ class TestGetAllSites:
     def test_not_found(self, mock_site_cls, test_client):
         mock_site_cls.get_all.return_value = None
         response = test_client.get("/api/sites/all")
-        assert response.status_code == 404
+        assert response.status_code == 200
+        assert response.json() == []
 
     @patch(SITE_API_PATH)
     def test_server_error(self, mock_site_cls, test_client):
@@ -53,7 +54,8 @@ class TestGetSites:
     def test_search_not_found(self, mock_site_cls, test_client):
         mock_site_cls.search.return_value = None
         response = test_client.get("/api/sites", params={"site_name": "Missing"})
-        assert response.status_code == 404
+        assert response.status_code == 200
+        assert response.json() == []
 
     @patch(SITE_API_PATH)
     def test_search_error(self, mock_site_cls, test_client):
@@ -198,7 +200,8 @@ class TestGetSiteExperiments:
         mock_site.get_associated_experiments.return_value = None
         mock_site_cls.get_by_id.return_value = mock_site
         response = test_client.get("/api/sites/id/test-uuid/experiments")
-        assert response.status_code == 404
+        assert response.status_code == 200
+        assert response.json() == []
 
 
 class TestGetSitePlots:

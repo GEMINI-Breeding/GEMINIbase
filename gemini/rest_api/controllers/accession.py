@@ -15,9 +15,7 @@ class AccessionController(Controller):
     def get_all_accessions(self, limit: int = 100, offset: int = 0) -> List[AccessionOutput]:
         try:
             accessions = Accession.get_all(limit=limit, offset=offset)
-            if accessions is None:
-                return Response(content=RESTAPIError(error="No accessions found", error_description=""), status_code=404)
-            return accessions
+            return accessions or []
         except Exception as e:
             return Response(content=RESTAPIError(error=str(e), error_description=""), status_code=500)
 
@@ -31,10 +29,7 @@ class AccessionController(Controller):
         try:
             if accession_info is not None:
                 accession_info = str_to_dict(accession_info)
-            accessions = Accession.search(accession_name=accession_name, species=species, accession_info=accession_info)
-            if accessions is None:
-                return Response(content=RESTAPIError(error="No accessions found", error_description=""), status_code=404)
-            return accessions
+            return Accession.search(accession_name=accession_name, species=species, accession_info=accession_info) or []
         except Exception as e:
             return Response(content=RESTAPIError(error=str(e), error_description=""), status_code=500)
 

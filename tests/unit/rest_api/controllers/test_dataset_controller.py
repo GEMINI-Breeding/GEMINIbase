@@ -31,7 +31,8 @@ class TestGetAllDatasets:
     def test_not_found(self, mock_cls, test_client):
         mock_cls.get_all.return_value = None
         response = test_client.get("/api/datasets/all")
-        assert response.status_code == 404
+        assert response.status_code == 200
+        assert response.json() == []
 
     @patch(API_PATH)
     def test_error(self, mock_cls, test_client):
@@ -52,7 +53,8 @@ class TestGetDatasets:
     def test_search_not_found(self, mock_cls, test_client):
         mock_cls.search.return_value = None
         response = test_client.get("/api/datasets", params={"dataset_name": "Missing"})
-        assert response.status_code == 404
+        assert response.status_code == 200
+        assert response.json() == []
 
     @patch(API_PATH)
     def test_search_error(self, mock_cls, test_client):
@@ -172,7 +174,8 @@ class TestDatasetAssociations:
         mock_obj.get_associated_experiments.return_value = None
         mock_cls.get_by_id.return_value = mock_obj
         response = test_client.get("/api/datasets/id/ds-uuid/experiments")
-        assert response.status_code == 404
+        assert response.status_code == 200
+        assert response.json() == []
 
     @patch(API_PATH)
     def test_experiments_error(self, mock_cls, test_client):

@@ -34,7 +34,8 @@ class TestGetAllTraits:
     def test_not_found(self, mock_cls, test_client):
         mock_cls.get_all.return_value = None
         response = test_client.get("/api/traits/all")
-        assert response.status_code == 404
+        assert response.status_code == 200
+        assert response.json() == []
 
     @patch(API_PATH)
     def test_error(self, mock_cls, test_client):
@@ -55,7 +56,8 @@ class TestGetTraits:
     def test_search_not_found(self, mock_cls, test_client):
         mock_cls.search.return_value = None
         response = test_client.get("/api/traits", params={"trait_name": "Missing"})
-        assert response.status_code == 404
+        assert response.status_code == 200
+        assert response.json() == []
 
     @patch(API_PATH)
     def test_search_error(self, mock_cls, test_client):
@@ -188,7 +190,8 @@ class TestTraitAssociations:
         mock_obj.get_associated_experiments.return_value = None
         mock_cls.get_by_id.return_value = mock_obj
         response = test_client.get("/api/traits/id/trait-uuid/experiments")
-        assert response.status_code == 404
+        assert response.status_code == 200
+        assert response.json() == []
 
     @patch(API_PATH)
     def test_get_experiments_error(self, mock_cls, test_client):
@@ -208,7 +211,8 @@ class TestTraitAssociations:
         mock_obj.get_associated_datasets.return_value = None
         mock_cls.get_by_id.return_value = mock_obj
         response = test_client.get("/api/traits/id/trait-uuid/datasets")
-        assert response.status_code == 404
+        assert response.status_code == 200
+        assert response.json() == []
 
     @patch(API_PATH)
     def test_get_datasets_error(self, mock_cls, test_client):

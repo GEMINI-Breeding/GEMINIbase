@@ -31,7 +31,8 @@ class TestGetAllTraitLevels:
     def test_not_found(self, mock_cls, test_client):
         mock_cls.get_all.return_value = None
         response = test_client.get("/api/trait_levels/all")
-        assert response.status_code == 404
+        assert response.status_code == 200
+        assert response.json() == []
 
     @patch(API_PATH)
     def test_error(self, mock_cls, test_client):
@@ -52,7 +53,8 @@ class TestGetTraitLevels:
     def test_search_not_found(self, mock_cls, test_client):
         mock_cls.search.return_value = None
         response = test_client.get("/api/trait_levels", params={"trait_level_name": "Missing"})
-        assert response.status_code == 404
+        assert response.status_code == 200
+        assert response.json() == []
 
 
 class TestGetTraitLevelById:

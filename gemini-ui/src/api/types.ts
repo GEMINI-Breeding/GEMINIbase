@@ -318,6 +318,15 @@ export interface PlotOutput {
   plot_geometry_info?: JSONB;
 }
 
+export interface PlotBulkInput {
+  plots: PlotInput[];
+}
+
+export interface PlotBulkResponse {
+  submitted_count: number;
+  skipped_count: number;
+}
+
 // ---------------------------------------------------------------------------
 // Procedure
 // ---------------------------------------------------------------------------
@@ -746,6 +755,27 @@ export interface GenotypeRecordInput {
 
 export interface GenotypeRecordBulkInput {
   records: JSONB[];
+}
+
+export interface GenotypeMatrixVariantRow {
+  variant_name: string;
+  chromosome?: number | null;
+  position?: number | null;
+  alleles?: string | null;
+  design_sequence?: string | null;
+  calls: (string | null)[];
+}
+
+export interface GenotypeMatrixBatchInput {
+  sample_headers: string[];
+  variant_rows: GenotypeMatrixVariantRow[];
+  record_info?: JSONB;
+}
+
+export interface GenotypeMatrixBatchResult {
+  variants_inserted: number;
+  records_inserted: number;
+  errors: string[];
 }
 
 // ---------------------------------------------------------------------------

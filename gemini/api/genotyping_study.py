@@ -134,7 +134,11 @@ class GenotypingStudy(APIBase):
             db_instance = GenotypingStudyModel.get(self.id)
             if not db_instance:
                 return None
+            rename = study_name is not None and study_name != db_instance.study_name
             db_instance = GenotypingStudyModel.update(db_instance, study_name=study_name, study_info=study_info)
+            if rename:
+                from gemini.api._rename_cascade import cascade_rename
+                cascade_rename(self.id, "study_id", "study_name", study_name)
             study = self.model_validate(db_instance)
             self.refresh()
             return study
@@ -144,9 +148,27 @@ class GenotypingStudy(APIBase):
 
     def delete(self) -> bool:
         try:
+            from gemini.db.core.base import db_engine
+            from gemini.db.models.columnar.genotype_records import GenotypeRecordModel
+
             db_instance = GenotypingStudyModel.get(self.id)
             if not db_instance:
                 return False
+
+            # genotype_records.study_id has no FK constraint (columnar),
+            # so we must clean it explicitly.
+            with db_engine.get_session() as session:
+                deleted = session.execute(
+                    GenotypeRecordModel.__table__.delete().where(
+                        GenotypeRecordModel.study_id == self.id
+                    )
+                ).rowcount
+                if deleted:
+                    logger.info(
+                        f"Deleted {deleted} genotype_record(s) for "
+                        f"study {self.study_name}."
+                    )
+
             GenotypingStudyModel.delete(db_instance)
             return True
         except Exception as e:

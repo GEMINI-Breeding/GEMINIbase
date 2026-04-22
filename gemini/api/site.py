@@ -307,7 +307,9 @@ class Site(APIBase):
             if not site:
                 logger.warning(f"Site with ID {current_id} does not exist.")
                 return None
-            
+
+            rename = site_name is not None and site_name != site.site_name
+
             updated_site = SiteModel.update(
                 site,
                 site_name=site_name,
@@ -316,6 +318,9 @@ class Site(APIBase):
                 site_country=site_country,
                 site_info=site_info
             )
+            if rename:
+                from gemini.api._rename_cascade import cascade_rename
+                cascade_rename(current_id, "site_id", "site_name", site_name)
             updated_site = self.model_validate(updated_site)
             self.refresh()
             return updated_site

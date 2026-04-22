@@ -6,10 +6,11 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import { filesApi } from '@/api/endpoints/files'
+import { DeleteDialog } from '@/components/crud/delete-dialog'
 import {
   FolderOpen, File, ChevronRight, ChevronDown,
   Download, Image, FileText, FileSpreadsheet,
-  RefreshCw, Eye,
+  RefreshCw, Eye, Trash2,
 } from 'lucide-react'
 
 export const Route = createFileRoute('/files/')({
@@ -130,19 +131,59 @@ function TreeItem({
   )
 }
 
-function FilePreview({ node }: { node: TreeNode }) {
+function countFiles(node: TreeNode): { files: number; size: number } {
+  if (!node.isDir) return { files: 1, size: node.metadata?.size ?? 0 }
+  let files = 0
+  let size = 0
+  for (const c of node.children) {
+    const r = countFiles(c)
+    files += r.files
+    size += r.size
+  }
+  return { files, size }
+}
+
+function FilePreview({ node, onDeleted }: { node: TreeNode; onDeleted: () => void }) {
   const ext = node.name.split('.').pop()?.toLowerCase()
-  const isImage = ['jpg', 'jpeg', 'png', 'gif', 'svg'].includes(ext || '')
+  const isImage = !node.isDir && ['jpg', 'jpeg', 'png', 'gif', 'svg'].includes(ext || '')
+  const [showDelete, setShowDelete] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const presignQuery = useQuery({
     queryKey: ['presign', node.path],
-    queryFn: () => filesApi.presign(node.path),
+    queryFn: () => filesApi.presign(`gemini/${node.path}`),
     enabled: isImage,
   })
+
+  const summary = node.isDir ? countFiles(node) : null
+
+  async function handleDelete() {
+    setDeleting(true)
+    setError(null)
+    try {
+      await filesApi.deleteFile(`gemini/${node.path}`)
+      onDeleted()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Delete failed')
+      setDeleting(false)
+    }
+  }
 
   return (
     <div className="border rounded-lg p-4 space-y-3">
       <h3 className="font-medium text-sm truncate">{node.name}</h3>
+      {node.isDir && summary && (
+        <div className="text-xs text-muted-foreground space-y-1">
+          <p>{summary.files} file{summary.files === 1 ? '' : 's'}</p>
+          <p>Total size: {formatSize(summary.size)}</p>
+          <p className="font-mono break-all">{node.path}/</p>
+          <p className="pt-2 italic">
+            Folders mirror datasets, experiments, and sensors. To delete them,
+            delete the owning entity — that cleans up files and DB rows together.
+          </p>
+        </div>
+      )}
       {node.metadata && (
         <div className="text-xs text-muted-foreground space-y-1">
           <p>Size: {formatSize(node.metadata.size)}</p>
@@ -153,16 +194,35 @@ function FilePreview({ node }: { node: TreeNode }) {
       {isImage && presignQuery.data && (
         <img src={presignQuery.data.url} alt={node.name} className="max-w-full max-h-64 rounded border object-contain" />
       )}
-      <div className="flex gap-2">
-        <Button size="sm" variant="outline" onClick={() => window.open(`/api/files/download/${node.path}`, '_blank')}>
-          <Download className="w-3.5 h-3.5 mr-1" /> Download
-        </Button>
+      {error && <p className="text-xs text-destructive">{error}</p>}
+      <div className="flex gap-2 flex-wrap">
+        {!node.isDir && (
+          <Button size="sm" variant="outline" onClick={() => window.open(`/api/files/download/gemini/${node.path}`, '_blank')}>
+            <Download className="w-3.5 h-3.5 mr-1" /> Download
+          </Button>
+        )}
         {isImage && presignQuery.data && (
           <Button size="sm" variant="outline" onClick={() => window.open(presignQuery.data.url, '_blank')}>
             <Eye className="w-3.5 h-3.5 mr-1" /> Full Size
           </Button>
         )}
+        {!node.isDir && (
+          <Button size="sm" variant="destructive" onClick={() => setShowDelete(true)} disabled={deleting}>
+            <Trash2 className="w-3.5 h-3.5 mr-1" /> Delete
+          </Button>
+        )}
       </div>
+
+      {!node.isDir && (
+        <DeleteDialog
+          open={showDelete}
+          onClose={() => setShowDelete(false)}
+          onConfirm={handleDelete}
+          entityName={node.name}
+          description="This file will be permanently removed from MinIO."
+          isLoading={deleting}
+        />
+      )}
     </div>
   )
 }
@@ -224,11 +284,18 @@ function FileBrowser() {
                 Select a file to preview
               </div>
             )}
-            {selected && !selected.isDir && <FilePreview node={selected} />}
+            {selected && (
+              <FilePreview
+                node={selected}
+                onDeleted={() => {
+                  setSelected(null)
+                  queryClient.invalidateQueries({ queryKey: ['files'] })
+                }}
+              />
+            )}
             {selected && selected.isDir && (
-              <div className="space-y-2">
-                <h3 className="font-medium">{selected.name}</h3>
-                <p className="text-sm text-muted-foreground">{selected.children.length} items</p>
+              <div className="space-y-2 mt-4">
+                <p className="text-sm text-muted-foreground">Contents ({selected.children.length} items):</p>
                 <div className="border rounded-lg divide-y">
                   {selected.children
                     .sort((a, b) => (a.isDir === b.isDir ? a.name.localeCompare(b.name) : a.isDir ? -1 : 1))

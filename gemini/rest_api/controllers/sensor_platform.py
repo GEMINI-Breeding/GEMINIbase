@@ -27,13 +27,7 @@ class SensorPlatformController(Controller):
     def get_all_sensor_platforms(self, limit: int = 100, offset: int = 0) -> List[SensorPlatformOutput]:
         try:
             sensor_platforms = SensorPlatform.get_all(limit=limit, offset=offset)
-            if sensor_platforms is None:
-                error = RESTAPIError(
-                    error="No sensor platforms found",
-                    error_description="No sensor platforms were found"
-                )
-                return Response(content=error, status_code=404)
-            return sensor_platforms
+            return sensor_platforms or []
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),
@@ -59,13 +53,7 @@ class SensorPlatformController(Controller):
                 experiment_name=experiment_name
             )
 
-            if sensor_platforms is None:
-                error = RESTAPIError(
-                    error="No sensor platforms found",
-                    error_description="No sensor platforms were found with the given search criteria"
-                )
-                return Response(content=error, status_code=404)
-            return sensor_platforms
+            return sensor_platforms or []
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),
@@ -195,14 +183,7 @@ class SensorPlatformController(Controller):
                     error_description="The sensor platform with the given ID was not found"
                 )
                 return Response(content=error, status_code=404)
-            experiments = sensor_platform.get_associated_experiments()
-            if experiments is None:
-                error = RESTAPIError(
-                    error="No experiments found",
-                    error_description="No experiments were found for the given sensor platform"
-                )
-                return Response(content=error, status_code=404)
-            return experiments
+            return sensor_platform.get_associated_experiments() or []
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),
@@ -223,14 +204,7 @@ class SensorPlatformController(Controller):
                     error_description="The sensor platform with the given ID was not found"
                 )
                 return Response(content=error, status_code=404)
-            sensors = sensor_platform.get_associated_sensors()
-            if sensors is None:
-                error = RESTAPIError(
-                    error="No sensors found",
-                    error_description="No sensors were found for the given sensor platform"
-                )
-                return Response(content=error, status_code=404)
-            return sensors
+            return sensor_platform.get_associated_sensors() or []
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),

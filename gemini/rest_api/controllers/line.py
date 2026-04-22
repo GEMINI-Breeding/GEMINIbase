@@ -15,9 +15,7 @@ class LineController(Controller):
     def get_all_lines(self, limit: int = 100, offset: int = 0) -> List[LineOutput]:
         try:
             lines = Line.get_all(limit=limit, offset=offset)
-            if lines is None:
-                return Response(content=RESTAPIError(error="No lines found", error_description=""), status_code=404)
-            return lines
+            return lines or []
         except Exception as e:
             return Response(content=RESTAPIError(error=str(e), error_description=""), status_code=500)
 
@@ -26,10 +24,7 @@ class LineController(Controller):
         try:
             if line_info is not None:
                 line_info = str_to_dict(line_info)
-            lines = Line.search(line_name=line_name, species=species, line_info=line_info)
-            if lines is None:
-                return Response(content=RESTAPIError(error="No lines found", error_description=""), status_code=404)
-            return lines
+            return Line.search(line_name=line_name, species=species, line_info=line_info) or []
         except Exception as e:
             return Response(content=RESTAPIError(error=str(e), error_description=""), status_code=500)
 

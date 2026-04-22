@@ -25,6 +25,7 @@ from uuid import UUID
 from tqdm import tqdm
 
 from pydantic import Field, AliasChoices
+from sqlalchemy.exc import DBAPIError
 import logging
 from gemini.api.types import ID
 from gemini.api.base import APIBase
@@ -32,6 +33,7 @@ from gemini.api.dataset import Dataset
 from gemini.api.trait_record import TraitRecord
 from gemini.api.enums import GEMINITraitLevel, GEMINIDatasetType
 from gemini.db.models.traits import TraitModel
+from gemini.db.models.columnar.trait_records import TraitRecordModel
 from gemini.db.models.views.experiment_views import ExperimentTraitsViewModel
 from gemini.db.models.views.dataset_views import TraitDatasetsViewModel
 from gemini.db.models.associations import ExperimentTraitModel, TraitDatasetModel
@@ -309,7 +311,9 @@ class Trait(APIBase):
             if not trait:
                 logger.warning(f"Trait with ID {current_id} does not exist.")
                 return None
-            
+
+            rename = trait_name is not None and trait_name != trait.trait_name
+
             trait = TraitModel.update(
                 trait,
                 trait_name=trait_name,
@@ -318,9 +322,12 @@ class Trait(APIBase):
                 trait_info=trait_info,
                 trait_metrics=trait_metrics
             )
+            if rename:
+                from gemini.api._rename_cascade import cascade_rename
+                cascade_rename(current_id, "trait_id", "trait_name", trait_name)
             trait = self.model_validate(trait)
             self.refresh()
-            return trait 
+            return trait
         except Exception as e:
             logger.error(f"Error updating trait: {e}")
             return None
@@ -344,6 +351,7 @@ class Trait(APIBase):
             if not trait:
                 logger.warning(f"Trait with ID {current_id} does not exist.")
                 return False
+            TraitRecordModel.delete_by_trait(self.trait_name)
             TraitModel.delete(trait)
             return True
         except Exception as e:
@@ -853,6 +861,12 @@ class Trait(APIBase):
 
             success, inserted_record_ids = TraitRecord.insert(trait_records)
             return success, inserted_record_ids
+        except ValueError:
+            raise
+        except DBAPIError:
+            # Let database errors (trigger RAISEs, constraint violations)
+            # propagate so the REST layer can surface the real cause.
+            raise
         except Exception as e:
             logger.error(f"Error inserting records: {e}")
             return False, []

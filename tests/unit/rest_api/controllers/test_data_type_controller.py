@@ -32,7 +32,8 @@ class TestGetAllDataTypes:
     def test_not_found(self, mock_cls, test_client):
         mock_cls.get_all.return_value = None
         response = test_client.get("/api/data_types/all")
-        assert response.status_code == 404
+        assert response.status_code == 200
+        assert response.json() == []
 
     @patch(API_PATH)
     def test_error(self, mock_cls, test_client):
@@ -53,7 +54,8 @@ class TestGetDataTypes:
     def test_search_not_found(self, mock_cls, test_client):
         mock_cls.search.return_value = None
         response = test_client.get("/api/data_types", params={"data_type_name": "Missing"})
-        assert response.status_code == 404
+        assert response.status_code == 200
+        assert response.json() == []
 
 
 class TestGetDataTypeById:
@@ -155,7 +157,8 @@ class TestDataTypeAssociations:
         mock_obj.get_associated_data_formats.return_value = None
         mock_cls.get_by_id.return_value = mock_obj
         response = test_client.get("/api/data_types/id/1/data_formats")
-        assert response.status_code == 404
+        assert response.status_code == 200
+        assert response.json() == []
 
     @patch(API_PATH)
     def test_data_type_not_found(self, mock_cls, test_client):

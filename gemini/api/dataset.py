@@ -36,6 +36,7 @@ from gemini.api.enums import GEMINIDatasetType
 from gemini.api.dataset_type import DatasetType
 from gemini.api.dataset_record import DatasetRecord
 from gemini.db.models.datasets import DatasetModel
+from gemini.db.models.columnar.trait_records import TraitRecordModel
 from gemini.db.models.dataset_types import DatasetTypeModel
 from gemini.db.models.associations import ExperimentDatasetModel
 from gemini.db.models.views.experiment_views import ExperimentDatasetsViewModel
@@ -309,6 +310,7 @@ class Dataset(APIBase):
             if not dataset:
                 logger.warning(f"Dataset with ID {current_id} does not exist.")
                 return None
+            rename = dataset_name is not None and dataset_name != dataset.dataset_name
             dataset = DatasetModel.update(
                 dataset,
                 dataset_name=dataset_name,
@@ -316,6 +318,9 @@ class Dataset(APIBase):
                 dataset_type_id=dataset_type.value if dataset_type else None,
                 collection_date=collection_date
             )
+            if rename:
+                from gemini.api._rename_cascade import cascade_rename
+                cascade_rename(current_id, "dataset_id", "dataset_name", dataset_name)
             dataset = self.model_validate(dataset)
             self.refresh()
             return dataset
@@ -342,7 +347,21 @@ class Dataset(APIBase):
             if not dataset:
                 logger.warning(f"Dataset with ID {current_id} does not exist.")
                 return False
+
+            # Collect the MinIO prefixes this dataset owns BEFORE deleting
+            # the DB rows (the association lookup needs them intact).
+            experiments = self.get_associated_experiments() or []
+            prefixes = [
+                f"dataset_data/{exp.experiment_name}/{self.dataset_name}/"
+                for exp in experiments
+                if getattr(exp, "experiment_name", None)
+            ]
+
+            TraitRecordModel.delete_by_dataset(self.dataset_name)
             DatasetModel.delete(dataset)
+
+            from gemini.api.base import sweep_minio_prefixes
+            sweep_minio_prefixes(prefixes)
             return True
         except Exception as e:
             logger.error(f"Error deleting dataset: {e}")

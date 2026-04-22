@@ -37,6 +37,7 @@ from gemini.api.enums import (
 )
 
 from gemini.db.models.experiments import ExperimentModel
+from gemini.db.models.columnar.trait_records import TraitRecordModel
 from gemini.db.models.views.experiment_views import (
     ExperimentPopulationsViewModel,
     ExperimentProceduresViewModel,
@@ -65,6 +66,7 @@ if TYPE_CHECKING:
     from gemini.api.dataset import Dataset
     from gemini.api.trait import Trait
     from gemini.api.plot import Plot
+    from gemini.api.genotyping_study import GenotypingStudy
 
 
 logger = logging.getLogger(__name__)
@@ -316,7 +318,9 @@ class Experiment(APIBase):
             if not experiment:
                 logger.warning(f"Experiment with ID {current_id} does not exist.")
                 return None
-            
+
+            rename = experiment_name is not None and experiment_name != experiment.experiment_name
+
             updated_experiment = ExperimentModel.update(
                 experiment,
                 experiment_name=experiment_name,
@@ -324,6 +328,9 @@ class Experiment(APIBase):
                 experiment_start_date=experiment_start_date,
                 experiment_end_date=experiment_end_date
             )
+            if rename:
+                from gemini.api._rename_cascade import cascade_rename
+                cascade_rename(current_id, "experiment_id", "experiment_name", experiment_name)
             updated_experiment = self.model_validate(updated_experiment)
             self.refresh()
             return updated_experiment
@@ -333,24 +340,301 @@ class Experiment(APIBase):
         
     def delete(self) -> bool:
         """
-        Delete the experiment.
+        Delete the experiment and any orphaned satellite entities.
 
-        Examples:
-            >>> experiment = Experiment.get("My Experiment")
-            >>> success = experiment.delete()
-            >>> print(success)
-            True
+        Sensors, sensor platforms, populations, traits, datasets, seasons,
+        and sites associated with this experiment are deleted if — after
+        the experiment is removed — they're not associated with any other
+        experiment. Accessions reached via the experiment's populations
+        (through ``population_accessions``) are dropped when no surviving
+        population still holds them; lines are dropped when no surviving
+        accession still references them. Entities shared with other
+        experiments (or other populations/accessions) are preserved.
 
         Returns:
             bool: True if the experiment was deleted, False otherwise.
         """
         try:
+            import time
+            from sqlalchemy import select, and_, delete as sa_delete
+            from gemini.db.core.base import db_engine
+            from gemini.db.models.associations import (
+                ExperimentSensorModel,
+                ExperimentSensorPlatformModel,
+                ExperimentTraitModel,
+                ExperimentPopulationModel,
+                ExperimentDatasetModel,
+                ExperimentSiteModel,
+                ExperimentGenotypingStudyModel,
+                PopulationAccessionModel,
+            )
+            from gemini.db.models.sensors import SensorModel
+            from gemini.db.models.sensor_platforms import SensorPlatformModel
+            from gemini.db.models.traits import TraitModel
+            from gemini.db.models.populations import PopulationModel
+            from gemini.db.models.datasets import DatasetModel
+            from gemini.db.models.seasons import SeasonModel
+            from gemini.db.models.sites import SiteModel
+            from gemini.db.models.plots import PlotModel
+            from gemini.db.models.accessions import AccessionModel
+            from gemini.db.models.lines import LineModel
+            from gemini.db.models.genotyping_studies import GenotypingStudyModel
+            from gemini.db.models.columnar.genotype_records import GenotypeRecordModel
+
             current_id = self.id
-            experiment = ExperimentModel.get(current_id)
-            if not experiment:
-                logger.warning(f"Experiment with ID {current_id} does not exist.")
-                return False
-            ExperimentModel.delete(experiment)
+            exp_name = self.experiment_name
+
+            # Phase timings below are logged so a client-side "request
+            # hung" report (see the UI DELETE flow) can be localized to a
+            # specific step in the cascade without restarting the server.
+            def _phase(name: str, t0: float) -> float:
+                now = time.monotonic()
+                logger.info(f"[delete:{exp_name}] {name} took {now - t0:.2f}s")
+                return now
+
+            t_start = time.monotonic()
+
+            # (association model, owned child model, fk column name on assoc)
+            # Seasons are FK-owned directly by experiment (not via an
+            # association table), so they're handled separately below.
+            children = [
+                (ExperimentSensorModel, SensorModel, "sensor_id"),
+                (ExperimentSensorPlatformModel, SensorPlatformModel, "sensor_platform_id"),
+                (ExperimentTraitModel, TraitModel, "trait_id"),
+                (ExperimentPopulationModel, PopulationModel, "population_id"),
+                (ExperimentDatasetModel, DatasetModel, "dataset_id"),
+                (ExperimentSiteModel, SiteModel, "site_id"),
+                (ExperimentGenotypingStudyModel, GenotypingStudyModel, "study_id"),
+            ]
+
+            # Track populations this experiment owned so we can cascade
+            # their accessions. `population_accessions.population_id` is
+            # `ON DELETE CASCADE`, so we must collect the accession IDs
+            # BEFORE the population rows (and their join rows) are deleted.
+            orphan_population_ids: list = []
+            orphan_accession_ids: list = []
+
+            # Every DB mutation below runs in ONE outer transaction so a
+            # mid-delete interrupt (client disconnect, pg_cancel_backend,
+            # container restart) rolls the whole thing back. Before this
+            # was split across four commits, cancelling between phases
+            # left the experiment in a half-cleaned state with no handle
+            # for the UI to retry.
+            with db_engine.get_session() as session:
+                # Existence check inside the transaction so we don't race
+                # with a concurrent delete between the check and the work.
+                if session.get(ExperimentModel, current_id) is None:
+                    logger.warning(f"Experiment with ID {current_id} does not exist.")
+                    return False
+
+                # Columnar trait_records + its pg_ivm IMMV. Participates
+                # in this transaction. The helper flips
+                # session_replication_role to 'replica' just around the
+                # two deletes (pg_ivm's triggers were what made this
+                # phase take minutes) then flips it back so FK cascades
+                # fire normally for the experiment row delete below.
+                TraitRecordModel.delete_by_experiment(exp_name, session=session)
+                t_phase = _phase("trait_records delete", t_start)
+                # First pass: determine which populations are orphans, and
+                # while the population_accessions join rows still exist,
+                # determine which accessions will be orphaned once those
+                # populations go away. We do NOT delete yet.
+                pop_linked = session.execute(
+                    select(ExperimentPopulationModel.population_id).where(
+                        ExperimentPopulationModel.experiment_id == current_id
+                    )
+                ).scalars().all()
+                if pop_linked:
+                    pop_shared = set(session.execute(
+                        select(ExperimentPopulationModel.population_id).where(
+                            and_(ExperimentPopulationModel.population_id.in_(pop_linked),
+                                 ExperimentPopulationModel.experiment_id != current_id)
+                        )
+                    ).scalars().all())
+                    orphan_population_ids = [
+                        pid for pid in pop_linked if pid not in pop_shared
+                    ]
+                if orphan_population_ids:
+                    linked_accession_ids = session.execute(
+                        select(PopulationAccessionModel.accession_id).where(
+                            PopulationAccessionModel.population_id.in_(orphan_population_ids)
+                        )
+                    ).scalars().all()
+                    if linked_accession_ids:
+                        kept_accession_ids = set(session.execute(
+                            select(PopulationAccessionModel.accession_id).where(
+                                and_(
+                                    PopulationAccessionModel.accession_id.in_(linked_accession_ids),
+                                    PopulationAccessionModel.population_id.notin_(orphan_population_ids),
+                                )
+                            )
+                        ).scalars().all())
+                        orphan_accession_ids = [
+                            aid for aid in linked_accession_ids if aid not in kept_accession_ids
+                        ]
+
+                # Now do the usual association-table orphan cleanup for the
+                # other satellite entities. The Population branch re-runs
+                # the query for symmetry with the others, but we already
+                # know the answer.
+                orphan_study_ids: list = []
+                for assoc_model, child_model, fk_name in children:
+                    fk_col = getattr(assoc_model, fk_name)
+                    # Child rows linked to THIS experiment via the association.
+                    linked_child_ids = session.execute(
+                        select(fk_col).where(assoc_model.experiment_id == current_id)
+                    ).scalars().all()
+                    if not linked_child_ids:
+                        continue
+                    # Of those, which are ALSO associated with another experiment?
+                    shared_ids = set(session.execute(
+                        select(fk_col).where(
+                            and_(fk_col.in_(linked_child_ids),
+                                 assoc_model.experiment_id != current_id)
+                        )
+                    ).scalars().all())
+                    orphan_ids = [cid for cid in linked_child_ids if cid not in shared_ids]
+                    if orphan_ids:
+                        session.execute(
+                            child_model.__table__.delete().where(child_model.id.in_(orphan_ids))
+                        )
+                        logger.info(
+                            f"Deleted {len(orphan_ids)} orphaned {child_model.__name__}"
+                            f" row(s) previously tied only to experiment {self.experiment_name}."
+                        )
+                        if child_model is GenotypingStudyModel:
+                            orphan_study_ids = list(orphan_ids)
+
+                # Genotype records carry study_id but no FK (columnar
+                # storage), so we have to sweep them manually once the
+                # owning study rows are gone.
+                if orphan_study_ids:
+                    deleted_records = session.execute(
+                        GenotypeRecordModel.__table__.delete().where(
+                            GenotypeRecordModel.study_id.in_(orphan_study_ids)
+                        )
+                    ).rowcount
+                    if deleted_records:
+                        logger.info(
+                            f"Deleted {deleted_records} genotype_record(s) for "
+                            f"{len(orphan_study_ids)} orphaned study/studies."
+                        )
+
+                # Collect the line_ids referenced by the accessions we're
+                # about to delete, so we can decide which lines to cascade
+                # once those accessions are gone.
+                orphan_line_candidates: list = []
+                if orphan_accession_ids:
+                    orphan_line_candidates = list(set(
+                        session.execute(
+                            select(AccessionModel.line_id).where(
+                                and_(
+                                    AccessionModel.id.in_(orphan_accession_ids),
+                                    AccessionModel.line_id.is_not(None),
+                                )
+                            )
+                        ).scalars().all()
+                    ))
+
+                    session.execute(
+                        AccessionModel.__table__.delete().where(
+                            AccessionModel.id.in_(orphan_accession_ids)
+                        )
+                    )
+                    logger.info(
+                        f"Deleted {len(orphan_accession_ids)} orphaned Accession row(s)"
+                        f" previously tied only to populations owned by {self.experiment_name}."
+                    )
+
+                # A line is orphaned when no remaining accession references
+                # it. Re-query after the accession delete so we see the true
+                # post-cascade picture.
+                if orphan_line_candidates:
+                    still_referenced = set(session.execute(
+                        select(AccessionModel.line_id).where(
+                            AccessionModel.line_id.in_(orphan_line_candidates)
+                        )
+                    ).scalars().all())
+                    orphan_line_ids = [
+                        lid for lid in orphan_line_candidates if lid not in still_referenced
+                    ]
+                    if orphan_line_ids:
+                        session.execute(
+                            LineModel.__table__.delete().where(LineModel.id.in_(orphan_line_ids))
+                        )
+                        logger.info(
+                            f"Deleted {len(orphan_line_ids)} orphaned Line row(s)"
+                            f" no longer referenced by any accession after"
+                            f" removing {self.experiment_name}."
+                        )
+
+                # Plots and seasons both carry a direct FK to experiment
+                # (ON DELETE SET NULL at the DB level) so we delete them
+                # explicitly before the experiment itself goes away,
+                # otherwise they'd be orphaned with NULL experiment_id.
+                plot_deleted = session.execute(
+                    PlotModel.__table__.delete().where(PlotModel.experiment_id == current_id)
+                ).rowcount
+                if plot_deleted:
+                    logger.info(f"Deleted {plot_deleted} plot(s) owned by {self.experiment_name}.")
+
+                season_deleted = session.execute(
+                    SeasonModel.__table__.delete().where(SeasonModel.experiment_id == current_id)
+                ).rowcount
+                if season_deleted:
+                    logger.info(f"Deleted {season_deleted} season(s) owned by {self.experiment_name}.")
+
+                # Finally, the experiment row itself. Doing this inline
+                # (rather than ExperimentModel.delete(instance), which
+                # opens its own session) keeps the whole cascade atomic.
+                session.execute(
+                    sa_delete(ExperimentModel).where(ExperimentModel.id == current_id)
+                )
+
+            # Session's __exit__ committed above. From here on, any
+            # failure is post-commit cleanup and doesn't affect the DB.
+            t_phase = _phase("association cleanup + experiment delete + commit", t_phase)
+
+            # Cascade MinIO cleanup. Anything keyed by experiment name:
+            # uploads under Raw/ and per-record-type data prefixes.
+            # Processed/ is laid out as Processed/{year}/{experiment}/...,
+            # so we enumerate the year directories and sweep each one.
+            from gemini.api.base import minio_storage_provider, sweep_minio_prefixes
+            prefixes = [
+                f"Raw/{exp_name}/",
+                f"dataset_data/{exp_name}/",
+                f"sensor_data/{exp_name}/",
+                f"procedure_data/{exp_name}/",
+                f"script_data/{exp_name}/",
+                f"model_data/{exp_name}/",
+            ]
+            try:
+                year_entries = minio_storage_provider.client.list_objects(
+                    bucket_name=minio_storage_provider.bucket_name,
+                    prefix="Processed/",
+                    recursive=False,
+                )
+                for entry in year_entries:
+                    # list_objects returns "folders" as keys ending with "/"
+                    year_prefix = entry.object_name  # e.g. "Processed/2024/"
+                    if year_prefix.endswith("/"):
+                        prefixes.append(f"{year_prefix}{exp_name}/")
+            except Exception as e:
+                logger.warning(f"Could not enumerate Processed/ years for cascade: {e}")
+            t_phase = _phase(f"minio Processed/ enumerate ({len(prefixes)} prefixes)", t_phase)
+
+            failed_prefixes = sweep_minio_prefixes(prefixes)
+            _phase("minio prefix sweep", t_phase)
+            if failed_prefixes:
+                # DB commit already succeeded — the experiment row is gone
+                # and the UI can't retry this sweep. Summarize orphans at
+                # ERROR so the operator can pick them up from logs.
+                logger.error(
+                    f"[delete:{exp_name}] DB cascade committed but "
+                    f"{len(failed_prefixes)} MinIO prefix(es) were left "
+                    f"behind (see ORPHANED lines above): {failed_prefixes}"
+                )
+            logger.info(f"[delete:{exp_name}] total took {time.monotonic() - t_start:.2f}s")
             return True
         except Exception as e:
             logger.error(f"Error deleting experiment: {e}")
@@ -1886,6 +2170,22 @@ class Experiment(APIBase):
         except Exception as e:
             logger.error(f"Error checking if belongs to trait: {e}")
             return False
+    # endregion
+
+    # region GenotypingStudy
+
+    def get_associated_genotyping_studies(self) -> Optional[List["GenotypingStudy"]]:
+        try:
+            from gemini.api.genotyping_study import GenotypingStudy
+            from gemini.db.models.views.genotype_views import ExperimentGenotypingStudiesViewModel
+            rows = ExperimentGenotypingStudiesViewModel.search(experiment_id=self.id)
+            if not rows:
+                logger.info("No genotyping studies found for this experiment.")
+                return None
+            return [GenotypingStudy.model_validate(r) for r in rows]
+        except Exception as e:
+            logger.error(f"Error getting associated genotyping studies: {e}")
+            return None
     # endregion
 
     # region Plot

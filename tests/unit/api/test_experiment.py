@@ -166,22 +166,28 @@ class TestExperimentUpdate:
 
 
 class TestExperimentDelete:
-    @patch(f"{MODULE}.ExperimentModel")
-    def test_delete_success(self, mock_model):
-        uid = uuid4()
-        mock_model.get.return_value = _make_exp_db(id=uid)
-        exp = Experiment(id=uid, experiment_name="Test", experiment_start_date=date.today(), experiment_end_date=date.today())
+    @patch(f"{MODULE}.TraitRecordModel")
+    @patch("gemini.api.base.sweep_minio_prefixes", return_value=[])
+    @patch("gemini.api.base.minio_storage_provider")
+    def test_delete_success(self, mock_storage, mock_sweep, mock_trait_model, mock_api_db_engine):
+        _, mock_session = mock_api_db_engine
+        mock_session.get.return_value = _make_exp_db(id=uuid4())
+        mock_session.execute.return_value.scalars.return_value.all.return_value = []
+        mock_session.execute.return_value.rowcount = 0
+        mock_storage.client.list_objects.return_value = []
+        mock_storage.bucket_name = "test-bucket"
+        exp = Experiment(id=uuid4(), experiment_name="Test", experiment_start_date=date.today(), experiment_end_date=date.today())
         assert exp.delete() is True
 
-    @patch(f"{MODULE}.ExperimentModel")
-    def test_delete_not_found(self, mock_model):
-        mock_model.get.return_value = None
+    def test_delete_not_found(self, mock_api_db_engine):
+        _, mock_session = mock_api_db_engine
+        mock_session.get.return_value = None
         exp = Experiment(id=uuid4(), experiment_name="Test", experiment_start_date=date.today(), experiment_end_date=date.today())
         assert exp.delete() is False
 
-    @patch(f"{MODULE}.ExperimentModel")
-    def test_delete_exception(self, mock_model):
-        mock_model.get.side_effect = Exception("err")
+    def test_delete_exception(self, mock_api_db_engine):
+        _, mock_session = mock_api_db_engine
+        mock_session.get.side_effect = Exception("err")
         exp = Experiment(id=uuid4(), experiment_name="Test", experiment_start_date=date.today(), experiment_end_date=date.today())
         assert exp.delete() is False
 

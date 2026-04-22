@@ -1,8 +1,26 @@
-import ky from 'ky'
+import ky, { HTTPError } from 'ky'
+
+/**
+ * ky extends `HTTPError` with a structured error code pulled from the
+ * backend's `RESTAPIError` body. Callers can test for well-known codes
+ * (e.g. `database_unavailable`) without string-matching on `err.message`.
+ */
+export interface ApiErrorPayload {
+  error: string
+  error_description: string
+}
+
+export function getApiErrorCode(err: unknown): string | null {
+  if (err instanceof HTTPError) {
+    const code = (err as HTTPError & { apiErrorCode?: string }).apiErrorCode
+    return code ?? null
+  }
+  return null
+}
 
 const api = ky.create({
   prefix: import.meta.env.VITE_API_BASE_URL || '/',
-  timeout: 30000,
+  timeout: 120000,
   hooks: {
     beforeRequest: [
       ({ request }) => {
@@ -10,6 +28,37 @@ const api = ky.create({
         if (apiKey) {
           request.headers.set('X-API-Key', apiKey)
         }
+      },
+    ],
+    beforeError: [
+      ({ error }) => {
+        if (!(error instanceof HTTPError)) return error
+        const { response } = error
+
+        // ky pre-parses the response body into `error.data` before invoking
+        // this hook, and the underlying body stream is already consumed —
+        // so `response.json()` / `response.clone().json()` won't work here.
+        // Lift the structured `{ error, error_description }` out of `data`
+        // so callers that surface `err.message` get an actionable string
+        // instead of ky's default "Request failed with status code …".
+        const data = (error.data ?? null) as Partial<ApiErrorPayload> | null
+        if (data && typeof data.error_description === 'string' && data.error_description) {
+          error.message = data.error_description
+          if (typeof data.error === 'string') {
+            ;(error as HTTPError & { apiErrorCode?: string }).apiErrorCode = data.error
+          }
+          return error
+        }
+
+        if (response.status >= 500) {
+          error.message =
+            response.status === 503
+              ? `A required service is unavailable (HTTP 503). Check the gemini-rest-api and gemini-db containers.`
+              : `Server error (HTTP ${response.status}). Check the gemini-rest-api logs for details.`
+        } else if (response.status >= 400 && response.status !== 404) {
+          error.message = `Request rejected (HTTP ${response.status} ${response.statusText || ''}).`.trim()
+        }
+        return error
       },
     ],
   },
@@ -42,8 +91,8 @@ export async function patch<T>(path: string, data?: unknown): Promise<T> {
   return api.patch(path, { json: data }).json<T>()
 }
 
-export async function del(path: string): Promise<void> {
-  await api.delete(path)
+export async function del(path: string, opts?: { signal?: AbortSignal }): Promise<void> {
+  await api.delete(path, { signal: opts?.signal })
 }
 
 export async function getBlob(path: string): Promise<Blob> {
@@ -63,6 +112,13 @@ export async function getNdjson<T>(path: string, params?: Record<string, unknown
     ? Object.fromEntries(Object.entries(params).filter(([, v]) => v != null).map(([k, v]) => [k, String(v)]))
     : undefined
   const response = await api.get(path, { searchParams })
+  const text = await response.text()
+  if (!text.trim()) return []
+  return text.trim().split('\n').map((line) => JSON.parse(line) as T)
+}
+
+export async function postNdjson<T>(path: string, data?: unknown): Promise<T[]> {
+  const response = await api.post(path, { json: data })
   const text = await response.text()
   if (!text.trim()) return []
   return text.trim().split('\n').map((line) => JSON.parse(line) as T)
