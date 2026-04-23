@@ -20,47 +20,47 @@ class TestGEMINISettingsDefaults:
 
     def test_db_defaults(self):
         s = GEMINISettings()
-        assert s.GEMINI_DB_CONTAINER_NAME == "gemini-db"
-        assert s.GEMINI_DB_IMAGE_NAME == "gemini/db"
+        assert s.GEMINI_DB_CONTAINER_NAME == "geminibase-db"
+        assert s.GEMINI_DB_IMAGE_NAME == "geminibase/db"
         assert s.GEMINI_DB_PORT == 5432
 
     def test_logger_defaults(self):
         s = GEMINISettings()
-        assert s.GEMINI_LOGGER_CONTAINER_NAME == "gemini-logger"
-        assert s.GEMINI_LOGGER_IMAGE_NAME == "gemini/logger"
+        assert s.GEMINI_LOGGER_CONTAINER_NAME == "geminibase-logger"
+        assert s.GEMINI_LOGGER_IMAGE_NAME == "geminibase/logger"
         assert s.GEMINI_LOGGER_PORT == 6379
 
     def test_storage_defaults(self):
         s = GEMINISettings()
-        assert s.GEMINI_STORAGE_CONTAINER_NAME == "gemini-storage"
-        assert s.GEMINI_STORAGE_IMAGE_NAME == "gemini/storage"
+        assert s.GEMINI_STORAGE_CONTAINER_NAME == "geminibase-storage"
+        assert s.GEMINI_STORAGE_IMAGE_NAME == "geminibase/storage"
         assert s.GEMINI_STORAGE_PORT == 9000
         assert s.GEMINI_STORAGE_API_PORT == 9001
         assert s.GEMINI_STORAGE_BUCKET_NAME is not None
 
     def test_rest_api_defaults(self):
         s = GEMINISettings()
-        assert s.GEMINI_REST_API_CONTAINER_NAME == "gemini-rest-api"
-        assert s.GEMINI_REST_API_IMAGE_NAME == "gemini/rest-api"
+        assert s.GEMINI_REST_API_CONTAINER_NAME == "geminibase-rest-api"
+        assert s.GEMINI_REST_API_IMAGE_NAME == "geminibase/rest-api"
         assert s.GEMINI_REST_API_PORT == 7777
 
     def test_scheduler_db_defaults(self):
         s = GEMINISettings()
-        assert s.GEMINI_SCHEDULER_DB_CONTAINER_NAME == "gemini-scheduler-db"
-        assert s.GEMINI_SCHEDULER_DB_IMAGE_NAME == "gemini/scheduler-db"
+        assert s.GEMINI_SCHEDULER_DB_CONTAINER_NAME == "geminibase-scheduler-db"
+        assert s.GEMINI_SCHEDULER_DB_IMAGE_NAME == "geminibase/scheduler-db"
         assert s.GEMINI_SCHEDULER_DB_PORT == 6432
 
     def test_scheduler_server_defaults(self):
         s = GEMINISettings()
-        assert s.GEMINI_SCHEDULER_SERVER_CONTAINER_NAME == "gemini-scheduler-server"
-        assert s.GEMINI_SCHEDULER_SERVER_IMAGE_NAME == "gemini/scheduler-server"
+        assert s.GEMINI_SCHEDULER_SERVER_CONTAINER_NAME == "geminibase-scheduler-server"
+        assert s.GEMINI_SCHEDULER_SERVER_IMAGE_NAME == "geminibase/scheduler-server"
         assert s.GEMINI_SCHEDULER_SERVER_PORT == 4200
 
     def test_reverse_proxy_defaults(self):
         s = GEMINISettings()
-        assert s.GEMINI_REVERSE_PROXY_CONTAINER_NAME == "gemini-reverse-proxy"
-        assert s.GEMINI_REVERSE_PROXY_IMAGE_NAME == "gemini/reverse-proxy"
-        assert s.GEMINI_REVERSE_PROXY_HOSTNAME == "gemini-reverse-proxy"
+        assert s.GEMINI_REVERSE_PROXY_CONTAINER_NAME == "geminibase-reverse-proxy"
+        assert s.GEMINI_REVERSE_PROXY_IMAGE_NAME == "geminibase/reverse-proxy"
+        assert s.GEMINI_REVERSE_PROXY_HOSTNAME == "geminibase-reverse-proxy"
 
 
 class TestApplyType:

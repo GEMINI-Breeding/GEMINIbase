@@ -21,25 +21,25 @@ class GEMINISettings(BaseSettings):
     GEMINI_PUBLIC_IP : str = ""
 
     # Database Configuration
-    GEMINI_DB_CONTAINER_NAME : str = "gemini-db"
-    GEMINI_DB_IMAGE_NAME : str = "gemini/db"
+    GEMINI_DB_CONTAINER_NAME : str = "geminibase-db"
+    GEMINI_DB_IMAGE_NAME : str = "geminibase/db"
     GEMINI_DB_USER : str = "gemini"
     GEMINI_DB_PASSWORD : str = "gemini"
-    GEMINI_DB_HOSTNAME : str = "gemini-db"
+    GEMINI_DB_HOSTNAME : str = "geminibase-db"
     GEMINI_DB_NAME : str = "gemini"
     GEMINI_DB_PORT : int = 5432
 
     # Logger Configuration
-    GEMINI_LOGGER_CONTAINER_NAME : str = "gemini-logger"
-    GEMINI_LOGGER_IMAGE_NAME : str = "gemini/logger"
-    GEMINI_LOGGER_HOSTNAME : str = "gemini-logger"
+    GEMINI_LOGGER_CONTAINER_NAME : str = "geminibase-logger"
+    GEMINI_LOGGER_IMAGE_NAME : str = "geminibase/logger"
+    GEMINI_LOGGER_HOSTNAME : str = "geminibase-logger"
     GEMINI_LOGGER_PORT : int = 6379
     GEMINI_LOGGER_PASSWORD : str = "gemini"
 
     # File Store Configuration
-    GEMINI_STORAGE_CONTAINER_NAME : str = "gemini-storage"
-    GEMINI_STORAGE_IMAGE_NAME : str = "gemini/storage"
-    GEMINI_STORAGE_HOSTNAME : str = "gemini-storage"
+    GEMINI_STORAGE_CONTAINER_NAME : str = "geminibase-storage"
+    GEMINI_STORAGE_IMAGE_NAME : str = "geminibase/storage"
+    GEMINI_STORAGE_HOSTNAME : str = "geminibase-storage"
     GEMINI_STORAGE_PORT : int = 9000
     GEMINI_STORAGE_API_PORT : int = 9001
     GEMINI_STORAGE_ROOT_USER : str = "gemini_root"
@@ -49,26 +49,26 @@ class GEMINISettings(BaseSettings):
     GEMINI_STORAGE_SECRET_KEY : str = "gemini_secret"
 
     # REST API Configuration
-    GEMINI_REST_API_CONTAINER_NAME : str = "gemini-rest-api"
-    GEMINI_REST_API_IMAGE_NAME : str = "gemini/rest-api"
-    GEMINI_REST_API_HOSTNAME : str = "gemini-rest-api"
+    GEMINI_REST_API_CONTAINER_NAME : str = "geminibase-rest-api"
+    GEMINI_REST_API_IMAGE_NAME : str = "geminibase/rest-api"
+    GEMINI_REST_API_HOSTNAME : str = "geminibase-rest-api"
     GEMINI_REST_API_PORT : int = 7777
     GEMINI_API_KEY : str = ""
     GEMINI_CORS_ORIGINS : str = "*"
 
     # Scheduler DB
-    GEMINI_SCHEDULER_DB_CONTAINER_NAME : str = "gemini-scheduler-db"
-    GEMINI_SCHEDULER_DB_IMAGE_NAME : str = "gemini/scheduler-db"
-    GEMINI_SCHEDULER_DB_HOSTNAME : str = "gemini-scheduler-db"
+    GEMINI_SCHEDULER_DB_CONTAINER_NAME : str = "geminibase-scheduler-db"
+    GEMINI_SCHEDULER_DB_IMAGE_NAME : str = "geminibase/scheduler-db"
+    GEMINI_SCHEDULER_DB_HOSTNAME : str = "geminibase-scheduler-db"
     GEMINI_SCHEDULER_DB_USER: str = "gemini"  # User for scheduler DB
     GEMINI_SCHEDULER_DB_PASSWORD: str = "gemini"
     GEMINI_SCHEDULER_DB_NAME: str = "gemini_scheduler"  # Database name for scheduler
     GEMINI_SCHEDULER_DB_PORT: int = 6432  # Port for scheduler DB
 
     # Scheduler Server
-    GEMINI_SCHEDULER_SERVER_CONTAINER_NAME : str = "gemini-scheduler-server"
-    GEMINI_SCHEDULER_SERVER_IMAGE_NAME : str = "gemini/scheduler-server"
-    GEMINI_SCHEDULER_SERVER_HOSTNAME : str = "gemini-scheduler-server"
+    GEMINI_SCHEDULER_SERVER_CONTAINER_NAME : str = "geminibase-scheduler-server"
+    GEMINI_SCHEDULER_SERVER_IMAGE_NAME : str = "geminibase/scheduler-server"
+    GEMINI_SCHEDULER_SERVER_HOSTNAME : str = "geminibase-scheduler-server"
     GEMINI_SCHEDULER_SERVER_PORT : int = 4200
 
     # TiTiler (tile server for COGs stored in MinIO)
@@ -81,9 +81,9 @@ class GEMINISettings(BaseSettings):
     GEMINI_UI_PORT : int = 3000
 
     # Reverse Proxy
-    GEMINI_REVERSE_PROXY_CONTAINER_NAME : str = "gemini-reverse-proxy"
-    GEMINI_REVERSE_PROXY_IMAGE_NAME : str = "gemini/reverse-proxy"
-    GEMINI_REVERSE_PROXY_HOSTNAME : str = "gemini-reverse-proxy"
+    GEMINI_REVERSE_PROXY_CONTAINER_NAME : str = "geminibase-reverse-proxy"
+    GEMINI_REVERSE_PROXY_IMAGE_NAME : str = "geminibase/reverse-proxy"
+    GEMINI_REVERSE_PROXY_HOSTNAME : str = "geminibase-reverse-proxy"
 
     def model_post_init(self, __context: Any) -> None:
         self.apply_type(self.GEMINI_TYPE)
