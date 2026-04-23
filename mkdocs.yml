@@ -47,7 +47,6 @@ nav:
       - Models: api/models.md
       - Model Runs: api/model_runs.md
       - Model Records: api/model_records.md
-      - Plants: api/plants.md
       - Plots: api/plots.md
       - Procedures: api/procedures.md
       - Procedure Runs: api/procedure_runs.md
@@ -75,7 +74,6 @@ nav:
       - Experiments: rest_api/experiments.md
       - Files: rest_api/files.md
       - Models: rest_api/models.md
-      - Plants: rest_api/plants.md
       - Plots: rest_api/plots.md
       - Procedures: rest_api/procedures.md
       - Scripts: rest_api/scripts.md
@@ -101,7 +99,6 @@ nav:
         - Experiments: database/models/experiments.md
         - Model Runs: database/models/model_runs.md
         - Models: database/models/models.md
-        - Plants: database/models/plants.md
         - Plots: database/models/plots.md
         - Procedure Runs: database/models/procedure_runs.md
         - Procedures: database/models/procedures.md
@@ -126,7 +123,6 @@ nav:
         - Experiment Procedures: database/models/experiment_procedures.md
         - Experiment Scripts: database/models/experiment_scripts.md
         - Experiment Datasets: database/models/experiment_datasets.md
-        - Plot Populations: database/models/plot_populations.md
         - Trait Sensors: database/models/trait_sensors.md
         - Sensor Platform Sensors: database/models/sensor_platform_sensors.md
         - Sensor Datasets: database/models/sensor_datasets.md
@@ -144,10 +140,7 @@ nav:
       - Views:
         - Data Type Formats View: database/models/datatype_format_view.md
         - Experiment Views: database/models/experiment_views.md
-        - Plant View: database/models/plant_view.md
-        - Plot Population View: database/models/plot_population_view.md
         - Plot View: database/models/plot_view.md
-        - Plot Plant View: database/models/plot_plant_view.md
         - Run Views: database/models/run_views.md
         - Validation Views: database/models/validation_views.md
         - Dataset Views: database/models/dataset_views.md

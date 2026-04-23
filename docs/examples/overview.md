@@ -5,7 +5,6 @@ This page provides an overview of the available API examples. Each example demon
 ## Population
 - [Population API](./population_api.md)
 - [Population Experiment API](./population_experiment_api.md)
-- [Population Plot API](./population_plot_api.md)
 
 ## Data Format
 - [Data Format API](./data_format_api.md)

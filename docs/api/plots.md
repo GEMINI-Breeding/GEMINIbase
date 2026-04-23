@@ -2,7 +2,7 @@
 
 ### Description
 
-A plot represents an arbitrary area within a field. Each plot is uniquely identified by its associated [Experiment](experiments.md), [Season](seasons.md), and [Site](sites.md), and can optionally reference an [Accession](accessions.md) and [Population](populations.md).
+A plot represents an arbitrary area within a field. Each plot is uniquely identified by its associated [Experiment](experiments.md), [Season](seasons.md), and [Site](sites.md), and can optionally reference an Accession and [Population](populations.md).
 
 It is defined by the following properties:
 

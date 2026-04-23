@@ -5,8 +5,6 @@ This section provides an overview of the database models used within the GEMINIb
 ## Main Entity Tables
 
 - [Populations](populations.md)
-- [Lines](lines.md)
-- [Accessions](accessions.md)
 - [Data Formats](data_formats.md)
 - [Data Types](data_types.md)
 - [Dataset Types](dataset_types.md)
