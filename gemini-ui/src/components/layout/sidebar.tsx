@@ -5,14 +5,14 @@ import {
   LayoutDashboard, FlaskConical, Calendar, MapPin, Users,
   Radio, Cpu, Database, Ruler, Dna, GitBranch,
   Grid3X3, Sprout, Brain, FileCode, ListChecks, Cog,
-  FolderOpen, Upload,
+  FolderOpen, Upload, Sigma,
 } from 'lucide-react'
 
 const iconMap: Record<string, React.FC<{ className?: string }>> = {
   LayoutDashboard, FlaskConical, Calendar, MapPin, Users,
   Radio, Cpu, Database, Ruler, Dna, GitBranch,
   Grid3X3, Sprout, Brain, FileCode, ListChecks, Cog,
-  FolderOpen, Upload,
+  FolderOpen, Upload, Sigma,
 }
 
 export function Sidebar() {

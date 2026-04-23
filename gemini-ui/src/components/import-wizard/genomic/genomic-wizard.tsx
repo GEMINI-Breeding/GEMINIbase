@@ -13,6 +13,7 @@ export interface GenomicMetadata {
   studyName: string
   createNewStudy: boolean
   experimentName: string | null
+  createNewExperiment: boolean
 }
 
 export interface SampleResolution {

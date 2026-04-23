@@ -90,6 +90,41 @@ function collectGermplasmNames(mapping: ColumnMapping): string[] {
   return Array.from(set)
 }
 
+/**
+ * Build a germplasm-name → population-name map from the mapping. We link
+ * newly-created accessions/lines to a population so experiment-cascade-
+ * delete can reach them via experiment → population → accession. Without
+ * the link, wizard-created germplasm becomes a DB orphan the moment the
+ * experiment is deleted. When a name appears under multiple populations,
+ * we pick the first — one linkage is sufficient to keep the cascade
+ * reachable.
+ */
+function collectPopulationForGermplasm(mapping: ColumnMapping): Map<string, string> {
+  const map = new Map<string, string>()
+  for (let i = 0; i < mapping.sheets.length; i++) {
+    const sheet = mapping.sheets[i]
+    const config: SheetMapping | undefined = mapping.sheetConfigs[i]
+    if (!config || config.skipped) continue
+    const populationName = config.populationName?.trim()
+    if (!populationName) continue
+    const cols = [
+      config.accessionNameColumn,
+      config.lineNameColumn,
+      config.aliasColumn,
+    ].filter((c): c is string => !!c)
+    if (cols.length === 0) continue
+    for (const row of sheet.rows) {
+      for (const col of cols) {
+        const v = row[col]
+        if (v == null) continue
+        const name = normalizeGermplasmName(String(v))
+        if (name && !map.has(name)) map.set(name, populationName)
+      }
+    }
+  }
+  return map
+}
+
 /** Pick a reasonable default decision given what the resolver told us.
  *  Unresolved values default to "create a new accession with this exact
  *  name" — the common case for a fresh DB where the spreadsheet carries
@@ -131,6 +166,7 @@ export function StepGermplasmReview({
   onBack,
 }: StepGermplasmReviewProps) {
   const names = useMemo(() => initial?.allNames ?? collectGermplasmNames(mapping), [mapping, initial])
+  const populationByGermplasm = useMemo(() => collectPopulationForGermplasm(mapping), [mapping])
   const experimentId = metadata.experimentId || null
 
   const {
@@ -284,8 +320,18 @@ export function StepGermplasmReview({
           return
         }
         if (d.kind === 'create_accession') {
+          const canonicalName = normalizeGermplasmName(d.newName)
+          // Link to the population the input row belongs to so the
+          // experiment cascade-delete can reach this accession. Fall
+          // back to the population mapped to the original input name
+          // when canonicalName isn't directly in the map (typo cases
+          // where the user picks a different canonical form).
+          const popName =
+            populationByGermplasm.get(canonicalName) ??
+            populationByGermplasm.get(normalizeGermplasmName(r.input_name))
           const created = await accessionsApi.create({
-            accession_name: normalizeGermplasmName(d.newName),
+            accession_name: canonicalName,
+            ...(popName ? { population_name: popName } : {}),
           })
           resolvedEntries.push([
             r.input_name,
@@ -306,8 +352,23 @@ export function StepGermplasmReview({
             })
           }
         } else if (d.kind === 'create_line') {
+          const canonicalName = normalizeGermplasmName(d.newName)
           const created = await linesApi.create({
-            line_name: normalizeGermplasmName(d.newName),
+            line_name: canonicalName,
+          })
+          // Mirror the unambiguous `line-only` flow in step-upload.tsx:
+          // a Line on its own can't be referenced by a plot (plots FK to
+          // Accession, not Line), and without an Accession it has no path
+          // into the experiment-cascade. Create a matching Accession of
+          // the same name, linked to the line and to the population, so
+          // plots can reference it and cascade-delete can reach it.
+          const popName =
+            populationByGermplasm.get(canonicalName) ??
+            populationByGermplasm.get(normalizeGermplasmName(r.input_name))
+          await accessionsApi.create({
+            accession_name: canonicalName,
+            line_name: canonicalName,
+            ...(popName ? { population_name: popName } : {}),
           })
           resolvedEntries.push([
             r.input_name,

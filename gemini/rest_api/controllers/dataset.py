@@ -12,13 +12,14 @@ from collections.abc import AsyncGenerator, Generator
 from gemini.api.dataset import Dataset
 from gemini.api.dataset_record import DatasetRecord
 from gemini.api.enums import GEMINIDatasetType
-from gemini.rest_api.models import ( 
-    DatasetInput, 
-    DatasetOutput, 
-    RESTAPIError, 
+from gemini.rest_api.models import (
+    DatasetInput,
+    DatasetOutput,
+    RESTAPIError,
     DatasetUpdate,
-    ExperimentOutput, 
-    str_to_dict, 
+    ExperimentOutput,
+    TraitOutput,
+    str_to_dict,
     JSONB
 )
 from gemini.rest_api.models import (
@@ -193,6 +194,27 @@ class DatasetController(Controller):
             )
             return Response(content=error, status_code=500)
         
+    # Get Associated Traits
+    @get(path="/id/{dataset_id:str}/traits", sync_to_thread=True)
+    def get_associated_traits(
+        self, dataset_id: str
+    ) -> List[TraitOutput]:
+        try:
+            dataset = Dataset.get_by_id(id=dataset_id)
+            if dataset is None:
+                error = RESTAPIError(
+                    error="Dataset not found",
+                    error_description="No dataset was found with the given ID"
+                )
+                return Response(content=error, status_code=404)
+            return dataset.get_associated_traits() or []
+        except Exception as e:
+            error = RESTAPIError(
+                error=str(e),
+                error_description="An error occurred while retrieving associated traits"
+            )
+            return Response(content=error, status_code=500)
+
     # Get Associated Experiments
     @get(path="/id/{dataset_id:str}/experiments", sync_to_thread=True)
     def get_associated_experiments(

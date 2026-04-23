@@ -12,6 +12,7 @@ import { Loader2 } from 'lucide-react'
 const CREATE_NEW = '__create_new__'
 const NOT_SELECTED = ''
 const NO_EXPERIMENT = '__none__'
+const CREATE_NEW_EXPERIMENT = '__create_new_experiment__'
 
 interface StepMetadataGenomicProps {
   detection: DetectionResult
@@ -32,8 +33,13 @@ export function StepMetadataGenomic({
   const [newStudyName, setNewStudyName] = useState<string>(
     initial?.createNewStudy ? initial.studyName : '',
   )
-  const [experimentSelection, setExperimentSelection] = useState<string>(
-    initial?.experimentName ?? NO_EXPERIMENT,
+  const [experimentSelection, setExperimentSelection] = useState<string>(() => {
+    if (!initial) return NO_EXPERIMENT
+    if (initial.createNewExperiment) return CREATE_NEW_EXPERIMENT
+    return initial.experimentName ?? NO_EXPERIMENT
+  })
+  const [newExperimentName, setNewExperimentName] = useState<string>(
+    initial?.createNewExperiment ? (initial.experimentName ?? '') : '',
   )
 
   const { data: studies, isLoading: studiesLoading } = useQuery({
@@ -62,17 +68,29 @@ export function StepMetadataGenomic({
   const canContinue = (() => {
     if (studySelection === NOT_SELECTED) return false
     if (studySelection === CREATE_NEW && !newStudyName.trim()) return false
+    if (experimentSelection === CREATE_NEW_EXPERIMENT && !newExperimentName.trim()) return false
     return true
   })()
 
+  function resolveExperiment(): { experimentName: string | null; createNewExperiment: boolean } {
+    if (experimentSelection === NO_EXPERIMENT) {
+      return { experimentName: null, createNewExperiment: false }
+    }
+    if (experimentSelection === CREATE_NEW_EXPERIMENT) {
+      return { experimentName: newExperimentName.trim(), createNewExperiment: true }
+    }
+    return { experimentName: experimentSelection, createNewExperiment: false }
+  }
+
   function handleContinue() {
     if (!canContinue) return
+    const exp = resolveExperiment()
     if (studySelection === CREATE_NEW) {
       onNext({
         studyId: null,
         studyName: newStudyName.trim(),
         createNewStudy: true,
-        experimentName: experimentSelection === NO_EXPERIMENT ? null : experimentSelection,
+        ...exp,
       })
     } else {
       const match = studies?.find((s) => s.id === studySelection)
@@ -81,7 +99,7 @@ export function StepMetadataGenomic({
         studyId: match.id ?? null,
         studyName: match.study_name,
         createNewStudy: false,
-        experimentName: experimentSelection === NO_EXPERIMENT ? null : experimentSelection,
+        ...exp,
       })
     }
   }
@@ -150,12 +168,22 @@ export function StepMetadataGenomic({
             data-testid="select-experiment"
           >
             <option value={NO_EXPERIMENT}>— Not linked —</option>
+            <option value={CREATE_NEW_EXPERIMENT}>+ Create new experiment...</option>
             {(experiments ?? []).map((exp) => (
               <option key={exp.experiment_name} value={exp.experiment_name ?? ''}>
                 {exp.experiment_name}
               </option>
             ))}
           </Select>
+        )}
+        {experimentSelection === CREATE_NEW_EXPERIMENT && (
+          <Input
+            value={newExperimentName}
+            onChange={(e) => setNewExperimentName(e.target.value)}
+            placeholder="New experiment name"
+            data-testid="new-experiment-name"
+            autoFocus
+          />
         )}
       </div>
 

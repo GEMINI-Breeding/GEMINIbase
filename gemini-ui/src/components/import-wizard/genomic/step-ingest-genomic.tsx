@@ -9,6 +9,8 @@ import type {
 import type { GenotypeMatrixVariantRow } from '@/api/types'
 import { genotypingStudiesApi } from '@/api/endpoints/genotyping-studies'
 import { accessionsApi } from '@/api/endpoints/accessions'
+import { experimentsApi } from '@/api/endpoints/experiments'
+import { populationsApi } from '@/api/endpoints/populations'
 import { parseMatrixFile } from '@/lib/genomic-matrix-parser'
 import { parseHapmapFile, readHapmapSampleHeaders } from '@/lib/hapmap-parser'
 import { parseVcfFile, readVcfSampleHeaders } from '@/lib/vcf-parser'
@@ -83,12 +85,23 @@ export function StepIngestGenomic({
 
     async function run() {
       try {
+        // -- Create experiment if the user asked us to ----------------
+        if (metadata.createNewExperiment && metadata.experimentName) {
+          try {
+            await experimentsApi.create({ experiment_name: metadata.experimentName })
+          } catch {
+            // An experiment with this name may already exist — safe to
+            // proceed; the study create call below resolves by name.
+          }
+        }
+
         // -- Create or fetch study ------------------------------------
         let resolvedStudyId = studyId
         let resolvedStudyName = metadata.studyName
         if (!resolvedStudyId) {
           const created = await genotypingStudiesApi.create({
             study_name: metadata.studyName,
+            ...(metadata.experimentName ? { experiment_name: metadata.experimentName } : {}),
           })
           resolvedStudyId = created.id ?? null
           resolvedStudyName = created.study_name ?? metadata.studyName
@@ -98,13 +111,38 @@ export function StepIngestGenomic({
         }
         setStudyId(resolvedStudyId)
 
+        // -- Ensure a population for this study's panel, linked to the
+        //    experiment. Accessions we create below are attached to it so
+        //    experiment-cascade-delete reaches them via the
+        //    experiment → population → accession path. Without this the
+        //    wizard's auto-created accessions end up orphaned (bug seen
+        //    when deleting an experiment left all its imported samples
+        //    behind). Population name tracks the study so repeated
+        //    imports into the same experiment stay distinct per panel.
+        let populationName: string | null = null
+        if (metadata.experimentName && resolution.createdAccessions.length > 0) {
+          populationName = resolvedStudyName
+          try {
+            await populationsApi.create({
+              population_name: populationName,
+              experiment_name: metadata.experimentName,
+            })
+          } catch {
+            // Already exists — Population.create is idempotent via
+            // get_or_create on the server.
+          }
+        }
+
         // -- Create accessions the user asked us to auto-create -------
         if (resolution.createdAccessions.length > 0) {
           setPhase('creating-accessions')
           for (const name of resolution.createdAccessions) {
             if (signal.aborted) return
             try {
-              await accessionsApi.create({ accession_name: name })
+              await accessionsApi.create({
+                accession_name: name,
+                ...(populationName ? { population_name: populationName } : {}),
+              })
             } catch {
               // Accession may already exist; safe to ignore — ingest will
               // look it up by name anyway.

@@ -666,6 +666,28 @@ export interface JobSubmitInput {
   experiment_id?: ID;
 }
 
+export interface GwasQcInput {
+  maf?: number;
+  geno?: number;
+  mind?: number;
+  hwe?: number;
+}
+
+export interface GwasSubmitInput {
+  study_id: ID;
+  experiment_id: ID;
+  dataset_id: ID;
+  trait_id?: ID;
+  trait_ids?: ID[];
+  season_id?: ID;
+  site_id?: ID;
+  model?: 'lmm' | 'mvlmm' | 'bslmm';
+  lmm_test?: 'wald' | 'lrt' | 'score' | 'all';
+  n_pcs?: number;
+  phenotype_agg?: 'mean' | 'median' | 'first';
+  qc?: GwasQcInput;
+}
+
 export interface JobOutput {
   id?: ID;
   job_type: string;

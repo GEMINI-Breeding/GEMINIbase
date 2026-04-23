@@ -17,6 +17,9 @@ playwright-report
 test-results
 .tanstack
 
+# Procedural e2e fixtures (regenerated at test time)
+e2e/fixtures/test-gwas-data/*.xlsx
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

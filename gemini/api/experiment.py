@@ -377,9 +377,12 @@ class Experiment(APIBase):
             from gemini.db.models.sites import SiteModel
             from gemini.db.models.plots import PlotModel
             from gemini.db.models.accessions import AccessionModel
+            from gemini.db.models.accession_aliases import AccessionAliasModel
             from gemini.db.models.lines import LineModel
             from gemini.db.models.genotyping_studies import GenotypingStudyModel
             from gemini.db.models.columnar.genotype_records import GenotypeRecordModel
+            from gemini.db.models.variants import VariantModel
+            from sqlalchemy import or_
 
             current_id = self.id
             exp_name = self.experiment_name
@@ -508,7 +511,18 @@ class Experiment(APIBase):
                 # Genotype records carry study_id but no FK (columnar
                 # storage), so we have to sweep them manually once the
                 # owning study rows are gone.
+                orphan_variant_candidates: list = []
                 if orphan_study_ids:
+                    # Stash the variant_ids these records reference BEFORE
+                    # deleting them. Variants are a shared catalog across
+                    # studies; we'll cascade-delete only the ones nothing
+                    # else references after the records disappear.
+                    orphan_variant_candidates = list(set(session.execute(
+                        select(GenotypeRecordModel.variant_id).where(
+                            GenotypeRecordModel.study_id.in_(orphan_study_ids)
+                        )
+                    ).scalars().all()))
+
                     deleted_records = session.execute(
                         GenotypeRecordModel.__table__.delete().where(
                             GenotypeRecordModel.study_id.in_(orphan_study_ids)
@@ -520,12 +534,121 @@ class Experiment(APIBase):
                             f"{len(orphan_study_ids)} orphaned study/studies."
                         )
 
+                # Sweep variants no longer referenced by any surviving
+                # record. Runs after the orphan records are gone so the
+                # "still referenced" check reflects post-cascade reality.
+                if orphan_variant_candidates:
+                    still_ref_variants = set(session.execute(
+                        select(GenotypeRecordModel.variant_id).where(
+                            GenotypeRecordModel.variant_id.in_(orphan_variant_candidates)
+                        ).distinct()
+                    ).scalars().all())
+                    orphan_variants = [
+                        v for v in orphan_variant_candidates
+                        if v not in still_ref_variants
+                    ]
+                    if orphan_variants:
+                        session.execute(
+                            VariantModel.__table__.delete().where(
+                                VariantModel.id.in_(orphan_variants)
+                            )
+                        )
+                        logger.info(
+                            f"Deleted {len(orphan_variants)} orphan variant(s) "
+                            f"no longer referenced by any genotype_record."
+                        )
+
+                # Collect accessions/lines reachable from this experiment
+                # via paths the population-based cascade doesn't cover, so
+                # the orphan sweep below catches them too:
+                #   - plots.accession_id for this experiment's plots
+                #     (e.g. trait-wizard-created accessions where the
+                #     sheet had no populationName set)
+                #   - experiment-scoped accession_aliases that will
+                #     cascade-delete via FK when the experiment row goes
+                plot_accession_candidates = list(set(session.execute(
+                    select(PlotModel.accession_id).where(
+                        and_(
+                            PlotModel.experiment_id == current_id,
+                            PlotModel.accession_id.is_not(None),
+                        )
+                    )
+                ).scalars().all()))
+                alias_accession_candidates = list(set(session.execute(
+                    select(AccessionAliasModel.accession_id).where(
+                        and_(
+                            AccessionAliasModel.experiment_id == current_id,
+                            AccessionAliasModel.accession_id.is_not(None),
+                        )
+                    )
+                ).scalars().all()))
+                alias_line_candidates = list(set(session.execute(
+                    select(AccessionAliasModel.line_id).where(
+                        and_(
+                            AccessionAliasModel.experiment_id == current_id,
+                            AccessionAliasModel.line_id.is_not(None),
+                        )
+                    )
+                ).scalars().all()))
+
+                # Delete this experiment's plots BEFORE the accession
+                # sweep so the "still referenced by plots" check below
+                # reflects post-cascade reality. Plot's FK to experiment
+                # is ON DELETE SET NULL, so an implicit cascade would
+                # leave orphans with NULL experiment_id — we delete
+                # explicitly to avoid that.
+                plot_deleted = session.execute(
+                    PlotModel.__table__.delete().where(PlotModel.experiment_id == current_id)
+                ).rowcount
+                if plot_deleted:
+                    logger.info(f"Deleted {plot_deleted} plot(s) owned by {self.experiment_name}.")
+
+                # Extend orphan_accession_ids with plot/alias-reachable
+                # accessions that now have zero remaining references.
+                # Already-accounted-for IDs (from the population path)
+                # are filtered out.
+                extra_candidates = list(
+                    (set(plot_accession_candidates) | set(alias_accession_candidates))
+                    - set(orphan_accession_ids)
+                )
+                if extra_candidates:
+                    still_ref: set = set()
+                    still_ref |= set(session.execute(
+                        select(PopulationAccessionModel.accession_id).where(
+                            PopulationAccessionModel.accession_id.in_(extra_candidates)
+                        )
+                    ).scalars().all())
+                    # Plots for this experiment are already gone; any hit
+                    # here means a plot belonging to another experiment.
+                    still_ref |= set(session.execute(
+                        select(PlotModel.accession_id).where(
+                            PlotModel.accession_id.in_(extra_candidates)
+                        )
+                    ).scalars().all())
+                    # Records for orphan studies are already gone; any hit
+                    # here means a non-orphan study references this
+                    # accession.
+                    still_ref |= set(session.execute(
+                        select(GenotypeRecordModel.accession_id).where(
+                            GenotypeRecordModel.accession_id.in_(extra_candidates)
+                        ).distinct()
+                    ).scalars().all())
+                    newly_orphan = [a for a in extra_candidates if a not in still_ref]
+                    if newly_orphan:
+                        logger.info(
+                            f"[delete:{exp_name}] Identified {len(newly_orphan)} "
+                            f"plot/alias-only orphan accession(s) to cascade."
+                        )
+                        orphan_accession_ids = list(orphan_accession_ids) + newly_orphan
+
                 # Collect the line_ids referenced by the accessions we're
-                # about to delete, so we can decide which lines to cascade
-                # once those accessions are gone.
-                orphan_line_candidates: list = []
+                # about to delete (so we can cascade any lines whose only
+                # reference was those accessions), and also the lines
+                # referenced by experiment-scoped aliases that are about
+                # to cascade when the experiment row goes.
+                orphan_line_candidates: list = list(alias_line_candidates)
                 if orphan_accession_ids:
-                    orphan_line_candidates = list(set(
+                    orphan_line_candidates = list(set(orphan_line_candidates) | set(
                         session.execute(
                             select(AccessionModel.line_id).where(
                                 and_(
@@ -543,20 +666,34 @@ class Experiment(APIBase):
                     )
                     logger.info(
                         f"Deleted {len(orphan_accession_ids)} orphaned Accession row(s)"
-                        f" previously tied only to populations owned by {self.experiment_name}."
+                        f" after removing {self.experiment_name}."
                     )
 
-                # A line is orphaned when no remaining accession references
-                # it. Re-query after the accession delete so we see the true
-                # post-cascade picture.
+                # A line is orphan when no remaining accession references
+                # it and no remaining alias points to it. Experiment-scoped
+                # aliases (experiment_id == current_id) are about to cascade
+                # via FK when the experiment row is deleted, so we exclude
+                # them from the "still referenced" check.
                 if orphan_line_candidates:
-                    still_referenced = set(session.execute(
+                    still_ref_acc = set(session.execute(
                         select(AccessionModel.line_id).where(
                             AccessionModel.line_id.in_(orphan_line_candidates)
                         )
                     ).scalars().all())
+                    still_ref_alias = set(session.execute(
+                        select(AccessionAliasModel.line_id).where(
+                            and_(
+                                AccessionAliasModel.line_id.in_(orphan_line_candidates),
+                                or_(
+                                    AccessionAliasModel.experiment_id != current_id,
+                                    AccessionAliasModel.experiment_id.is_(None),
+                                ),
+                            )
+                        )
+                    ).scalars().all())
+                    still_ref_line = still_ref_acc | still_ref_alias
                     orphan_line_ids = [
-                        lid for lid in orphan_line_candidates if lid not in still_referenced
+                        lid for lid in orphan_line_candidates if lid not in still_ref_line
                     ]
                     if orphan_line_ids:
                         session.execute(
@@ -564,19 +701,9 @@ class Experiment(APIBase):
                         )
                         logger.info(
                             f"Deleted {len(orphan_line_ids)} orphaned Line row(s)"
-                            f" no longer referenced by any accession after"
-                            f" removing {self.experiment_name}."
+                            f" no longer referenced by any accession or surviving"
+                            f" alias after removing {self.experiment_name}."
                         )
-
-                # Plots and seasons both carry a direct FK to experiment
-                # (ON DELETE SET NULL at the DB level) so we delete them
-                # explicitly before the experiment itself goes away,
-                # otherwise they'd be orphaned with NULL experiment_id.
-                plot_deleted = session.execute(
-                    PlotModel.__table__.delete().where(PlotModel.experiment_id == current_id)
-                ).rowcount
-                if plot_deleted:
-                    logger.info(f"Deleted {plot_deleted} plot(s) owned by {self.experiment_name}.")
 
                 season_deleted = session.execute(
                     SeasonModel.__table__.delete().where(SeasonModel.experiment_id == current_id)

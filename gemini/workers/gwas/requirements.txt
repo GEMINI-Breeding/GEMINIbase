@@ -1,0 +1,32 @@
+# BaseWorker + REST client + object store
+requests>=2.31,<3
+minio>=7.2,<8
+redis>=5,<6
+
+# boto3 is pulled transitively by gemini.storage.providers.__init__ which
+# eagerly imports all three providers (local/minio/s3). Keeping it here
+# rather than patching gemini core.
+boto3>=1.38,<2
+
+# ORM + DB drivers (imported by gemini/db/core/base.py + engine.py;
+# engine eagerly sets up both sync (psycopg2) and async (asyncpg) engines).
+sqlalchemy>=2.0.40,<3
+sqlalchemy-mixins>=2.0.5,<3
+psycopg2-binary>=2.9.10,<3
+asyncpg>=0.30,<0.31
+
+# Pydantic models (imported by gemini/api/*)
+pydantic>=2.11,<3
+pydantic-settings>=2.8.1,<3
+
+# Misc used by gemini.manager / gemini.api at import time
+pendulum>=3,<4
+tqdm>=4.67,<5
+click>=8.1,<9
+docker>=7.1,<8
+
+# GWAS-specific numerics + plots
+pandas>=2.2,<3
+numpy>=1.26,<3
+scipy>=1.12,<2
+matplotlib>=3.8,<4

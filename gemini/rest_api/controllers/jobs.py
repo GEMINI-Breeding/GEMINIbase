@@ -36,6 +36,7 @@ VALID_JOB_TYPES = {
     "TIF_TO_PNG",
     "CREATE_COG",
     "EXTRACT_BINARY",
+    "RUN_GWAS",
 }
 
 

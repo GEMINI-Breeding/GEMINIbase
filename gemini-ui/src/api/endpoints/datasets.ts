@@ -6,6 +6,7 @@ import type {
   DatasetRecordOutput,
   DatasetRecordFilter,
   ExperimentOutput,
+  TraitOutput,
 } from '@/api/types'
 
 export const datasetsApi = {
@@ -35,4 +36,7 @@ export const datasetsApi = {
 
   getExperiments: (id: string) =>
     getOrEmpty<ExperimentOutput>(`api/datasets/id/${id}/experiments`),
+
+  getTraits: (id: string) =>
+    getOrEmpty<TraitOutput>(`api/datasets/id/${id}/traits`),
 }

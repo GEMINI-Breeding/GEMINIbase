@@ -296,6 +296,35 @@ services:
     networks:
       - gemini_network
 
+  gemini-worker-gwas:
+    container_name: gemini-worker-gwas
+    restart: always
+    build:
+      context: ../../
+      dockerfile: ./gemini/workers/gwas/Dockerfile
+    environment:
+      - "GEMINI_REST_API_URL=http://${GEMINI_REST_API_HOSTNAME}:7777"
+      - "GEMINI_LOGGER_HOSTNAME=${GEMINI_LOGGER_HOSTNAME}"
+      - "GEMINI_LOGGER_PORT=${GEMINI_LOGGER_PORT}"
+      - "GEMINI_LOGGER_PASSWORD=${GEMINI_LOGGER_PASSWORD}"
+      - "GEMINI_STORAGE_HOSTNAME=${GEMINI_STORAGE_HOSTNAME}"
+      - "GEMINI_STORAGE_PORT=${GEMINI_STORAGE_PORT}"
+      - "GEMINI_STORAGE_ACCESS_KEY=${GEMINI_STORAGE_ACCESS_KEY}"
+      - "GEMINI_STORAGE_SECRET_KEY=${GEMINI_STORAGE_SECRET_KEY}"
+      - "GEMINI_STORAGE_BUCKET_NAME=${GEMINI_STORAGE_BUCKET_NAME}"
+      - "GEMINI_DB_HOSTNAME=${GEMINI_DB_HOSTNAME}"
+      - "GEMINI_DB_PORT=${GEMINI_DB_PORT}"
+      - "GEMINI_DB_USER=${GEMINI_DB_USER}"
+      - "GEMINI_DB_PASSWORD=${GEMINI_DB_PASSWORD}"
+      - "GEMINI_DB_NAME=${GEMINI_DB_NAME}"
+    depends_on:
+      rest-api:
+        condition: service_healthy
+      db:
+        condition: service_started
+    networks:
+      - gemini_network
+
   gemini-ui:
     container_name: gemini-ui
     restart: always

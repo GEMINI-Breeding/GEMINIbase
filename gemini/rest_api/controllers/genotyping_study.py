@@ -323,13 +323,99 @@ def _ingest_matrix_impl(
 
     records_inserted = 0
     if record_payload:
-        inserted_record_ids = GenotypeRecordModel.insert_bulk(
-            "genotype_records_unique", record_payload
-        )
-        records_inserted = len(inserted_record_ids)
+        records_inserted = _copy_insert_genotype_records(record_payload)
 
     return GenotypeMatrixBatchResult(
         variants_inserted=variants_inserted,
         records_inserted=records_inserted,
         errors=errors,
     )
+
+
+def _copy_insert_genotype_records(record_payload: list[dict]) -> int:
+    """Bulk-insert genotype_records via COPY into a heap staging table,
+    then INSERT ... SELECT into the columnar destination with ON CONFLICT
+    DO NOTHING to preserve idempotency.
+
+    Why this exists: `genotype_records` is a Hydra columnar table and the
+    ingest wizard sends ~155k rows per batch. SQLAlchemy's multi-VALUES
+    INSERT path serializes every row's params client-side and then parses
+    them again in postgres; on columnar tables that's the dominant cost
+    for this workload. COPY parses server-side and skips SQLAlchemy's
+    per-row parameter binding entirely.
+
+    Returns the number of newly-inserted rows (conflicts count as 0).
+    """
+    import csv
+    import io
+    import json
+
+    with db_engine.get_session() as session:
+        raw_conn = session.connection().connection  # psycopg2 connection
+        cursor = raw_conn.cursor()
+
+        # Heap staging table — COPY is fastest into a plain table, and the
+        # destination columnar insert runs server-side from this temp.
+        cursor.execute(
+            """
+            CREATE TEMP TABLE tmp_gr (
+                study_id UUID NOT NULL,
+                study_name TEXT,
+                variant_id UUID NOT NULL,
+                variant_name TEXT,
+                chromosome INTEGER,
+                position DOUBLE PRECISION,
+                accession_id UUID NOT NULL,
+                accession_name TEXT,
+                call_value VARCHAR(10),
+                record_info JSONB NOT NULL DEFAULT '{}'
+            ) ON COMMIT DROP
+            """
+        )
+
+        buf = io.StringIO()
+        writer = csv.writer(
+            buf, delimiter="\t", lineterminator="\n", quoting=csv.QUOTE_MINIMAL
+        )
+        for r in record_payload:
+            info = r.get("record_info") or {}
+            writer.writerow([
+                r["study_id"],
+                r["study_name"],
+                r["variant_id"],
+                r["variant_name"],
+                r["chromosome"],
+                r["position"],
+                r["accession_id"],
+                r["accession_name"],
+                r["call_value"],
+                json.dumps(info),
+            ])
+        buf.seek(0)
+        cursor.copy_expert(
+            "COPY tmp_gr (study_id, study_name, variant_id, variant_name, "
+            "chromosome, position, accession_id, accession_name, call_value, "
+            "record_info) FROM STDIN WITH (FORMAT csv, DELIMITER E'\\t')",
+            buf,
+        )
+
+        cursor.execute(
+            """
+            WITH ins AS (
+                INSERT INTO gemini.genotype_records (
+                    study_id, study_name, variant_id, variant_name,
+                    chromosome, position, accession_id, accession_name,
+                    call_value, record_info
+                )
+                SELECT study_id, study_name, variant_id, variant_name,
+                       chromosome, position, accession_id, accession_name,
+                       call_value, record_info
+                FROM tmp_gr
+                ON CONFLICT ON CONSTRAINT genotype_records_unique DO NOTHING
+                RETURNING 1
+            )
+            SELECT count(*) FROM ins
+            """
+        )
+        row = cursor.fetchone()
+        return int(row[0]) if row else 0

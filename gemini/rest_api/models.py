@@ -1219,6 +1219,26 @@ class JobStatusUpdate(RESTAPIBase):
 
 
 # --------------------------------
+# GWAS Submission
+# --------------------------------
+class GwasSubmitInput(RESTAPIBase):
+    """Input for POST /gwas/submit. Fans out N jobs when trait_ids is
+    supplied with a non-mvlmm model; emits one mvLMM job otherwise."""
+    study_id: ID
+    experiment_id: ID
+    dataset_id: ID
+    trait_id: Optional[ID] = None
+    trait_ids: Optional[List[ID]] = None
+    season_id: Optional[ID] = None
+    site_id: Optional[ID] = None
+    model: str = "lmm"                           # lmm | mvlmm | bslmm
+    lmm_test: str = "wald"                       # wald | lrt | score | all
+    n_pcs: int = 3
+    phenotype_agg: str = "mean"                  # mean | median | first
+    qc: Optional[JSONB] = None
+
+
+# --------------------------------
 # Variant Classes
 # --------------------------------
 class VariantInput(RESTAPIBase):

@@ -40,6 +40,7 @@ from gemini.db.models.columnar.trait_records import TraitRecordModel
 from gemini.db.models.dataset_types import DatasetTypeModel
 from gemini.db.models.associations import ExperimentDatasetModel
 from gemini.db.models.views.experiment_views import ExperimentDatasetsViewModel
+from gemini.db.models.views.dataset_views import TraitDatasetsViewModel
 
 from datetime import date, datetime
 
@@ -455,6 +456,32 @@ class Dataset(APIBase):
             logger.error(f"Error setting dataset info: {e}")
             return None
         
+    def get_associated_traits(self) -> Optional[List["Trait"]]:
+        """Get all traits associated with this dataset via the trait_datasets_view.
+
+        Returns full Trait rows (not just the id/name columns from the view) so
+        callers can display units / level / info without a second round trip.
+        """
+        try:
+            from gemini.api.trait import Trait
+            rows = TraitDatasetsViewModel.search(dataset_id=self.id)
+            if not rows:
+                return None
+            traits: List["Trait"] = []
+            seen: set = set()
+            for row in rows:
+                tid = str(row.trait_id)
+                if tid in seen:
+                    continue
+                seen.add(tid)
+                trait = Trait.get_by_id(tid)
+                if trait is not None:
+                    traits.append(trait)
+            return traits or None
+        except Exception as e:
+            logger.error(f"Error getting associated traits: {e}")
+            return None
+
     def get_associated_experiments(self) -> Optional[List["Experiment"]]:
         """
         Get all experiments associated with the dataset.

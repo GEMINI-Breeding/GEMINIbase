@@ -386,6 +386,19 @@ export function StepUpload({ files, detection, metadata, columnMapping, germplas
         // genomic import can resolve the sample headers via either
         // 'accession_exact' or 'line_exact'. Creates are idempotent
         // thanks to get_or_create in the backend.
+        //
+        // Each accession is also linked to a population (the first one
+        // we see for it in plotSpecs). Without this link the experiment
+        // cascade-delete can't reach these accessions — they'd end up as
+        // DB orphans once the experiment and its plots are gone (same
+        // bug the genomic wizard had).
+        const populationForAccession = new Map<string, string>()
+        for (const spec of plotSpecs) {
+          if (!spec.accessionName || !spec.population) continue
+          if (!populationForAccession.has(spec.accessionName)) {
+            populationForAccession.set(spec.accessionName, spec.population)
+          }
+        }
         if (gplasmMode === 'line-only') {
           for (const name of inlineGermplasmNames) {
             if (abortedRef.current) return
@@ -395,7 +408,12 @@ export function StepUpload({ files, detection, metadata, columnMapping, germplas
               // already exists — safe to ignore
             }
             try {
-              await accessionsApi.create({ accession_name: name, line_name: name })
+              const popName = populationForAccession.get(name)
+              await accessionsApi.create({
+                accession_name: name,
+                line_name: name,
+                ...(popName ? { population_name: popName } : {}),
+              })
             } catch {
               // already exists — safe to ignore
             }
@@ -405,7 +423,11 @@ export function StepUpload({ files, detection, metadata, columnMapping, germplas
           for (const name of inlineGermplasmNames) {
             if (abortedRef.current) return
             try {
-              await accessionsApi.create({ accession_name: name })
+              const popName = populationForAccession.get(name)
+              await accessionsApi.create({
+                accession_name: name,
+                ...(popName ? { population_name: popName } : {}),
+              })
             } catch {
               // already exists — safe to ignore
             }

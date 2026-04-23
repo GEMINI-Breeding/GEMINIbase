@@ -252,7 +252,11 @@ class Plot(APIBase):
                         .where(SeasonModel.season_name.in_(season_names))
                         .where(SeasonModel.experiment_id.in_(list(exp_id_by_name.values())))
                     ).all()
-                    season_id_by_key = {(r.season_name, r.experiment_id): r.id for r in rows}
+                    # SQLAlchemy returns ExperimentModel.id as str (as_uuid=False)
+                    # but SeasonModel.experiment_id as UUID object (as_uuid=True).
+                    # Normalise to str so the (season_name, experiment_id) key
+                    # matches what we look up below with exp_id_by_name values.
+                    season_id_by_key = {(r.season_name, str(r.experiment_id)): r.id for r in rows}
 
                 site_id_by_name: dict = {}
                 if site_names:

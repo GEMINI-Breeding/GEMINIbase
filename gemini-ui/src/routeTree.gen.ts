@@ -24,6 +24,7 @@ import { Route as ModelsIndexRouteImport } from './routes/models/index'
 import { Route as LinesIndexRouteImport } from './routes/lines/index'
 import { Route as JobsIndexRouteImport } from './routes/jobs/index'
 import { Route as ImportIndexRouteImport } from './routes/import/index'
+import { Route as GwasIndexRouteImport } from './routes/gwas/index'
 import { Route as GenotypingStudiesIndexRouteImport } from './routes/genotyping-studies/index'
 import { Route as FilesIndexRouteImport } from './routes/files/index'
 import { Route as ExperimentsIndexRouteImport } from './routes/experiments/index'
@@ -42,6 +43,7 @@ import { Route as PlotsPlotIdRouteImport } from './routes/plots/$plotId'
 import { Route as ModelsModelIdRouteImport } from './routes/models/$modelId'
 import { Route as LinesLineIdRouteImport } from './routes/lines/$lineId'
 import { Route as JobsJobIdRouteImport } from './routes/jobs/$jobId'
+import { Route as GwasJobIdRouteImport } from './routes/gwas/$jobId'
 import { Route as GenotypingStudiesStudyIdRouteImport } from './routes/genotyping-studies/$studyId'
 import { Route as ExperimentsExperimentIdRouteImport } from './routes/experiments/$experimentId'
 import { Route as DatasetsDatasetIdRouteImport } from './routes/datasets/$datasetId'
@@ -120,6 +122,11 @@ const JobsIndexRoute = JobsIndexRouteImport.update({
 const ImportIndexRoute = ImportIndexRouteImport.update({
   id: '/import/',
   path: '/import/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const GwasIndexRoute = GwasIndexRouteImport.update({
+  id: '/gwas/',
+  path: '/gwas/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const GenotypingStudiesIndexRoute = GenotypingStudiesIndexRouteImport.update({
@@ -213,6 +220,11 @@ const JobsJobIdRoute = JobsJobIdRouteImport.update({
   path: '/jobs/$jobId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const GwasJobIdRoute = GwasJobIdRouteImport.update({
+  id: '/gwas/$jobId',
+  path: '/gwas/$jobId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const GenotypingStudiesStudyIdRoute =
   GenotypingStudiesStudyIdRouteImport.update({
     id: '/genotyping-studies/$studyId',
@@ -241,6 +253,7 @@ export interface FileRoutesByFullPath {
   '/datasets/$datasetId': typeof DatasetsDatasetIdRoute
   '/experiments/$experimentId': typeof ExperimentsExperimentIdRoute
   '/genotyping-studies/$studyId': typeof GenotypingStudiesStudyIdRoute
+  '/gwas/$jobId': typeof GwasJobIdRoute
   '/jobs/$jobId': typeof JobsJobIdRoute
   '/lines/$lineId': typeof LinesLineIdRoute
   '/models/$modelId': typeof ModelsModelIdRoute
@@ -259,6 +272,7 @@ export interface FileRoutesByFullPath {
   '/experiments/': typeof ExperimentsIndexRoute
   '/files/': typeof FilesIndexRoute
   '/genotyping-studies/': typeof GenotypingStudiesIndexRoute
+  '/gwas/': typeof GwasIndexRoute
   '/import/': typeof ImportIndexRoute
   '/jobs/': typeof JobsIndexRoute
   '/lines/': typeof LinesIndexRoute
@@ -280,6 +294,7 @@ export interface FileRoutesByTo {
   '/datasets/$datasetId': typeof DatasetsDatasetIdRoute
   '/experiments/$experimentId': typeof ExperimentsExperimentIdRoute
   '/genotyping-studies/$studyId': typeof GenotypingStudiesStudyIdRoute
+  '/gwas/$jobId': typeof GwasJobIdRoute
   '/jobs/$jobId': typeof JobsJobIdRoute
   '/lines/$lineId': typeof LinesLineIdRoute
   '/models/$modelId': typeof ModelsModelIdRoute
@@ -298,6 +313,7 @@ export interface FileRoutesByTo {
   '/experiments': typeof ExperimentsIndexRoute
   '/files': typeof FilesIndexRoute
   '/genotyping-studies': typeof GenotypingStudiesIndexRoute
+  '/gwas': typeof GwasIndexRoute
   '/import': typeof ImportIndexRoute
   '/jobs': typeof JobsIndexRoute
   '/lines': typeof LinesIndexRoute
@@ -320,6 +336,7 @@ export interface FileRoutesById {
   '/datasets/$datasetId': typeof DatasetsDatasetIdRoute
   '/experiments/$experimentId': typeof ExperimentsExperimentIdRoute
   '/genotyping-studies/$studyId': typeof GenotypingStudiesStudyIdRoute
+  '/gwas/$jobId': typeof GwasJobIdRoute
   '/jobs/$jobId': typeof JobsJobIdRoute
   '/lines/$lineId': typeof LinesLineIdRoute
   '/models/$modelId': typeof ModelsModelIdRoute
@@ -338,6 +355,7 @@ export interface FileRoutesById {
   '/experiments/': typeof ExperimentsIndexRoute
   '/files/': typeof FilesIndexRoute
   '/genotyping-studies/': typeof GenotypingStudiesIndexRoute
+  '/gwas/': typeof GwasIndexRoute
   '/import/': typeof ImportIndexRoute
   '/jobs/': typeof JobsIndexRoute
   '/lines/': typeof LinesIndexRoute
@@ -361,6 +379,7 @@ export interface FileRouteTypes {
     | '/datasets/$datasetId'
     | '/experiments/$experimentId'
     | '/genotyping-studies/$studyId'
+    | '/gwas/$jobId'
     | '/jobs/$jobId'
     | '/lines/$lineId'
     | '/models/$modelId'
@@ -379,6 +398,7 @@ export interface FileRouteTypes {
     | '/experiments/'
     | '/files/'
     | '/genotyping-studies/'
+    | '/gwas/'
     | '/import/'
     | '/jobs/'
     | '/lines/'
@@ -400,6 +420,7 @@ export interface FileRouteTypes {
     | '/datasets/$datasetId'
     | '/experiments/$experimentId'
     | '/genotyping-studies/$studyId'
+    | '/gwas/$jobId'
     | '/jobs/$jobId'
     | '/lines/$lineId'
     | '/models/$modelId'
@@ -418,6 +439,7 @@ export interface FileRouteTypes {
     | '/experiments'
     | '/files'
     | '/genotyping-studies'
+    | '/gwas'
     | '/import'
     | '/jobs'
     | '/lines'
@@ -439,6 +461,7 @@ export interface FileRouteTypes {
     | '/datasets/$datasetId'
     | '/experiments/$experimentId'
     | '/genotyping-studies/$studyId'
+    | '/gwas/$jobId'
     | '/jobs/$jobId'
     | '/lines/$lineId'
     | '/models/$modelId'
@@ -457,6 +480,7 @@ export interface FileRouteTypes {
     | '/experiments/'
     | '/files/'
     | '/genotyping-studies/'
+    | '/gwas/'
     | '/import/'
     | '/jobs/'
     | '/lines/'
@@ -479,6 +503,7 @@ export interface RootRouteChildren {
   DatasetsDatasetIdRoute: typeof DatasetsDatasetIdRoute
   ExperimentsExperimentIdRoute: typeof ExperimentsExperimentIdRoute
   GenotypingStudiesStudyIdRoute: typeof GenotypingStudiesStudyIdRoute
+  GwasJobIdRoute: typeof GwasJobIdRoute
   JobsJobIdRoute: typeof JobsJobIdRoute
   LinesLineIdRoute: typeof LinesLineIdRoute
   ModelsModelIdRoute: typeof ModelsModelIdRoute
@@ -497,6 +522,7 @@ export interface RootRouteChildren {
   ExperimentsIndexRoute: typeof ExperimentsIndexRoute
   FilesIndexRoute: typeof FilesIndexRoute
   GenotypingStudiesIndexRoute: typeof GenotypingStudiesIndexRoute
+  GwasIndexRoute: typeof GwasIndexRoute
   ImportIndexRoute: typeof ImportIndexRoute
   JobsIndexRoute: typeof JobsIndexRoute
   LinesIndexRoute: typeof LinesIndexRoute
@@ -618,6 +644,13 @@ declare module '@tanstack/react-router' {
       path: '/import'
       fullPath: '/import/'
       preLoaderRoute: typeof ImportIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/gwas/': {
+      id: '/gwas/'
+      path: '/gwas'
+      fullPath: '/gwas/'
+      preLoaderRoute: typeof GwasIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/genotyping-studies/': {
@@ -746,6 +779,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof JobsJobIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/gwas/$jobId': {
+      id: '/gwas/$jobId'
+      path: '/gwas/$jobId'
+      fullPath: '/gwas/$jobId'
+      preLoaderRoute: typeof GwasJobIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/genotyping-studies/$studyId': {
       id: '/genotyping-studies/$studyId'
       path: '/genotyping-studies/$studyId'
@@ -783,6 +823,7 @@ const rootRouteChildren: RootRouteChildren = {
   DatasetsDatasetIdRoute: DatasetsDatasetIdRoute,
   ExperimentsExperimentIdRoute: ExperimentsExperimentIdRoute,
   GenotypingStudiesStudyIdRoute: GenotypingStudiesStudyIdRoute,
+  GwasJobIdRoute: GwasJobIdRoute,
   JobsJobIdRoute: JobsJobIdRoute,
   LinesLineIdRoute: LinesLineIdRoute,
   ModelsModelIdRoute: ModelsModelIdRoute,
@@ -801,6 +842,7 @@ const rootRouteChildren: RootRouteChildren = {
   ExperimentsIndexRoute: ExperimentsIndexRoute,
   FilesIndexRoute: FilesIndexRoute,
   GenotypingStudiesIndexRoute: GenotypingStudiesIndexRoute,
+  GwasIndexRoute: GwasIndexRoute,
   ImportIndexRoute: ImportIndexRoute,
   JobsIndexRoute: JobsIndexRoute,
   LinesIndexRoute: LinesIndexRoute,

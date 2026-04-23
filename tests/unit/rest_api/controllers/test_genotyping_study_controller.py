@@ -46,7 +46,7 @@ def _session_cm(acc_rows, variant_rows):
 
 
 class TestIngestMatrix:
-    @patch(f"{CONTROLLER_MODULE}.GenotypeRecordModel.insert_bulk")
+    @patch(f"{CONTROLLER_MODULE}._copy_insert_genotype_records")
     @patch(f"{CONTROLLER_MODULE}.VariantModel.insert_bulk")
     @patch(f"{CONTROLLER_MODULE}.db_engine")
     @patch(STUDY_PATH)
@@ -55,13 +55,13 @@ class TestIngestMatrix:
         mock_study_cls,
         mock_db_engine,
         mock_variant_insert,
-        mock_record_insert,
+        mock_copy_insert,
         test_client,
         mock_study,
     ):
         mock_study_cls.get_by_id.return_value = mock_study
         mock_variant_insert.return_value = ["v1", "v2"]
-        mock_record_insert.return_value = ["r1", "r2", "r3", "r4"]
+        mock_copy_insert.return_value = 4
 
         acc_rows = [
             MagicMock(id="acc-a-id", accession_name="SAMPLE_A"),
@@ -104,8 +104,7 @@ class TestIngestMatrix:
 
         # Four (2 variants × 2 samples) records should have been offered to the
         # bulk inserter. Verify payload shape: study/variant/accession IDs set.
-        called_with = mock_record_insert.call_args
-        _, records = called_with.args
+        records = mock_copy_insert.call_args.args[0]
         assert len(records) == 4
         first = records[0]
         assert first["study_id"] == "study-uuid"
@@ -136,7 +135,7 @@ class TestIngestMatrix:
         assert body["records_inserted"] == 0
         assert "Empty batch" in body["errors"][0]
 
-    @patch(f"{CONTROLLER_MODULE}.GenotypeRecordModel.insert_bulk")
+    @patch(f"{CONTROLLER_MODULE}._copy_insert_genotype_records")
     @patch(f"{CONTROLLER_MODULE}.VariantModel.insert_bulk")
     @patch(f"{CONTROLLER_MODULE}.db_engine")
     @patch(STUDY_PATH)
@@ -145,13 +144,13 @@ class TestIngestMatrix:
         mock_study_cls,
         mock_db_engine,
         mock_variant_insert,
-        mock_record_insert,
+        mock_copy_insert,
         test_client,
         mock_study,
     ):
         mock_study_cls.get_by_id.return_value = mock_study
         mock_variant_insert.return_value = ["v1"]
-        mock_record_insert.return_value = []
+        mock_copy_insert.return_value = 0
 
         mock_db_engine.get_session.return_value = _session_cm(
             acc_rows=[],
@@ -178,7 +177,5 @@ class TestIngestMatrix:
         assert body["records_inserted"] == 0
         assert any("Unknown accession: MISSING_A" in e for e in body["errors"])
         assert any("Unknown accession: MISSING_B" in e for e in body["errors"])
-        # Insert should have been called with an empty list (or not at all)
-        if mock_record_insert.called:
-            _, records = mock_record_insert.call_args.args
-            assert records == []
+        # No records to insert → helper should not have been called.
+        assert not mock_copy_insert.called

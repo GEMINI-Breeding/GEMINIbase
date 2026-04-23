@@ -16,6 +16,7 @@ class JobType(str, Enum):
     TIF_TO_PNG = "TIF_TO_PNG"
     CREATE_COG = "CREATE_COG"
     EXTRACT_BINARY = "EXTRACT_BINARY"
+    RUN_GWAS = "RUN_GWAS"
 
 
 class JobStatus(str, Enum):
@@ -39,4 +40,5 @@ JOB_TYPE_WORKER_MAP = {
     JobType.TIF_TO_PNG: "gemini-worker-geo",
     JobType.CREATE_COG: "gemini-worker-geo",
     JobType.EXTRACT_BINARY: "gemini-worker-flir",
+    JobType.RUN_GWAS: "gemini-worker-gwas",
 }

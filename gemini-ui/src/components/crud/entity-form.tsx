@@ -76,15 +76,22 @@ export function EntityForm({
   function processSubmit(data: Record<string, unknown>) {
     const processed = { ...data }
     for (const field of fields) {
-      if (field.type === 'json' && typeof processed[field.name] === 'string') {
+      const value = processed[field.name]
+      // Omit empty optional fields so the backend applies defaults.
+      // Sending "" for Optional[datetime]/Optional[JSONB] triggers a 400.
+      if (!field.required && (value === '' || value == null)) {
+        delete processed[field.name]
+        continue
+      }
+      if (field.type === 'json' && typeof value === 'string') {
         try {
-          processed[field.name] = JSON.parse(processed[field.name] as string)
+          processed[field.name] = JSON.parse(value)
         } catch {
           // leave as string if invalid JSON
         }
       }
-      if (field.type === 'number' && processed[field.name] !== '') {
-        processed[field.name] = Number(processed[field.name])
+      if (field.type === 'number' && value !== '') {
+        processed[field.name] = Number(value)
       }
     }
     onSubmit(processed)

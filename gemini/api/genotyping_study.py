@@ -148,8 +148,10 @@ class GenotypingStudy(APIBase):
 
     def delete(self) -> bool:
         try:
+            from sqlalchemy import select
             from gemini.db.core.base import db_engine
             from gemini.db.models.columnar.genotype_records import GenotypeRecordModel
+            from gemini.db.models.variants import VariantModel
 
             db_instance = GenotypingStudyModel.get(self.id)
             if not db_instance:
@@ -158,6 +160,18 @@ class GenotypingStudy(APIBase):
             # genotype_records.study_id has no FK constraint (columnar),
             # so we must clean it explicitly.
             with db_engine.get_session() as session:
+                # Collect variant_ids referenced by this study BEFORE the
+                # records go away so we can sweep variants that no other
+                # study touches. Variants are a shared catalog (same SNP
+                # can live in multiple studies), so the cascade is
+                # conditional: only variants with zero remaining record
+                # references are deleted.
+                variant_candidates = list(set(session.execute(
+                    select(GenotypeRecordModel.variant_id).where(
+                        GenotypeRecordModel.study_id == self.id
+                    )
+                ).scalars().all()))
+
                 deleted = session.execute(
                     GenotypeRecordModel.__table__.delete().where(
                         GenotypeRecordModel.study_id == self.id
@@ -168,6 +182,26 @@ class GenotypingStudy(APIBase):
                         f"Deleted {deleted} genotype_record(s) for "
                         f"study {self.study_name}."
                     )
+
+                if variant_candidates:
+                    still_ref = set(session.execute(
+                        select(GenotypeRecordModel.variant_id).where(
+                            GenotypeRecordModel.variant_id.in_(variant_candidates)
+                        ).distinct()
+                    ).scalars().all())
+                    orphan_variants = [
+                        v for v in variant_candidates if v not in still_ref
+                    ]
+                    if orphan_variants:
+                        session.execute(
+                            VariantModel.__table__.delete().where(
+                                VariantModel.id.in_(orphan_variants)
+                            )
+                        )
+                        logger.info(
+                            f"Deleted {len(orphan_variants)} orphan variant(s) "
+                            f"after deleting study {self.study_name}."
+                        )
 
             GenotypingStudyModel.delete(db_instance)
             return True
