@@ -1,5 +1,5 @@
 """
-SQLAlchemy model for Plot entities in the GEMINI database.
+SQLAlchemy model for Plot entities in the GEMINIbase database.
 """
 
 from sqlalchemy import (
@@ -21,7 +21,7 @@ from datetime import datetime
 
 class PlotModel(BaseModel):
   """
-  Represents a plot in the GEMINI database.
+  Represents a plot in the GEMINIbase database.
 
   Attributes:
     id (uuid.UUID): Unique identifier for the plot.

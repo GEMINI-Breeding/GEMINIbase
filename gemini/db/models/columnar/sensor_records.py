@@ -1,5 +1,5 @@
 """
-SQLAlchemy model for columnar SensorRecord entities in the GEMINI database.
+SQLAlchemy model for columnar SensorRecord entities in the GEMINIbase database.
 """
 
 from sqlalchemy.orm import relationship, mapped_column, Mapped, Relationship
@@ -15,7 +15,7 @@ from typing import Optional, List
 
 class SensorRecordModel(ColumnarBaseModel):
     """
-    Represents a sensor record in the GEMINI database.
+    Represents a sensor record in the GEMINIbase database.
 
     Attributes:
         id (uuid.UUID): Unique identifier for the sensor record.

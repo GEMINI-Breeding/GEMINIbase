@@ -1,5 +1,5 @@
 """
-SQLAlchemy model for Job entities in the GEMINI database.
+SQLAlchemy model for Job entities in the GEMINIbase database.
 
 Jobs represent long-running processing tasks (ML training, plant location,
 trait extraction, stitching, ODM, drone processing, etc.) that are submitted
@@ -23,7 +23,7 @@ import uuid
 
 class JobModel(BaseModel):
     """
-    Represents a processing job in the GEMINI database.
+    Represents a processing job in the GEMINIbase database.
 
     Attributes:
         id (uuid.UUID): Unique identifier for the job.

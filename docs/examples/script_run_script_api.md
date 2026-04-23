@@ -1,6 +1,6 @@
 # Script Run Script API Example
 
-This example demonstrates how to associate and unassociate scripts with script runs using the Gemini framework.
+This example demonstrates how to associate and unassociate scripts with script runs using the GEMINIbase.
 
 ## Source File Location
 

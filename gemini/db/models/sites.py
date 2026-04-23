@@ -1,5 +1,5 @@
 """
-SQLAlchemy model for Site entities in the GEMINI database.
+SQLAlchemy model for Site entities in the GEMINIbase database.
 """
 
 from sqlalchemy import (
@@ -23,7 +23,7 @@ import uuid
 
 class SiteModel(BaseModel):
   """
-  Represents a site in the GEMINI database.
+  Represents a site in the GEMINIbase database.
 
   Attributes:
     id (uuid.UUID): Unique identifier for the site.

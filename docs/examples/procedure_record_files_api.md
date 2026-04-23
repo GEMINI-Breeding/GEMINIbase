@@ -1,6 +1,6 @@
 # Procedure Record Files API Example
 
-This example demonstrates how to use the ProcedureRecord API to associate files with procedure records in the Gemini framework.
+This example demonstrates how to use the ProcedureRecord API to associate files with procedure records in the GEMINIbase.
 
 ## Source File Location
 
@@ -67,7 +67,7 @@ for record in searched_records:
 
 ## Explanation
 
-This example demonstrates how to associate files with procedure records using the Gemini API:
+This example demonstrates how to associate files with procedure records using the GEMINIbase API:
 
 *   **Creating procedure records with files:** The `ProcedureRecord.create()` method is used to create new procedure records, each associated with a file from the `sample_images` directory. The `insert_on_create` parameter is set to `False` to allow batch insertion.
 *   **Inserting procedure records:** The `ProcedureRecord.insert()` method is used to efficiently insert multiple procedure records into the database.

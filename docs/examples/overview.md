@@ -1,6 +1,6 @@
 # API Examples Overview
 
-This page provides an overview of the available API examples. Each example demonstrates how to use a specific API in the Gemini framework.
+This page provides an overview of the available API examples. Each example demonstrates how to use a specific API in the GEMINIbase.
 
 ## Population
 - [Population API](./population_api.md)

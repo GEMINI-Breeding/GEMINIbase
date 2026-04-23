@@ -96,7 +96,7 @@ def _database_unavailable_response(detail: Optional[str]) -> Response:
     body = RESTAPIError(
         error="database_unavailable",
         error_description=(
-            "The GEMINI database is unreachable. Check that the gemini-db "
+            "The GEMINIbase database is unreachable. Check that the gemini-db "
             "container is running and accepting connections"
             + (f" (cause: {detail})" if detail else "")
             + "."

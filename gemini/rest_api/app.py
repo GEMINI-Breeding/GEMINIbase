@@ -28,26 +28,26 @@ if api_key_middleware:
     middleware.append(api_key_middleware)
 
 openapi_config = OpenAPIConfig(
-    title="GEMINI REST API",
+    title="GEMINIbase REST API",
     version="1.0.0",
-    description="REST API for the GEMINI project",
+    description="REST API for GEMINIbase",
     render_plugins=[StoplightRenderPlugin()]
 )
 
-@get(path="/" , sync_to_thread=False, tags=["GEMINI"])
+@get(path="/" , sync_to_thread=False, tags=["GEMINIbase"])
 def root_handler() -> dict:
     return {
-        "message": "Welcome to the GEMINI API",
+        "message": "Welcome to the GEMINIbase API",
         "author": "Pranav Ghate",
         "version": "1.0.0",
         "email": "pghate@ucdavis.edu"
     }
 
-@get(path="/settings", sync_to_thread=False, tags=["GEMINI"])
+@get(path="/settings", sync_to_thread=False, tags=["GEMINIbase"])
 def settings_handler() -> dict:
     return GEMINISettings().model_dump()
 
-@get(path="/healthz", sync_to_thread=True, tags=["GEMINI"])
+@get(path="/healthz", sync_to_thread=True, tags=["GEMINIbase"])
 def healthz_handler() -> Response:
     """Liveness + readiness probe. 200 when all infra components are reachable,
     503 otherwise — the compose healthcheck hits this path."""

@@ -1,5 +1,5 @@
 """
-SQLAlchemy model for DatasetType entities in the GEMINI database.
+SQLAlchemy model for DatasetType entities in the GEMINIbase database.
 """
 
 from sqlalchemy import (
@@ -19,7 +19,7 @@ from datetime import datetime
 
 class DatasetTypeModel(BaseModel):
     """
-    Represents a type of dataset in the GEMINI database.
+    Represents a type of dataset in the GEMINIbase database.
 
     Attributes:
         id (int): Unique integer identifier for the dataset type.

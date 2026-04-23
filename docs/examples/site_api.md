@@ -1,6 +1,6 @@
 # Site API Example
 
-This example demonstrates how to use the Site API in the Gemini framework.
+This example demonstrates how to use the Site API in the GEMINIbase.
 
 ## Source File Location
 
@@ -68,7 +68,7 @@ print(f"Does Site Exist after Deletion? {exists_after_deletion}")
 
 ## Explanation
 
-This example demonstrates the basic operations for managing sites using the Gemini API:
+This example demonstrates the basic operations for managing sites using the GEMINIbase API:
 
 *   **Creating a site:** The `Site.create()` method is used to create a new site with a name, additional information, and associated experiment.
 *   **Getting a site:** The `Site.get_by_id()` method retrieves a site by its unique ID. The `Site.get()` method retrieves a site by its name.

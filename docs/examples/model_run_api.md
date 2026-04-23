@@ -1,6 +1,6 @@
 # Model Run API Example
 
-This example demonstrates how to use the ModelRun API in the Gemini framework.
+This example demonstrates how to use the ModelRun API in the GEMINIbase.
 
 ## Source File Location
 
@@ -74,7 +74,7 @@ print(f"Does Model Run Exist after Deletion? {exists}")
 
 ## Explanation
 
-This example demonstrates the basic operations for managing model runs using the Gemini API:
+This example demonstrates the basic operations for managing model runs using the GEMINIbase API:
 
 *   **Creating a model run:** The `ModelRun.create()` method is used to create a new model run with additional information and associated model.
 *   **Getting a model run:** The `ModelRun.get()` method retrieves a model run by its ID or model name and model run info.

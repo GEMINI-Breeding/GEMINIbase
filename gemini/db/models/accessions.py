@@ -1,5 +1,5 @@
 """
-SQLAlchemy model for Accession entities in the GEMINI database.
+SQLAlchemy model for Accession entities in the GEMINIbase database.
 
 An Accession is a canonical germplasm unit (variety, clone, inbred line
 entry) that gets planted in plots. Accession names are globally unique.
@@ -19,7 +19,7 @@ import uuid
 
 class AccessionModel(BaseModel):
     """
-    Represents an accession (germplasm unit) in the GEMINI database.
+    Represents an accession (germplasm unit) in the GEMINIbase database.
 
     Attributes:
         id (uuid.UUID): Unique identifier for the accession.

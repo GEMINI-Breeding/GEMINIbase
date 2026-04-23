@@ -1,6 +1,6 @@
 # Script API Example
 
-This example demonstrates how to use the Script API in the Gemini framework.
+This example demonstrates how to use the Script API in the GEMINIbase.
 
 ## Source File Location
 
@@ -79,7 +79,7 @@ print(f"Does Script Exist after Deletion? {exists_after_deletion}")
 
 ## Explanation
 
-This example demonstrates the basic operations for managing scripts using the Gemini API:
+This example demonstrates the basic operations for managing scripts using the GEMINIbase API:
 
 *   **Creating a script:** The `Script.create()` method is used to create a new script with a name, URL, extension, additional information, and associated experiment.
 *   **Getting a script:** The `Script.get()` method retrieves a script by its ID or name.

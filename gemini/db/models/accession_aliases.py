@@ -1,5 +1,5 @@
 """
-SQLAlchemy model for AccessionAlias entities in the GEMINI database.
+SQLAlchemy model for AccessionAlias entities in the GEMINIbase database.
 
 An alias is an alternate name (numeric field-book shorthand, BrAPI-style
 synonym, legacy identifier) that resolves to exactly one canonical

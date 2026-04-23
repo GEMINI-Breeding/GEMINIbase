@@ -1,5 +1,5 @@
 """
-SQLAlchemy model for columnar ProcedureRecord entities in the GEMINI database.
+SQLAlchemy model for columnar ProcedureRecord entities in the GEMINIbase database.
 """
 
 from sqlalchemy.orm import relationship, mapped_column, Mapped, Relationship
@@ -14,7 +14,7 @@ from typing import Optional, List
 
 class ProcedureRecordModel(ColumnarBaseModel):
     """
-    Represents a procedure record in the GEMINI database.
+    Represents a procedure record in the GEMINIbase database.
 
     Attributes:
         id (uuid.UUID): Unique identifier for the procedure record.

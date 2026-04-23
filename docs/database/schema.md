@@ -1,4 +1,4 @@
-# GEMINI Database Schema
+# GEMINIbase Database Schema
 
 ## Core Schema ER Diagram
 

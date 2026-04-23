@@ -1,6 +1,6 @@
 # Model API Example
 
-This example demonstrates how to use the Model API in the Gemini framework.
+This example demonstrates how to use the Model API in the GEMINIbase.
 
 ## Source File Location
 
@@ -70,7 +70,7 @@ print(f"Does Model Exist after Deletion? {exists}")
 
 ## Explanation
 
-This example demonstrates the basic operations for managing models using the Gemini API:
+This example demonstrates the basic operations for managing models using the GEMINIbase API:
 
 *   **Creating a model:** The `Model.create()` method is used to create a new model with a name, URL, additional information, and associated experiment.
 *   **Getting a model:** The `Model.get()` method retrieves a model by its ID or name.

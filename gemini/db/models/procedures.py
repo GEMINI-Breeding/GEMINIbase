@@ -1,5 +1,5 @@
 """
-SQLAlchemy model for Procedure entities in the GEMINI database.
+SQLAlchemy model for Procedure entities in the GEMINIbase database.
 """
 
 from sqlalchemy import (
@@ -24,7 +24,7 @@ import uuid
 
 class ProcedureModel(BaseModel):
     """
-    Represents a procedure in the GEMINI database.
+    Represents a procedure in the GEMINIbase database.
 
     Attributes:
         id (uuid.UUID): Unique identifier for the procedure.

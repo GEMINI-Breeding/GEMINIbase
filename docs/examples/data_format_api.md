@@ -1,6 +1,6 @@
 # Data Format API Example
 
-This example demonstrates how to use the Data Format API in the Gemini framework.
+This example demonstrates how to use the Data Format API in the GEMINIbase.
 
 ## Source File Location
 
@@ -77,7 +77,7 @@ print(f"Does Data Format exist after deletion? {data_format_exists_after_deletio
 
 ## Explanation
 
-This example demonstrates the basic operations for managing data formats using the Gemini API:
+This example demonstrates the basic operations for managing data formats using the GEMINIbase API:
 
 *   **Creating a data format:** The `DataFormat.create()` method is used to create a new data format with a name, MIME type, and additional information.
 *   **Getting a data format:** The `DataFormat.get_by_id()` method retrieves a data format by its unique ID. The `DataFormat.get()` method retrieves a data format by its name.

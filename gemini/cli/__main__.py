@@ -1,8 +1,8 @@
 
 """
-This module provides the command-line interface (CLI) for managing the GEMINI pipeline.
+This module provides the command-line interface (CLI) for managing the GEMINIbase pipeline.
 
-It includes commands for building, starting, stopping, cleaning, resetting, setting up, and updating the GEMINI pipeline.
+It includes commands for building, starting, stopping, cleaning, resetting, setting up, and updating the GEMINIbase pipeline.
 """
 
 import click
@@ -21,9 +21,9 @@ def _require(ok: bool, failure_message: str) -> None:
 
 class GEMINICLIContext:
     """
-    Context object for the GEMINI CLI.
+    Context object for the GEMINIbase CLI.
 
-    This class holds the GEMINI manager instance and paths relevant to the CLI.
+    This class holds the GEMINIbase manager instance and paths relevant to the CLI.
     """
     def __init__(self) -> None:
         self.manager = GEMINIManager()
@@ -45,7 +45,7 @@ class _DockerAwareGroup(click.Group):
 @click.pass_context
 def cli(ctx):
     """
-    GEMINI CLI for pipeline management.
+    GEMINIbase CLI for pipeline management.
     """
     ctx.obj = GEMINICLIContext()
 
@@ -53,80 +53,80 @@ def cli(ctx):
 @click.pass_obj
 def build(ctx: GEMINICLIContext):
     """
-    Builds the GEMINI pipeline.
+    Builds the GEMINIbase pipeline.
     """
-    click.echo(click.style("Building GEMINI pipeline", fg="blue"))
+    click.echo(click.style("Building GEMINIbase pipeline", fg="blue"))
     _require(ctx.manager.build(), "Build failed. See Docker output above.")
-    click.echo(click.style("GEMINI pipeline built", fg="blue"))
+    click.echo(click.style("GEMINIbase pipeline built", fg="blue"))
 
 @cli.command()
 @click.pass_obj
 def start(ctx: GEMINICLIContext):
     """
-    Starts the GEMINI pipeline.
+    Starts the GEMINIbase pipeline.
     """
-    click.echo(click.style("Starting GEMINI pipeline", fg="blue"))
+    click.echo(click.style("Starting GEMINIbase pipeline", fg="blue"))
     _require(ctx.manager.start(), "Start failed. See Docker output above.")
-    click.echo(click.style("GEMINI pipeline started", fg="blue"))
+    click.echo(click.style("GEMINIbase pipeline started", fg="blue"))
 
 @cli.command()
 @click.pass_obj
 def stop(ctx: GEMINICLIContext):
     """
-    Stops the GEMINI pipeline.
+    Stops the GEMINIbase pipeline.
     """
-    click.echo(click.style("Stopping GEMINI pipeline", fg="blue"))
+    click.echo(click.style("Stopping GEMINIbase pipeline", fg="blue"))
     _require(ctx.manager.stop(), "Stop failed. See Docker output above.")
-    click.echo(click.style("GEMINI pipeline stopped", fg="blue"))
+    click.echo(click.style("GEMINIbase pipeline stopped", fg="blue"))
 
 @cli.command()
 @click.pass_obj
 def clean(ctx: GEMINICLIContext):
     """
-    Cleans the GEMINI pipeline.
+    Cleans the GEMINIbase pipeline.
     """
-    click.echo(click.style("Cleaning GEMINI pipeline", fg="blue"))
+    click.echo(click.style("Cleaning GEMINIbase pipeline", fg="blue"))
     _require(ctx.manager.clean(), "Clean failed. See Docker output above.")
-    click.echo(click.style("GEMINI pipeline cleaned", fg="blue"))
+    click.echo(click.style("GEMINIbase pipeline cleaned", fg="blue"))
 
 @cli.command()
 @click.pass_obj
 def reset(ctx: GEMINICLIContext):
     """
-    Resets the GEMINI pipeline.
+    Resets the GEMINIbase pipeline.
     """
-    click.echo(click.style("Resetting GEMINI pipeline", fg="blue"))
+    click.echo(click.style("Resetting GEMINIbase pipeline", fg="blue"))
     ctx.manager.save_settings()
     _require(ctx.manager.rebuild(), "Reset failed. See Docker output above.")
-    click.echo(click.style("GEMINI pipeline reset", fg="blue"))
+    click.echo(click.style("GEMINIbase pipeline reset", fg="blue"))
 
 @cli.command()
 @click.option('--default', is_flag=True, help="Use default settings")
 @click.pass_obj
 def setup(ctx: GEMINICLIContext, default: bool = False):
     """
-    Sets up the GEMINI pipeline.
+    Sets up the GEMINIbase pipeline.
 
     Args:
         default (bool): Use default settings.
     """
-    click.echo(click.style("Setting up GEMINI pipeline", fg="blue"))
+    click.echo(click.style("Setting up GEMINIbase pipeline", fg="blue"))
     ctx.manager.save_settings()
     _require(ctx.manager.rebuild(), "Setup failed. See Docker output above.")
-    click.echo(click.style("GEMINI pipeline setup complete", fg="blue"))
+    click.echo(click.style("GEMINIbase pipeline setup complete", fg="blue"))
 
 
 @cli.command()
 @click.pass_obj
 def update(ctx: GEMINICLIContext):
     """
-    Updates the GEMINI pipeline.
+    Updates the GEMINIbase pipeline.
     """
-    click.echo(click.style("Updating GEMINI pipeline", fg="blue"))
+    click.echo(click.style("Updating GEMINIbase pipeline", fg="blue"))
     _require(ctx.manager.update(), "Update script failed.")
     ctx.manager.save_settings()
     _require(ctx.manager.rebuild(), "Update failed during rebuild. See Docker output above.")
-    click.echo(click.style("GEMINI pipeline updated", fg="blue"))
+    click.echo(click.style("GEMINIbase pipeline updated", fg="blue"))
 
 # Add the settings command group to the main CLI
 cli.add_command(settings_group)

@@ -1,6 +1,6 @@
 # Procedure Record API Example
 
-This example demonstrates how to use the ProcedureRecord API in the Gemini framework.
+This example demonstrates how to use the ProcedureRecord API in the GEMINIbase.
 
 ## Source File Location
 
@@ -101,7 +101,7 @@ print(f"Does Procedure Record exist after deletion? {exists}")
 
 ## Explanation
 
-This example demonstrates the basic operations for managing procedure records using the Gemini API:
+This example demonstrates the basic operations for managing procedure records using the GEMINIbase API:
 
 *   **Creating a procedure record:** The `ProcedureRecord.create()` method is used to create a new procedure record with a timestamp, collection date, associated procedure, dataset, additional data, and associated experiment, site, and season.
 *   **Getting a procedure record:** The `ProcedureRecord.get_by_id()` method retrieves a procedure record by its unique ID. The `ProcedureRecord.get()` method retrieves a procedure record by its timestamp, procedure name, dataset name, and associated experiment, site, and season.

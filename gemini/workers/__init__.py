@@ -1,5 +1,5 @@
 """
-GEMINI processing workers.
+GEMINIbase processing workers.
 
 Workers poll the job queue via the REST API, execute processing tasks,
 and report progress back via the REST API (which publishes to Redis

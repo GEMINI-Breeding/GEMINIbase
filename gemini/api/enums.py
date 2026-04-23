@@ -4,7 +4,7 @@ from enum import Enum
 
 class GEMINIDataFormat(Enum):
   """
-  Enum class representing the data formats supported by the GEMINI framework.
+  Enum class representing the data formats supported by the GEMINIbase.
 
   Attributes:
     Default (int): Default data format.
@@ -55,7 +55,7 @@ from enum import Enum
 
 class GEMINISensorType(Enum):
   """
-  Enumeration representing different types of sensors in the GEMINI framework.
+  Enumeration representing different types of sensors in the GEMINIbase.
 
   Attributes:
     Default (int): Default sensor type.
@@ -88,7 +88,7 @@ from enum import Enum
 
 class GEMINIDatasetType(Enum):
   """
-  Enum representing the types of datasets in the GEMINI framework.
+  Enum representing the types of datasets in the GEMINIbase.
 
   Attributes:
     Default (int): Default dataset type.
@@ -109,7 +109,7 @@ class GEMINIDatasetType(Enum):
 
 class GEMINIDataType(Enum):
   """
-  Enumeration representing different data types in the GEMINI framework.
+  Enumeration representing different data types in the GEMINIbase.
 
   Attributes:
     Default (int): Default data type.

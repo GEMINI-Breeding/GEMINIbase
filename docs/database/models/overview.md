@@ -1,6 +1,6 @@
 # Overview
 
-This section provides an overview of the database models used within the GEMINI framework. These models define the structure and relationships of the data stored in the database, enabling the framework to manage and interact with the application's data effectively.
+This section provides an overview of the database models used within the GEMINIbase. These models define the structure and relationships of the data stored in the database, enabling the framework to manage and interact with the application's data effectively.
 
 ## Main Entity Tables
 

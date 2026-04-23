@@ -1,5 +1,5 @@
 """
-SQLAlchemy model for DataFormat entities in the GEMINI database.
+SQLAlchemy model for DataFormat entities in the GEMINIbase database.
 """
 
 from sqlalchemy import JSON, String, TIMESTAMP, UniqueConstraint, Index, Integer, Identity
@@ -16,7 +16,7 @@ import uuid
 
 class DataFormatModel(BaseModel):
     """
-    Represents a data format in the GEMINI database.
+    Represents a data format in the GEMINIbase database.
 
     Attributes:
         id (int): Unique integer identifier for the data format.

@@ -1,5 +1,5 @@
 """
-SQLAlchemy model for ProcedureRun entities in the GEMINI database.
+SQLAlchemy model for ProcedureRun entities in the GEMINIbase database.
 """
 
 from sqlalchemy import (
@@ -23,7 +23,7 @@ from datetime import datetime
 
 class ProcedureRunModel(BaseModel):
     """
-    Represents a procedure run in the GEMINI database.
+    Represents a procedure run in the GEMINIbase database.
 
     Attributes:
         id (uuid.UUID): Unique identifier for the procedure run.

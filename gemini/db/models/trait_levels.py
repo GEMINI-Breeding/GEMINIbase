@@ -1,5 +1,5 @@
 """
-SQLAlchemy model for TraitLevel entities in the GEMINI database.
+SQLAlchemy model for TraitLevel entities in the GEMINIbase database.
 """
 
 from sqlalchemy import JSON, String, TIMESTAMP, UniqueConstraint, Index, Integer
@@ -16,7 +16,7 @@ import uuid
 
 class TraitLevelModel(BaseModel):
     """
-    Represents a trait level in the GEMINI database.
+    Represents a trait level in the GEMINIbase database.
 
     Attributes:
         id (int): Unique identifier for the trait level.

@@ -2,7 +2,7 @@
 Base models for database interactions in GEMINI.
 
 This module defines the core SQLAlchemy models and utility methods for
-interacting with the GEMINI database, including base classes for
+interacting with the GEMINIbase database, including base classes for
 standard tables, views, materialized views, and columnar tables.
 """
 from __future__ import annotations

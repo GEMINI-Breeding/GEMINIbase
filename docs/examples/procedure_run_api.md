@@ -1,6 +1,6 @@
 # Procedure Run API Example
 
-This example demonstrates how to use the ProcedureRun API in the Gemini framework.
+This example demonstrates how to use the ProcedureRun API in the GEMINIbase.
 
 ## Source File Location
 
@@ -75,7 +75,7 @@ print(f"Procedure Run exists after deletion: {exists}")
 
 ## Explanation
 
-This example demonstrates the basic operations for managing procedure runs using the Gemini API:
+This example demonstrates the basic operations for managing procedure runs using the GEMINIbase API:
 
 *   **Creating a procedure run:** The `ProcedureRun.create()` method is used to create a new procedure run with additional information.
 *   **Getting a procedure run:** The `ProcedureRun.get()` method retrieves a procedure run by its additional information. The `ProcedureRun.get_by_id()` method retrieves a procedure run by its unique ID.

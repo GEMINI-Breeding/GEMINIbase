@@ -1,5 +1,5 @@
 """
-API key authentication middleware for the GEMINI REST API.
+API key authentication middleware for the GEMINIbase REST API.
 
 When GEMINI_API_KEY is set (non-empty), all requests to /api/* must include
 a valid API key via the X-API-Key header or ?api_key query parameter.

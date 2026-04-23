@@ -1,6 +1,6 @@
 # Models
 
-The `models` table stores information about the predictive or analytical models used in the GEMINI framework.
+The `models` table stores information about the predictive or analytical models used in the GEMINIbase.
 
 ## Table Schema
 

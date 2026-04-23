@@ -23,7 +23,7 @@ $ poetry install
 
 #### Step 3
 
-Setup the GEMINI Pipeline
+Setup the GEMINIbase Pipeline
 
 ```
 $ geminibase setup --default
@@ -31,7 +31,7 @@ $ geminibase setup --default
 
 #### Step 4
 
-Build the Docker containers that make up the GEMINI Pipeline
+Build the Docker containers that make up the GEMINIbase Pipeline
 
 ```
 $ geminibase build
@@ -39,7 +39,7 @@ $ geminibase build
 
 #### Step 5
 
-Start the GEMINI Pipeline
+Start the GEMINIbase Pipeline
 
 ```
 $ geminibase start

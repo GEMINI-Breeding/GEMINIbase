@@ -1,6 +1,6 @@
 # Sensor Dataset API Example
 
-This example demonstrates how to use the Sensor and Dataset APIs to associate datasets with sensors in the Gemini framework.
+This example demonstrates how to use the Sensor and Dataset APIs to associate datasets with sensors in the GEMINIbase.
 
 ## Source File Location
 

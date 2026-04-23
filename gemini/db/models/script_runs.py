@@ -1,5 +1,5 @@
 """
-SQLAlchemy model for ScriptRun entities in the GEMINI database.
+SQLAlchemy model for ScriptRun entities in the GEMINIbase database.
 """
 
 from sqlalchemy import (
@@ -24,7 +24,7 @@ from datetime import datetime
 
 class ScriptRunModel(BaseModel):
     """
-    Represents a script run in the GEMINI database.
+    Represents a script run in the GEMINIbase database.
 
     Attributes:
         id (uuid.UUID): Unique identifier for the script run.

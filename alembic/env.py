@@ -2,7 +2,7 @@
 Alembic environment configuration for GEMINIbase.
 
 Reads the database URL from environment variables (same as the application)
-and uses the GEMINI BaseModel metadata for autogenerate support.
+and uses the GEMINIbase BaseModel metadata for autogenerate support.
 """
 import os
 from logging.config import fileConfig

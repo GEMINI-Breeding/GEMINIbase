@@ -35,8 +35,8 @@ class TestBuildCommand:
 
     def test_build_output(self, runner, mock_manager):
         result = runner.invoke(cli, ["build"])
-        assert "Building GEMINI pipeline" in result.output
-        assert "GEMINI pipeline built" in result.output
+        assert "Building GEMINIbase pipeline" in result.output
+        assert "GEMINIbase pipeline built" in result.output
 
 
 class TestStartCommand:
@@ -47,7 +47,7 @@ class TestStartCommand:
 
     def test_start_output(self, runner, mock_manager):
         result = runner.invoke(cli, ["start"])
-        assert "Starting GEMINI pipeline" in result.output
+        assert "Starting GEMINIbase pipeline" in result.output
 
 
 class TestStopCommand:
@@ -58,7 +58,7 @@ class TestStopCommand:
 
     def test_stop_output(self, runner, mock_manager):
         result = runner.invoke(cli, ["stop"])
-        assert "Stopping GEMINI pipeline" in result.output
+        assert "Stopping GEMINIbase pipeline" in result.output
 
 
 class TestCleanCommand:
@@ -69,7 +69,7 @@ class TestCleanCommand:
 
     def test_clean_output(self, runner, mock_manager):
         result = runner.invoke(cli, ["clean"])
-        assert "Cleaning GEMINI pipeline" in result.output
+        assert "Cleaning GEMINIbase pipeline" in result.output
 
 
 class TestResetCommand:
@@ -81,8 +81,8 @@ class TestResetCommand:
 
     def test_reset_output(self, runner, mock_manager):
         result = runner.invoke(cli, ["reset"])
-        assert "Resetting GEMINI pipeline" in result.output
-        assert "GEMINI pipeline reset" in result.output
+        assert "Resetting GEMINIbase pipeline" in result.output
+        assert "GEMINIbase pipeline reset" in result.output
 
 
 class TestSetupCommand:
@@ -100,8 +100,8 @@ class TestSetupCommand:
 
     def test_setup_output(self, runner, mock_manager):
         result = runner.invoke(cli, ["setup"])
-        assert "Setting up GEMINI pipeline" in result.output
-        assert "GEMINI pipeline setup complete" in result.output
+        assert "Setting up GEMINIbase pipeline" in result.output
+        assert "GEMINIbase pipeline setup complete" in result.output
 
 
 class TestUpdateCommand:
@@ -114,17 +114,17 @@ class TestUpdateCommand:
 
     def test_update_output(self, runner, mock_manager):
         result = runner.invoke(cli, ["update"])
-        assert "Updating GEMINI pipeline" in result.output
-        assert "GEMINI pipeline updated" in result.output
+        assert "Updating GEMINIbase pipeline" in result.output
+        assert "GEMINIbase pipeline updated" in result.output
 
 
 class TestCLIHelp:
     def test_cli_help(self, runner, mock_manager):
         result = runner.invoke(cli, ["--help"])
         assert result.exit_code == 0
-        assert "GEMINI CLI" in result.output
+        assert "GEMINIbase CLI" in result.output
 
     def test_build_help(self, runner, mock_manager):
         result = runner.invoke(cli, ["build", "--help"])
         assert result.exit_code == 0
-        assert "Builds the GEMINI pipeline" in result.output
+        assert "Builds the GEMINIbase pipeline" in result.output

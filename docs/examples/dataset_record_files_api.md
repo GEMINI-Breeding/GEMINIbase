@@ -1,6 +1,6 @@
 # Dataset Record Files API Example
 
-This example demonstrates how to use the DatasetRecord API to associate files with dataset records in the Gemini framework.
+This example demonstrates how to use the DatasetRecord API to associate files with dataset records in the GEMINIbase.
 
 ## Source File Location
 
@@ -68,7 +68,7 @@ for record in searched_records:
 
 ## Explanation
 
-This example demonstrates how to associate files with dataset records using the Gemini API:
+This example demonstrates how to associate files with dataset records using the GEMINIbase API:
 
 *   **Creating dataset records with files:** The `DatasetRecord.create()` method is used to create new dataset records, each associated with a file from the `sample_images` directory. The `insert_on_create` parameter is set to `False` to allow batch insertion.
 *   **Inserting dataset records:** The `DatasetRecord.insert()` method is used to efficiently insert multiple dataset records into the database.

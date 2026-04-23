@@ -1,6 +1,6 @@
 # Script Script Run API Example
 
-This example demonstrates how to associate and create script runs with scripts using the Gemini framework.
+This example demonstrates how to associate and create script runs with scripts using the GEMINIbase.
 
 ## Source File Location
 

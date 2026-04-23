@@ -22,7 +22,7 @@ err()  { echo -e "${RED}[gemini-ui]${NC} $1"; }
 
 # ── 1. Check Docker is available ──────────────────────────────────────
 if ! command -v docker &>/dev/null; then
-  err "Docker not found. Install Docker Desktop to run the GEMINI backend."
+  err "Docker not found. Install Docker Desktop to run the GEMINIbase backend."
   exit 1
 fi
 
@@ -80,6 +80,6 @@ fi
 # The Vite proxy handles this, so no CORS config needed.
 
 # ── 6. Start Vite dev server ─────────────────────────────────────────
-ok "Starting GEMINI UI at http://localhost:5173"
+ok "Starting GEMINIbase UI at http://localhost:5173"
 echo
 cd "$PROJECT_ROOT" && exec npx vite --host

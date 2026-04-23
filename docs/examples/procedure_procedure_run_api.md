@@ -1,6 +1,6 @@
 # Procedure Procedure Run API Example
 
-This example demonstrates how to associate and create procedure runs with procedures using the Gemini framework.
+This example demonstrates how to associate and create procedure runs with procedures using the GEMINIbase.
 
 ## Source File Location
 

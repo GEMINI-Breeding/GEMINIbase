@@ -1,6 +1,6 @@
 # Sensor Type API Example
 
-This example demonstrates how to use the SensorType API in the Gemini framework.
+This example demonstrates how to use the SensorType API in the GEMINIbase.
 
 ## Source File Location
 
@@ -68,7 +68,7 @@ print(f"Does Sensor Type Exist after Deletion? {exists_after_deletion}")
 
 ## Explanation
 
-This example demonstrates the basic operations for managing sensor types using the Gemini API:
+This example demonstrates the basic operations for managing sensor types using the GEMINIbase API:
 
 *   **Creating a sensor type:** The `SensorType.create()` method is used to create a new sensor type with a name, description, and additional information.
 *   **Getting a sensor type:** The `SensorType.get_by_id()` method retrieves a sensor type by its unique ID. The `SensorType.get()` method retrieves a sensor type by its name.

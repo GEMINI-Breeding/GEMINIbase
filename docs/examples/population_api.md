@@ -1,6 +1,6 @@
 # Population API Example
 
-This example demonstrates how to use the Population API in the Gemini framework.
+This example demonstrates how to use the Population API in the GEMINIbase.
 
 ## Source File Location
 
@@ -69,7 +69,7 @@ print(f"Population exists after deletion: {exists_after_deletion}")
 
 ## Explanation
 
-This example demonstrates the basic operations for managing populations using the Gemini API:
+This example demonstrates the basic operations for managing populations using the GEMINIbase API:
 
 *   **Creating a population:**  The `Population.create()` method is used to create a new population associated with a specific experiment.
 *   **Getting a population:** The `Population.get()` method retrieves a population by its name.  The `Population.get_by_id()` method retrieves a population by its unique ID.

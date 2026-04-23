@@ -1,5 +1,5 @@
 """
-SQLAlchemy model for columnar ModelRecord entities in the GEMINI database.
+SQLAlchemy model for columnar ModelRecord entities in the GEMINIbase database.
 """
 
 from sqlalchemy.orm import relationship, mapped_column, Mapped, Relationship
@@ -14,7 +14,7 @@ from typing import Optional, List
 
 class ModelRecordModel(ColumnarBaseModel):
     """
-    Represents a model record in the GEMINI database.
+    Represents a model record in the GEMINIbase database.
 
     Attributes:
         id (uuid.UUID): Unique identifier for the model record.

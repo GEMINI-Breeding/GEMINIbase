@@ -1,6 +1,6 @@
 # Dataset API Example
 
-This example demonstrates how to use the Dataset API in the Gemini framework.
+This example demonstrates how to use the Dataset API in the GEMINIbase.
 
 ## Source File Location
 
@@ -76,7 +76,7 @@ print(f"Does Dataset exist after deletion? {dataset_exists_after_deletion}")
 
 ## Explanation
 
-This example demonstrates the basic operations for managing datasets using the Gemini API:
+This example demonstrates the basic operations for managing datasets using the GEMINIbase API:
 
 *   **Creating a dataset:** The `Dataset.create()` method is used to create a new dataset with a name, type, additional information, collection date, and associated experiment.
 *   **Getting a dataset:** The `Dataset.get_by_id()` method retrieves a dataset by its unique ID. The `Dataset.get()` method retrieves a dataset by its name.

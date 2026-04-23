@@ -1,5 +1,5 @@
 """
-SQLAlchemy models for resources in the GEMINI database.
+SQLAlchemy models for resources in the GEMINIbase database.
 """
 
 from sqlalchemy import (
@@ -25,7 +25,7 @@ import uuid
 
 class ResourceModel(BaseModel):
     """
-    Represents a resource in the GEMINI database.
+    Represents a resource in the GEMINIbase database.
 
     Attributes:
         id (uuid.UUID): Unique identifier for the resource.

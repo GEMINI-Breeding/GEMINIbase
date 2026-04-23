@@ -1,82 +1,82 @@
 # Command Line Interface (CLI)
 
-The GEMINI Command Line Interface (CLI) provides a powerful way to manage and interact with the GEMINI pipeline directly from your terminal. This document outlines the available commands and their usage.
+The GEMINIbase Command Line Interface (CLI) provides a powerful way to manage and interact with the GEMINIbase pipeline directly from your terminal. This document outlines the available commands and their usage.
 
 ## Main Commands
 
-These commands are used for general management of the GEMINI pipeline.
+These commands are used for general management of the GEMINIbase pipeline.
 
-### `gemini build`
+### `geminibase build`
 
-Builds the GEMINI pipeline. This command compiles and prepares all necessary components for deployment.
+Builds the GEMINIbase pipeline. This command compiles and prepares all necessary components for deployment.
 
 ```bash
-gemini build
+geminibase build
 ```
 
-### `gemini start`
+### `geminibase start`
 
-Starts the GEMINI pipeline. This will bring up all the services required for GEMINI to operate.
+Starts the GEMINIbase pipeline. This will bring up all the services required for GEMINI to operate.
 
 ```bash
-gemini start
+geminibase start
 ```
 
-### `gemini stop`
+### `geminibase stop`
 
-Stops the GEMINI pipeline. This will shut down all running GEMINI services.
+Stops the GEMINIbase pipeline. This will shut down all running GEMINIbase services.
 
 ```bash
-gemini stop
+geminibase stop
 ```
 
-### `gemini clean`
+### `geminibase clean`
 
-Cleans the GEMINI pipeline. This command removes temporary files and build artifacts.
+Cleans the GEMINIbase pipeline. This command removes temporary files and build artifacts.
 
 ```bash
-gemini clean
+geminibase clean
 ```
 
-### `gemini reset`
+### `geminibase reset`
 
-Resets the GEMINI pipeline. This command saves current settings and then rebuilds the pipeline, effectively bringing it to a clean, re-initialized state.
+Resets the GEMINIbase pipeline. This command saves current settings and then rebuilds the pipeline, effectively bringing it to a clean, re-initialized state.
 
 ```bash
-gemini reset
+geminibase reset
 ```
 
-### `gemini setup`
+### `geminibase setup`
 
-Sets up the GEMINI pipeline. This command saves current settings and rebuilds the pipeline.
+Sets up the GEMINIbase pipeline. This command saves current settings and rebuilds the pipeline.
 
 ```bash
-gemini setup [--default]
+geminibase setup [--default]
 ```
 
 **Options:**
 
 *   `--default`: Use default settings for the setup.
 
-### `gemini update`
+### `geminibase update`
 
-Updates the GEMINI pipeline. This command pulls the latest changes, saves current settings, and then rebuilds the pipeline.
+Updates the GEMINIbase pipeline. This command pulls the latest changes, saves current settings, and then rebuilds the pipeline.
 
 ```bash
-gemini update
+geminibase update
 ```
 
 ## Settings Commands
 
-These commands are used to manage various configuration settings for the GEMINI pipeline. All settings commands are accessed via `gemini settings <command>`.
+These commands are used to manage various configuration settings for the GEMINIbase pipeline. All settings commands are accessed via `geminibase settings <command>`.
 
-### `gemini settings set-local`
+### `geminibase settings set-local`
 
-Enables or disables local mode for the GEMINI pipeline.
+Enables or disables local mode for the GEMINIbase pipeline.
 
 ```bash
-gemini settings set-local --enable
-gemini settings set-local --disable
+geminibase settings set-local --enable
+geminibase settings set-local --disable
 ```
 
 **Options:**
@@ -84,13 +84,13 @@ gemini settings set-local --disable
 *   `--enable`: Enable local mode.
 *   `--disable`: Disable local mode.
 
-### `gemini settings set-debug`
+### `geminibase settings set-debug`
 
 Sets the `GEMINI_DEBUG` flag in the `.env` file.
 
 ```bash
-gemini settings set-debug --enable
-gemini settings set-debug --disable
+geminibase settings set-debug --enable
+geminibase settings set-debug --disable
 ```
 
 **Options:**
@@ -98,26 +98,26 @@ gemini settings set-debug --disable
 *   `--enable`: Enable debug mode.
 *   `--disable`: Disable debug mode.
 
-### `gemini settings set-public-domain`
+### `geminibase settings set-public-domain`
 
 Sets the `GEMINI_PUBLIC_DOMAIN` in the `.env` file and sets `GEMINI_TYPE` to `public`.
 
 ```bash
-gemini settings set-public-domain --domain <your-domain.com>
+geminibase settings set-public-domain --domain <your-domain.com>
 ```
 
 **Options:**
 
-*   `--domain <your-domain.com>`: The domain to set for the GEMINI pipeline.
+*   `--domain <your-domain.com>`: The domain to set for the GEMINIbase pipeline.
 
-### `gemini settings set-public-ip`
+### `geminibase settings set-public-ip`
 
 Sets the `GEMINI_PUBLIC_IP` in the `.env` file and sets `GEMINI_TYPE` to `public`.
 
 ```bash
-gemini settings set-public-ip --ip <your-public-ip>
+geminibase settings set-public-ip --ip <your-public-ip>
 ```
 
 **Options:**
 
-*   `--ip <your-public-ip>`: The public IP address to set for the GEMINI pipeline.
+*   `--ip <your-public-ip>`: The public IP address to set for the GEMINIbase pipeline.

@@ -1,6 +1,6 @@
 # Procedure API Example
 
-This example demonstrates how to use the Procedure API in the Gemini framework.
+This example demonstrates how to use the Procedure API in the GEMINIbase.
 
 ## Source File Location
 
@@ -75,7 +75,7 @@ print(f"Procedure exists after deletion: {exists_after_deletion}")
 
 ## Explanation
 
-This example demonstrates the basic operations for managing procedures using the Gemini API:
+This example demonstrates the basic operations for managing procedures using the GEMINIbase API:
 
 *   **Creating a procedure:** The `Procedure.create()` method is used to create a new procedure with a name and additional information.
 *   **Getting a procedure:** The `Procedure.get()` method retrieves a procedure by its name. The `Procedure.get_by_id()` method retrieves a procedure by its unique ID.

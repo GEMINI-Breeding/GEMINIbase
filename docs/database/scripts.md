@@ -1,6 +1,6 @@
 # Database Initialization Scripts
 
-This section provides an overview of the SQL scripts used to initialize the GEMINI database. These scripts are located in the `gemini/db/init_sql/scripts/` directory.
+This section provides an overview of the SQL scripts used to initialize the GEMINIbase database. These scripts are located in the `gemini/db/init_sql/scripts/` directory.
 
 ## Script Locations
 

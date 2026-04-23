@@ -1,5 +1,5 @@
 """
-Extract genotype + phenotype data from the GEMINI DB and write PLINK1-format
+Extract genotype + phenotype data from the GEMINIbase DB and write PLINK1-format
 binary filesets (.bed/.bim/.fam) plus a .pheno file for GEMMA.
 
 PLINK .bed format reference:
@@ -204,7 +204,7 @@ def write_plink_fileset(
 
     # 6. Write .bim — chrom rs cM bp a1 a2.
     # PLINK2 rejects bp == 0 and requires bp to be non-decreasing within each
-    # chromosome. GEMINI stores `Variant.position` as centiMorgans, so many
+    # chromosome. GEMINIbase stores `Variant.position` as centiMorgans, so many
     # markers near a chromosome's origin legitimately have cM == 0 and would
     # all collide on bp == 0. Per chromosome, start with `max(1, cm*1e6)` and
     # bump to prev+1 whenever the scaled value would repeat or go backwards.

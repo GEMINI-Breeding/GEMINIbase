@@ -1,5 +1,5 @@
 """
-SQLAlchemy model for Variant (marker/SNP) entities in the GEMINI database.
+SQLAlchemy model for Variant (marker/SNP) entities in the GEMINIbase database.
 """
 
 from sqlalchemy import String, Text, Integer, TIMESTAMP, UniqueConstraint, Index
@@ -14,7 +14,7 @@ import uuid
 
 class VariantModel(BaseModel):
     """
-    Represents a genetic variant (marker/SNP) in the GEMINI database.
+    Represents a genetic variant (marker/SNP) in the GEMINIbase database.
 
     Attributes:
         id (uuid.UUID): Unique identifier for the variant.

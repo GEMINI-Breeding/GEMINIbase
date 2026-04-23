@@ -1,5 +1,5 @@
 -- =============================================================================
--- GEMINI Test Database Initialization
+-- GEMINIbase Test Database Initialization
 -- Standard PostgreSQL 16 (no Hydra columnar, no pg_ivm)
 -- Record tables use heap storage; IMMVs are skipped.
 -- =============================================================================

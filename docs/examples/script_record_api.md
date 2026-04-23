@@ -1,6 +1,6 @@
 # Script Record API Example
 
-This example demonstrates how to use the ScriptRecord API in the Gemini framework.
+This example demonstrates how to use the ScriptRecord API in the GEMINIbase.
 
 ## Source File Location
 
@@ -101,7 +101,7 @@ print(f"Does Script Record Exist after Deletion? {exists_after_deletion}")
 
 ## Explanation
 
-This example demonstrates the basic operations for managing script records using the Gemini API:
+This example demonstrates the basic operations for managing script records using the GEMINIbase API:
 
 *   **Creating a script record:** The `ScriptRecord.create()` method is used to create a new script record with a timestamp, collection date, associated script, dataset, additional data, and associated experiment, site, and season.
 *   **Getting a script record:** The `ScriptRecord.get_by_id()` method retrieves a script record by its unique ID. The `ScriptRecord.get()` method retrieves a script record by its timestamp, script name, dataset name, and associated experiment, site, and season.

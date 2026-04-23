@@ -1,6 +1,6 @@
 # Sensor Record API Example
 
-This example demonstrates how to use the SensorRecord API in the Gemini framework.
+This example demonstrates how to use the SensorRecord API in the GEMINIbase.
 
 ## Source File Location
 
@@ -113,7 +113,7 @@ print(f"Does Sensor Record Exist after Deletion? {exists_after_deletion}")
 
 ## Explanation
 
-This example demonstrates the basic operations for managing sensor records using the Gemini API:
+This example demonstrates the basic operations for managing sensor records using the GEMINIbase API:
 
 *   **Creating a sensor record:** The `SensorRecord.create()` method is used to create a new sensor record with a timestamp, collection date, associated sensor, dataset, additional data, and associated experiment, site, season, and plot.
 *   **Getting a sensor record:** The `SensorRecord.get_by_id()` method retrieves a sensor record by its unique ID. The `SensorRecord.get()` method retrieves a sensor record by its timestamp, sensor name, dataset name, and associated experiment, site, season, and plot.

@@ -1,5 +1,5 @@
 """
-SQLAlchemy model for columnar ScriptRecord entities in the GEMINI database.
+SQLAlchemy model for columnar ScriptRecord entities in the GEMINIbase database.
 """
 
 from sqlalchemy.orm import relationship, mapped_column, Mapped, Relationship
@@ -14,7 +14,7 @@ from typing import Optional, List
 
 class ScriptRecordModel(ColumnarBaseModel):
     """
-    Represents a script record in the GEMINI database.
+    Represents a script record in the GEMINIbase database.
 
     Attributes:
         id (uuid.UUID): Unique identifier for the script record.

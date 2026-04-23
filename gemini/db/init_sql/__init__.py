@@ -1,3 +1,3 @@
 """
-SQL initialization scripts for the GEMINI database.
+SQL initialization scripts for the GEMINIbase database.
 """

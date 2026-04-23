@@ -1,5 +1,5 @@
 """
-Base worker class for GEMINI processing workers.
+Base worker class for GEMINIbase processing workers.
 
 Workers run as separate Docker containers. Each worker:
 1. Polls the REST API for PENDING jobs matching its supported types
@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 class BaseWorker(ABC):
     """
-    Base class for all GEMINI processing workers.
+    Base class for all GEMINIbase processing workers.
 
     Subclasses must implement:
         - supported_job_types: set of JobType values this worker handles

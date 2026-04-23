@@ -1,6 +1,6 @@
 # Data Types
 
-The `data_types` table stores information about the different types of data that can be collected and analyzed within the GEMINI framework.
+The `data_types` table stores information about the different types of data that can be collected and analyzed within the GEMINIbase.
 
 ## Table Schema
 

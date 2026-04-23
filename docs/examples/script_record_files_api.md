@@ -1,6 +1,6 @@
 # Script Record Files API Example
 
-This example demonstrates how to use the ScriptRecord API to associate files with script records in the Gemini framework.
+This example demonstrates how to use the ScriptRecord API to associate files with script records in the GEMINIbase.
 
 ## Source File Location
 
@@ -68,7 +68,7 @@ for record in searched_records:
 
 ## Explanation
 
-This example demonstrates how to associate files with script records using the Gemini API:
+This example demonstrates how to associate files with script records using the GEMINIbase API:
 
 *   **Creating script records with files:** The `ScriptRecord.create()` method is used to create new script records, each associated with a file from the `sample_images` directory. The `insert_on_create` parameter is set to `False` to allow batch insertion.
 *   **Inserting script records:** The `ScriptRecord.insert()` method is used to efficiently insert multiple script records into the database.

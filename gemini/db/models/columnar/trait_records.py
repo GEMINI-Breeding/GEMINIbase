@@ -1,5 +1,5 @@
 """
-SQLAlchemy model for columnar TraitRecord entities in the GEMINI database.
+SQLAlchemy model for columnar TraitRecord entities in the GEMINIbase database.
 """
 
 from sqlalchemy.orm import relationship, mapped_column, Mapped, Relationship
@@ -27,7 +27,7 @@ from typing import Optional, List
 
 class TraitRecordModel(ColumnarBaseModel):
     """
-    Represents a trait record in the GEMINI database.
+    Represents a trait record in the GEMINIbase database.
 
     Attributes:
         id (uuid.UUID): Unique identifier for the trait record.

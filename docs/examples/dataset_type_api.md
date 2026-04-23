@@ -1,6 +1,6 @@
 # Dataset Type API Example
 
-This example demonstrates how to use the DatasetType API in the Gemini framework.
+This example demonstrates how to use the DatasetType API in the GEMINIbase.
 
 ## Source File Location
 
@@ -72,7 +72,7 @@ print(f"Does Dataset Type exist after deletion? {dataset_type_exists_after_delet
 
 ## Explanation
 
-This example demonstrates the basic operations for managing dataset types using the Gemini API:
+This example demonstrates the basic operations for managing dataset types using the GEMINIbase API:
 
 *   **Creating a dataset type:** The `DatasetType.create()` method is used to create a new dataset type with a name and additional information (description, version).
 *   **Getting a dataset type:** The `DatasetType.get_by_id()` method retrieves a dataset type by its unique ID. The `DatasetType.get()` method retrieves a dataset type by its name.

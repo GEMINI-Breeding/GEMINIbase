@@ -1,6 +1,6 @@
 # Procedure Dataset API Example
 
-This example demonstrates how to use the Procedure and Dataset APIs to associate datasets with procedures in the Gemini framework.
+This example demonstrates how to use the Procedure and Dataset APIs to associate datasets with procedures in the GEMINIbase.
 
 ## Source File Location
 

@@ -1,5 +1,5 @@
 """
-SQLAlchemy model for Script entities in the GEMINI database.
+SQLAlchemy model for Script entities in the GEMINIbase database.
 """
 
 from sqlalchemy import (
@@ -23,7 +23,7 @@ import uuid
 
 class ScriptModel(BaseModel):
     """
-    Represents a script in the GEMINI database.
+    Represents a script in the GEMINIbase database.
 
     Attributes:
         id (uuid.UUID): Unique identifier for the script.

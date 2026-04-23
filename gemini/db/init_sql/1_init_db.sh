@@ -35,7 +35,7 @@ fi
 PSQL=(psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB")
 
 "${PSQL[@]}" <<EOSQL
-    -- Create a schema for the GEMINI Database
+    -- Create a schema for the GEMINIbase database
     CREATE SCHEMA IF NOT EXISTS gemini;
 
     -- Initialize Extensions

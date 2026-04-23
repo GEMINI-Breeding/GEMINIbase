@@ -1,6 +1,6 @@
 # Model Run Model API Example
 
-This example demonstrates how to associate and unassociate models with model runs using the Gemini framework.
+This example demonstrates how to associate and unassociate models with model runs using the GEMINIbase.
 
 ## Source File Location
 

@@ -1,6 +1,6 @@
 # Sensor API Example
 
-This example demonstrates how to use the Sensor API in the Gemini framework.
+This example demonstrates how to use the Sensor API in the GEMINIbase.
 
 ## Source File Location
 
@@ -74,7 +74,7 @@ print(f"Does Sensor Exist after Deletion? {exists_after_deletion}")
 
 ## Explanation
 
-This example demonstrates the basic operations for managing sensors using the Gemini API:
+This example demonstrates the basic operations for managing sensors using the GEMINIbase API:
 
 *   **Creating a sensor:** The `Sensor.create()` method is used to create a new sensor with a name, type, data format, data type, additional information, and associated experiment and sensor platform.
 *   **Getting a sensor:** The `Sensor.get_by_id()` method retrieves a sensor by its unique ID. The `Sensor.get()` method retrieves a sensor by its name.

@@ -1,5 +1,5 @@
 """
-SQLAlchemy model for Experiment entities in the GEMINI database.
+SQLAlchemy model for Experiment entities in the GEMINIbase database.
 """
 from sqlalchemy import (
     JSON,
@@ -23,7 +23,7 @@ import uuid
 
 class ExperimentModel(BaseModel):
     """
-    Represents an experiment in the GEMINI database.
+    Represents an experiment in the GEMINIbase database.
 
     Attributes:
         id (uuid.UUID): Unique identifier for the experiment.

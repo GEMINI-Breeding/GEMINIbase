@@ -1,6 +1,6 @@
 # Dataset Types
 
-The `dataset_types` table categorizes the datasets stored in the GEMINI framework. This helps in organizing and querying datasets based on their nature.
+The `dataset_types` table categorizes the datasets stored in the GEMINIbase. This helps in organizing and querying datasets based on their nature.
 
 ## Table Schema
 

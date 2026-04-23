@@ -1,5 +1,5 @@
 """
-SQLAlchemy model for Trait entities in the GEMINI database.
+SQLAlchemy model for Trait entities in the GEMINIbase database.
 """
 
 from sqlalchemy import (
@@ -25,7 +25,7 @@ import uuid
 
 class TraitModel(BaseModel):
     """
-    Represents a trait in the GEMINI database.
+    Represents a trait in the GEMINIbase database.
 
     Attributes:
         id (uuid.UUID): Unique identifier for the trait.

@@ -1,5 +1,5 @@
 """
-SQLAlchemy view models for GenotypingStudy-related views in the GEMINI database.
+SQLAlchemy view models for GenotypingStudy-related views in the GEMINIbase database.
 """
 
 from sqlalchemy.orm import mapped_column, Mapped

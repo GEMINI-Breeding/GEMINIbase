@@ -1,5 +1,5 @@
 """
-SQLAlchemy models for defining associations between different entities in the GEMINI database.
+SQLAlchemy models for defining associations between different entities in the GEMINIbase database.
 
 These models represent many-to-many relationships and store additional information
 about these relationships, such as creation and update timestamps.

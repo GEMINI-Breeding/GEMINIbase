@@ -1,6 +1,6 @@
 # Sensor Record Files API Example
 
-This example demonstrates how to use the SensorRecord API to associate files with sensor records in the Gemini framework.
+This example demonstrates how to use the SensorRecord API to associate files with sensor records in the GEMINIbase.
 
 ## Source File Location
 
@@ -68,7 +68,7 @@ for record in searched_records:
 
 ## Explanation
 
-This example demonstrates how to associate files with sensor records using the Gemini API:
+This example demonstrates how to associate files with sensor records using the GEMINIbase API:
 
 *   **Creating sensor records with files:** The `SensorRecord.create()` method is used to create new sensor records, each associated with a file from the `sample_images` directory. The `insert_on_create` parameter is set to `False` to allow batch insertion.
 *   **Inserting sensor records:** The `SensorRecord.insert()` method is used to efficiently insert multiple sensor records into the database.

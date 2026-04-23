@@ -1,5 +1,5 @@
 """
-SQLAlchemy model for ModelRun entities in the GEMINI database.
+SQLAlchemy model for ModelRun entities in the GEMINIbase database.
 """
 
 from sqlalchemy import (
@@ -23,7 +23,7 @@ from datetime import datetime
 
 class ModelRunModel(BaseModel):
     """
-    Represents a model run in the GEMINI database.
+    Represents a model run in the GEMINIbase database.
 
     Attributes:
         id (uuid.UUID): Unique identifier for the model run.

@@ -1,6 +1,6 @@
 # Data Format Types API Example
 
-This example demonstrates how to associate and unassociate data formats with data types using the Gemini framework.
+This example demonstrates how to associate and unassociate data formats with data types using the GEMINIbase.
 
 ## Source File Location
 

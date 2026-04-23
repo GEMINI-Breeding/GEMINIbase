@@ -1,5 +1,5 @@
 """
-SQLAlchemy model for Line entities in the GEMINI database.
+SQLAlchemy model for Line entities in the GEMINIbase database.
 
 A Line represents a breeding-line pedigree anchor (e.g. an inbred line,
 a clonal parent). Accessions are derived from a Line via accessions.line_id.
@@ -17,7 +17,7 @@ import uuid
 
 class LineModel(BaseModel):
     """
-    Represents a breeding line in the GEMINI database.
+    Represents a breeding line in the GEMINIbase database.
 
     Attributes:
         id (uuid.UUID): Unique identifier for the line.

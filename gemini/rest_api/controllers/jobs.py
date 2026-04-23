@@ -333,7 +333,7 @@ class JobController(Controller):
 
 
 def _get_redis_client():
-    """Get a Redis client using the GEMINI logger settings."""
+    """Get a Redis client using the GEMINIbase logger settings."""
     try:
         import redis
         from gemini.config.settings import GEMINISettings

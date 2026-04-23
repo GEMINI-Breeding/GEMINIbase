@@ -1,6 +1,6 @@
 # Experiment API Example
 
-This example demonstrates how to use the Experiment API in the Gemini framework.
+This example demonstrates how to use the Experiment API in the GEMINIbase.
 
 ## Source File Location
 
@@ -68,7 +68,7 @@ print(f"Does Experiment exist after deletion? {experiment_exists_after_deletion}
 
 ## Explanation
 
-This example demonstrates the basic operations for managing experiments using the Gemini API:
+This example demonstrates the basic operations for managing experiments using the GEMINIbase API:
 
 *   **Creating an experiment:** The `Experiment.create()` method is used to create a new experiment with a name, additional information, start date, and end date.
 *   **Getting an experiment:** The `Experiment.get()` method retrieves an experiment by its name. The `Experiment.get_by_id()` method retrieves an experiment by its unique ID.

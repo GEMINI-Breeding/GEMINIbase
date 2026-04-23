@@ -1,6 +1,6 @@
 # Experiment Season API Example
 
-This example demonstrates how to associate and create seasons with experiments using the Gemini framework.
+This example demonstrates how to associate and create seasons with experiments using the GEMINIbase.
 
 ## Source File Location
 

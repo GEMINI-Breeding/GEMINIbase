@@ -1,6 +1,6 @@
 # Dataset Record API Example
 
-This example demonstrates how to use the DatasetRecord API in the Gemini framework.
+This example demonstrates how to use the DatasetRecord API in the GEMINIbase.
 
 ## Source File Location
 
@@ -97,7 +97,7 @@ print(f"Does Dataset Record exist after deletion? {exists_after_deletion}")
 
 ## Explanation
 
-This example demonstrates the basic operations for managing dataset records using the Gemini API:
+This example demonstrates the basic operations for managing dataset records using the GEMINIbase API:
 
 *   **Creating a dataset record:** The `DatasetRecord.create()` method is used to create a new dataset record with a timestamp, collection date, associated dataset, experiment, site, and season.
 *   **Getting a dataset record:** The `DatasetRecord.get_by_id()` method retrieves a dataset record by its unique ID. The `DatasetRecord.get()` method retrieves a dataset record by its timestamp, dataset name, experiment name, site name, and season name.

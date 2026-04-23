@@ -1,6 +1,6 @@
 # Overview
 
-The GEMINI Python API offers a robust and programmatic interface for managing and interacting with GEMINI data directly from Python interpreters, scripts, and notebooks (like Jupyter Notebooks). It comprises several classes with functions for accessing data.
+The GEMINIbase Python API offers a robust and programmatic interface for managing and interacting with GEMINI data directly from Python interpreters, scripts, and notebooks (like Jupyter Notebooks). It comprises several classes with functions for accessing data.
 
 - [Populations](populations.md)
 - [Data Formats](data_formats.md)

@@ -1,8 +1,8 @@
 """
-SQLAlchemy models for the GEMINI database.
+SQLAlchemy models for the GEMINIbase database.
 
 This package defines the database schema and provides ORM models
-for various entities within the GEMINI system, including core data
+for various entities within the GEMINIbase, including core data
 models, associations, columnar tables, and database views.
 """
 

@@ -1,3 +1,3 @@
 """
-Columnar models for the GEMINI database.
+Columnar models for the GEMINIbase database.
 """

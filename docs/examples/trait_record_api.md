@@ -1,6 +1,6 @@
 # Trait Record API Example
 
-This example demonstrates how to use the TraitRecord API in the Gemini framework.
+This example demonstrates how to use the TraitRecord API in the GEMINIbase.
 
 ## Source File Location
 
@@ -112,7 +112,7 @@ print(f"Does Trait Record Exist after Deletion? {exists_after_deletion}")
 
 ## Explanation
 
-This example demonstrates the basic operations for managing trait records using the Gemini API:
+This example demonstrates the basic operations for managing trait records using the GEMINIbase API:
 
 *   **Creating a trait record:** The `TraitRecord.create()` method is used to create a new trait record with a timestamp, collection date, associated trait, dataset, trait value, and associated experiment, site, season, and plot.
 *   **Getting a trait record:** The `TraitRecord.get_by_id()` method retrieves a trait record by its unique ID. The `TraitRecord.get()` method retrieves a trait record by its timestamp, trait name, dataset name, and associated experiment, site, season, and plot.

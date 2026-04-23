@@ -41,7 +41,7 @@ class AMIGAPhoneParser:
         gemini_amiga_sensors = gemini_amiga_sensor_platform.get_sensors()
         if gemini_amiga_sensors:
             self.gemini_amiga_sensors = gemini_amiga_sensors
-        logger.info("Initialized AMIGAPhoneParser with GEMINI experiment data from database.")
+        logger.info("Initialized AMIGAPhoneParser with GEMINIbase experiment data from database.")
 
 
     def validate(self, data_directory: str) -> bool:

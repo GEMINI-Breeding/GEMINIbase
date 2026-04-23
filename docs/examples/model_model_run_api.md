@@ -1,6 +1,6 @@
 # Model Model Run API Example
 
-This example demonstrates how to use the Model and ModelRun APIs to associate model runs with models in the Gemini framework.
+This example demonstrates how to use the Model and ModelRun APIs to associate model runs with models in the GEMINIbase.
 
 ## Source File Location
 

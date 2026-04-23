@@ -1,6 +1,6 @@
 # Sensor Types
 
-The `sensor_types` table categorizes the sensors used in the GEMINI framework.
+The `sensor_types` table categorizes the sensors used in the GEMINIbase.
 
 ## Table Schema
 

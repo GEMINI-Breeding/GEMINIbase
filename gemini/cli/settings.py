@@ -1,5 +1,5 @@
 """
-This module provides CLI commands for managing GEMINI configuration settings.
+This module provides CLI commands for managing GEMINIbase configuration settings.
 """
 
 import click
@@ -11,9 +11,9 @@ from gemini.manager import GEMINIManager
 
 class GEMINISettingsContext:
     """
-    Context object for GEMINI settings CLI.
+    Context object for the GEMINIbase settings CLI.
 
-    This class holds the GEMINI manager instance and paths relevant to the settings CLI.
+    This class holds the GEMINIbase manager instance and paths relevant to the settings CLI.
     """
     def __init__(self) -> None:
         self.manager = GEMINIManager()
@@ -24,7 +24,7 @@ class GEMINISettingsContext:
 @click.group()
 @click.pass_context
 def settings(ctx):
-    """Manage GEMINI configuration settings."""
+    """Manage GEMINIbase configuration settings."""
     ctx.obj = GEMINISettingsContext()
 
 @settings.command("set-local")
@@ -32,7 +32,7 @@ def settings(ctx):
 @click.pass_obj
 def set_local(ctx: GEMINISettingsContext, enable: bool):
     """
-    Enables or disables local mode for the GEMINI pipeline.
+    Enables or disables local mode for the GEMINIbase pipeline.
 
     Args:
         enable (bool): True to enable local mode, False to disable.
@@ -67,7 +67,7 @@ def set_debug(ctx: GEMINISettingsContext, enable: bool):
 
 
 @settings.command("set-public-domain")
-@click.option('--domain', default=None, help="Set the domain for the GEMINI pipeline.")
+@click.option('--domain', default=None, help="Set the domain for the GEMINIbase pipeline.")
 @click.pass_obj
 def set_domain(ctx: GEMINISettingsContext, domain: str):
     """Sets the GEMINI_PUBLIC_DOMAIN in the .env file."""
@@ -83,7 +83,7 @@ def set_domain(ctx: GEMINISettingsContext, domain: str):
     click.echo(click.style(f"Domain set to: {domain}", fg="green"))
 
 @settings.command("set-public-ip")
-@click.option('--ip', default=None, help="Set the public IP for the GEMINI pipeline.")
+@click.option('--ip', default=None, help="Set the public IP for the GEMINIbase pipeline.")
 @click.pass_obj
 def set_ip(ctx: GEMINISettingsContext, ip: str):
     """Sets the GEMINI_PUBLIC_IP in the .env file."""

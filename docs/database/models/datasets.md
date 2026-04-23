@@ -1,6 +1,6 @@
 # Datasets
 
-The `datasets` table is a central table in the GEMINI database, storing metadata about each dataset.
+The `datasets` table is a central table in the GEMINIbase database, storing metadata about each dataset.
 
 ## Table Schema
 

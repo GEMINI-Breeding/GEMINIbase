@@ -20,7 +20,7 @@ Many staple crops that are important for food, nutritional, and economic securit
 ## Further Reading
 
 - [Getting Started](getting_started.md)
-- [GEMINI Pipeline](pipeline/overview.md)
+- [GEMINIbase Pipeline](pipeline/overview.md)
 - [Python API](api/overview.md)
 - [CLI](cli.md)
 - [Database](database/schema.md)

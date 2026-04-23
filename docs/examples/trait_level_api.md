@@ -1,6 +1,6 @@
 # Trait Level API Example
 
-This example demonstrates how to use the TraitLevel API in the Gemini framework.
+This example demonstrates how to use the TraitLevel API in the GEMINIbase.
 
 ## Source File Location
 
@@ -68,7 +68,7 @@ print(f"Trait Level exists after deletion: {exists_after_deletion}")
 
 ## Explanation
 
-This example demonstrates the basic operations for managing trait levels using the Gemini API:
+This example demonstrates the basic operations for managing trait levels using the GEMINIbase API:
 
 *   **Creating a trait level:** The `TraitLevel.create()` method is used to create a new trait level with a name and additional information.
 *   **Getting a trait level:** The `TraitLevel.get()` method retrieves a trait level by its name. The `TraitLevel.get_by_id()` method retrieves a trait level by its unique ID.

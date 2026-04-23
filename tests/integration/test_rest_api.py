@@ -148,7 +148,7 @@ class TestRootEndpoints:
     def test_root(self, client, setup_real_db):
         resp = client.get("/")
         assert resp.status_code == 200
-        assert resp.json()["message"] == "Welcome to the GEMINI API"
+        assert resp.json()["message"] == "Welcome to the GEMINIbase API"
 
     def test_settings(self, client, setup_real_db):
         resp = client.get("/settings")

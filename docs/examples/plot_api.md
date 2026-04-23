@@ -1,6 +1,6 @@
 # Plot API Example
 
-This example demonstrates how to use the Plot API in the Gemini framework.
+This example demonstrates how to use the Plot API in the GEMINIbase.
 
 ## Source File Location
 
@@ -99,7 +99,7 @@ print(f"Plot exists after deletion: {exists_after_deletion}")
 
 ## Explanation
 
-This example demonstrates the basic operations for managing plots using the Gemini API:
+This example demonstrates the basic operations for managing plots using the GEMINIbase API:
 
 *   **Creating a plot:** The `Plot.create()` method is used to create a new plot with a plot number, row number, column number, additional information, geometry information, and associated experiment, season, site, and population.
 *   **Getting a plot:** The `Plot.get_by_id()` method retrieves a plot by its unique ID. The `Plot.get()` method retrieves a plot by its plot number, row number, column number, and associated experiment, season, and site.

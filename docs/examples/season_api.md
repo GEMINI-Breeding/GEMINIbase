@@ -1,6 +1,6 @@
 # Season API Example
 
-This example demonstrates how to use the Season API in the Gemini framework.
+This example demonstrates how to use the Season API in the GEMINIbase.
 
 ## Source File Location
 
@@ -69,7 +69,7 @@ print(f"Does Season Exist after Deletion? {exists_after_deletion}")
 
 ## Explanation
 
-This example demonstrates the basic operations for managing seasons using the Gemini API:
+This example demonstrates the basic operations for managing seasons using the GEMINIbase API:
 
 *   **Creating a season:** The `Season.create()` method is used to create a new season with a name, year, additional information, and associated experiment.
 *   **Getting a season:** The `Season.get_by_id()` method retrieves a season by its unique ID. The `Season.get()` method retrieves a season by its name.

@@ -1,6 +1,6 @@
 # Sensor Experiment API Example
 
-This example demonstrates how to associate and unassociate experiments with sensors using the Gemini framework.
+This example demonstrates how to associate and unassociate experiments with sensors using the GEMINIbase.
 
 ## Source File Location
 

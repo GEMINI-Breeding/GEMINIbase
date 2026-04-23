@@ -1,5 +1,5 @@
 """
-SQLAlchemy model for Population entities in the GEMINI database.
+SQLAlchemy model for Population entities in the GEMINIbase database.
 
 A Population is a named germplasm grouping within a breeding program
 (e.g. a diversity panel, RIL population, NAM population). Populations
@@ -18,7 +18,7 @@ import uuid
 
 class PopulationModel(BaseModel):
     """
-    Represents a population in the GEMINI database.
+    Represents a population in the GEMINIbase database.
 
     Attributes:
         id (uuid.UUID): Unique identifier for the population.

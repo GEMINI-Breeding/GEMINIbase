@@ -1,6 +1,6 @@
 # Data Formats
 
-The `data_formats` table stores information about the different data formats supported by the GEMINI framework.
+The `data_formats` table stores information about the different data formats supported by the GEMINIbase.
 
 ## Table Schema
 

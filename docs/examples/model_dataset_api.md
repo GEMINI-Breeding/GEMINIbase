@@ -1,6 +1,6 @@
 # Model Dataset API Example
 
-This example demonstrates how to use the Model and Dataset APIs to associate datasets with models in the Gemini framework.
+This example demonstrates how to use the Model and Dataset APIs to associate datasets with models in the GEMINIbase.
 
 ## Source File Location
 

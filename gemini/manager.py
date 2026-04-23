@@ -17,7 +17,7 @@ from gemini.storage.providers.minio_storage import MinioStorageProvider
 
 
 DOCKER_SETUP_HINT = (
-    "GEMINI requires Docker. Make sure it is installed and running.\n"
+    "GEMINIbase requires Docker. Make sure it is installed and running.\n"
     "Install guide: https://docs.docker.com/engine/install/\n"
     "\n"
     "macOS:   Docker Desktop, OrbStack, or Colima\n"

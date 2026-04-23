@@ -1,6 +1,6 @@
 # Sensor Platform Sensor API Example
 
-This example demonstrates how to associate and unassociate sensors with sensor platforms using the Gemini framework.
+This example demonstrates how to associate and unassociate sensors with sensor platforms using the GEMINIbase.
 
 ## Source File Location
 

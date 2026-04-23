@@ -1,5 +1,5 @@
 """
-SQLAlchemy model for columnar GenotypeRecord entities in the GEMINI database.
+SQLAlchemy model for columnar GenotypeRecord entities in the GEMINIbase database.
 
 Each row represents a single allele call: one variant observed in one
 accession within one genotyping study.
@@ -23,7 +23,7 @@ from typing import Optional, List
 
 class GenotypeRecordModel(ColumnarBaseModel):
     """
-    Represents a genotype call record in the GEMINI database.
+    Represents a genotype call record in the GEMINIbase database.
 
     Each row represents a single allele call: one variant observed in one
     accession within one genotyping study.

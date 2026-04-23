@@ -1,6 +1,6 @@
 # Trait API Example
 
-This example demonstrates how to use the Trait API in the Gemini framework.
+This example demonstrates how to use the Trait API in the GEMINIbase.
 
 ## Source File Location
 
@@ -73,7 +73,7 @@ print(f"Trait exists after deletion: {exists_after_deletion}")
 
 ## Explanation
 
-This example demonstrates the basic operations for managing traits using the Gemini API:
+This example demonstrates the basic operations for managing traits using the GEMINIbase API:
 
 *   **Creating a trait:** The `Trait.create()` method is used to create a new trait with a name, level, metrics, additional information, and associated experiment.
 *   **Getting a trait:** The `Trait.get_by_id()` method retrieves a trait by its unique ID. The `Trait.get()` method retrieves a trait by its name.

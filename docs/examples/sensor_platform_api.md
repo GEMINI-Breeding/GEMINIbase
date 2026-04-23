@@ -1,6 +1,6 @@
 # Sensor Platform API Example
 
-This example demonstrates how to use the SensorPlatform API in the Gemini framework.
+This example demonstrates how to use the SensorPlatform API in the GEMINIbase.
 
 ## Source File Location
 
@@ -78,7 +78,7 @@ print(f"Sensor Platform exists after deletion: {exists_after_deletion}")
 
 ## Explanation
 
-This example demonstrates the basic operations for managing sensor platforms using the Gemini API:
+This example demonstrates the basic operations for managing sensor platforms using the GEMINIbase API:
 
 *   **Creating a sensor platform:** The `SensorPlatform.create()` method is used to create a new sensor platform with a name, additional information, and associated experiment.
 *   **Getting a sensor platform:** The `SensorPlatform.get()` method retrieves a sensor platform by its name. The `SensorPlatform.get_by_id()` method retrieves a sensor platform by its unique ID.

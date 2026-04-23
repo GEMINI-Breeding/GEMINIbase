@@ -1,5 +1,5 @@
 """
-SQLAlchemy model for GenotypingStudy entities in the GEMINI database.
+SQLAlchemy model for GenotypingStudy entities in the GEMINIbase database.
 
 A GenotypingStudy represents a genotyping protocol or run (e.g. a SNP array
 run, RNA-seq, whole genome sequencing). Individual allele calls are stored
@@ -18,7 +18,7 @@ import uuid
 
 class GenotypingStudyModel(BaseModel):
     """
-    Represents a genotyping study or protocol in the GEMINI database.
+    Represents a genotyping study or protocol in the GEMINIbase database.
 
     Attributes:
         id (uuid.UUID): Unique identifier for the genotyping study.

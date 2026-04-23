@@ -1,6 +1,6 @@
 # Script Dataset API Example
 
-This example demonstrates how to use the Script and Dataset APIs to associate datasets with scripts in the Gemini framework.
+This example demonstrates how to use the Script and Dataset APIs to associate datasets with scripts in the GEMINIbase.
 
 ## Source File Location
 

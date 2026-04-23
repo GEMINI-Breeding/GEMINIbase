@@ -1,5 +1,5 @@
 """
-SQLAlchemy model for columnar DatasetRecord entities in the GEMINI database.
+SQLAlchemy model for columnar DatasetRecord entities in the GEMINIbase database.
 """
 
 from sqlalchemy.orm import relationship, mapped_column, Mapped, Relationship
@@ -14,7 +14,7 @@ from typing import Optional, List
 
 class DatasetRecordModel(ColumnarBaseModel):
     """
-    Represents a dataset record in the GEMINI database.
+    Represents a dataset record in the GEMINIbase database.
 
     Attributes:
         id (uuid.UUID): Unique identifier for the dataset record.

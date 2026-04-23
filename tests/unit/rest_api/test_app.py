@@ -10,7 +10,7 @@ class TestRootHandler:
         response = test_client.get("/")
         assert response.status_code == 200
         data = response.json()
-        assert data["message"] == "Welcome to the GEMINI API"
+        assert data["message"] == "Welcome to the GEMINIbase API"
         assert data["version"] == "1.0.0"
         assert "author" in data
         assert "email" in data

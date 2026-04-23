@@ -1,5 +1,5 @@
 """
-SQLAlchemy model for Sensor entities in the GEMINI database.
+SQLAlchemy model for Sensor entities in the GEMINIbase database.
 """
 
 from sqlalchemy import (
@@ -24,7 +24,7 @@ import uuid
 
 class SensorModel(BaseModel):
     """
-    Represents a sensor in the GEMINI database.
+    Represents a sensor in the GEMINIbase database.
 
     Attributes:
         id (uuid.UUID): Unique identifier for the sensor.

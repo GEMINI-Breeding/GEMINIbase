@@ -1,9 +1,9 @@
 """
-SQLAlchemy model for Season entities in the GEMINI database.
+SQLAlchemy model for Season entities in the GEMINIbase database.
 """
 
 """
-SQLAlchemy model for Season entities in the GEMINI database.
+SQLAlchemy model for Season entities in the GEMINIbase database.
 """
 
 from sqlalchemy import JSON, String, TIMESTAMP, UniqueConstraint, Index, ForeignKey, CheckConstraint, DATE
@@ -20,7 +20,7 @@ import uuid
 
 class SeasonModel(BaseModel):
     """
-    Represents a season in the GEMINI database.
+    Represents a season in the GEMINIbase database.
 
     Attributes:
         id (uuid.UUID): Unique identifier for the season.
