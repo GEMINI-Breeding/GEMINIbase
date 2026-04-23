@@ -7,12 +7,12 @@
 #   pytest tests/integration/ -v
 #   docker compose -f tests/docker-compose.test.yaml down -v
 
-name: gemini-test
+name: geminibase-test
 
 services:
   test-db:
     image: postgres:16
-    container_name: gemini-test-db
+    container_name: geminibase-test-db
     ports:
       - "15432:5432"
     environment:
@@ -29,7 +29,7 @@ services:
 
   test-storage:
     image: minio/minio:latest
-    container_name: gemini-test-storage
+    container_name: geminibase-test-storage
     ports:
       - "19000:9000"
       - "19001:9001"
@@ -59,7 +59,7 @@ services:
 
   test-logger:
     image: redis:7-alpine
-    container_name: gemini-test-logger
+    container_name: geminibase-test-logger
     ports:
       - "16379:6379"
     command: redis-server --requirepass gemini_test

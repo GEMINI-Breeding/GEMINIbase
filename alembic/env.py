@@ -1,5 +1,5 @@
 """
-Alembic environment configuration for GEMINI Framework.
+Alembic environment configuration for GEMINIbase.
 
 Reads the database URL from environment variables (same as the application)
 and uses the GEMINI BaseModel metadata for autogenerate support.

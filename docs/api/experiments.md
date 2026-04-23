@@ -2,7 +2,7 @@
 
 ### Description
 
-An experiment is the core entity of the GEMINI Framework. An experiment can have one or many of the following: 
+An experiment is the core entity of GEMINIbase. An experiment can have one or many of the following: 
 
 - [Populations](populations.md)
 - [Datasets](datasets.md)

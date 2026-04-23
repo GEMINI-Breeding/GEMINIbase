@@ -22,12 +22,12 @@ RUN curl -fsSL https://github.com/genetics-statistics/GEMMA/releases/download/v0
  && gunzip /tmp/gemma.gz && mv /tmp/gemma /usr/local/bin/gemma \
  && chmod +x /usr/local/bin/gemma
 
-WORKDIR /gemini-framework
+WORKDIR /geminibase
 
 COPY gemini/workers/gwas/requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt
 
-COPY gemini /gemini-framework/gemini
+COPY gemini /geminibase/gemini
 
-ENV PYTHONPATH=/gemini-framework
+ENV PYTHONPATH=/geminibase
 CMD ["python", "-m", "gemini.workers.gwas.worker"]

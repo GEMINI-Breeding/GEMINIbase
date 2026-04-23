@@ -1,4 +1,4 @@
-name: gemini
+name: geminibase
 services:
   db:
     container_name: ${GEMINI_DB_HOSTNAME}
@@ -20,9 +20,9 @@ services:
       - "POSTGRESQL_PASSWORD=${GEMINI_DB_PASSWORD}"
       - "POSTGRESQL_DATABASE=${GEMINI_DB_NAME}"
     volumes:
-      - gemini_db_data:/var/lib/postgresql/data
+      - geminibase_db_data:/var/lib/postgresql/data
     networks:
-      - gemini_network
+      - geminibase_network
 
   storage:
     container_name: ${GEMINI_STORAGE_HOSTNAME}
@@ -41,17 +41,17 @@ services:
       # - "MINIO_SCHEME=http"
       # - "BITNAMI_DEBUG=true"
     volumes:
-      - gemini_storage_data:/data
+      - geminibase_storage_data:/data
     command: server /data --console-address :9001
     networks:
-      - gemini_network
+      - geminibase_network
     depends_on:
       - db
     
   storage-init:
     image: minio/mc:latest
     networks:
-      - gemini_network
+      - geminibase_network
     depends_on:
       - storage
     environment:
@@ -81,7 +81,7 @@ services:
       - "REDIS_PORT=${GEMINI_LOGGER_PORT}"
       - "REDIS_MAX_MEMORY=${GEMINI_LOGGER_MAX_MEMORY:-256mb}"
     volumes:
-      - gemini_logger_data:/data
+      - geminibase_logger_data:/data
       - ../logger/redis.conf:/usr/local/etc/redis/redis.conf
     command: >
       redis-server /usr/local/etc/redis/redis.conf
@@ -94,7 +94,7 @@ services:
       timeout: 5s
       retries: 3
     networks:
-      - gemini_network
+      - geminibase_network
 
   rest-api:
     container_name: ${GEMINI_REST_API_HOSTNAME}
@@ -119,10 +119,10 @@ services:
       # Live-reload dev mount: edits to gemini/* on the host take effect immediately.
       # Without this, the image's April-built copy of gemini/ drifts from the source
       # and you get stale-code bugs that are invisible until something goes wrong.
-      - ../../gemini:/gemini-framework/gemini:ro
+      - ../../gemini:/geminibase/gemini:ro
     command: >
       poetry run litestar --app gemini.rest_api.app:app run
-      --host 0.0.0.0 --port 7777 --reload --reload-dir /gemini-framework/gemini
+      --host 0.0.0.0 --port 7777 --reload --reload-dir /geminibase/gemini
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:7777/schema')"]
       interval: 10s
@@ -130,11 +130,11 @@ services:
       retries: 30
       start_period: 30s
     networks:
-      - gemini_network
+      - geminibase_network
 
   titiler:
-    container_name: gemini-titiler
-    hostname: gemini-titiler
+    container_name: geminibase-titiler
+    hostname: geminibase-titiler
     restart: always
     image: ghcr.io/developmentseed/titiler:2.0.1
     ports:
@@ -153,7 +153,7 @@ services:
     depends_on:
       - storage
     networks:
-      - gemini_network
+      - geminibase_network
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:80/healthz')"]
       interval: 10s
@@ -165,8 +165,8 @@ services:
   # Each worker polls the REST API for PENDING jobs, processes them,
   # and reports progress back. Workers access files via MinIO.
   #
-  # gemini-worker-ml:
-  #   container_name: gemini-worker-ml
+  # geminibase-worker-ml:
+  #   container_name: geminibase-worker-ml
   #   restart: always
   #   build:
   #     context: ../../
@@ -185,10 +185,10 @@ services:
   #     rest-api:
   #       condition: service_healthy
   #   networks:
-  #     - gemini_network
+  #     - geminibase_network
   #
-  # gemini-worker-stitch:
-  #   container_name: gemini-worker-stitch
+  # geminibase-worker-stitch:
+  #   container_name: geminibase-worker-stitch
   #   restart: always
   #   build:
   #     context: ../../
@@ -207,18 +207,18 @@ services:
   #     rest-api:
   #       condition: service_healthy
   #   networks:
-  #     - gemini_network
+  #     - geminibase_network
   #
-  gemini-nodeodm:
-    container_name: gemini-nodeodm
-    hostname: gemini-nodeodm
+  geminibase-nodeodm:
+    container_name: geminibase-nodeodm
+    hostname: geminibase-nodeodm
     image: opendronemap/nodeodm:latest
     ports:
       - "${GEMINI_NODEODM_PORT:-13000}:3000"
     volumes:
       - nodeodm_data:/var/www/data
     networks:
-      - gemini_network
+      - geminibase_network
     restart: always
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000/info"]
@@ -227,8 +227,8 @@ services:
       retries: 10
       start_period: 15s
 
-  gemini-worker-odm:
-    container_name: gemini-worker-odm
+  geminibase-worker-odm:
+    container_name: geminibase-worker-odm
     restart: always
     build:
       context: ../../
@@ -243,17 +243,17 @@ services:
       - "GEMINI_STORAGE_ACCESS_KEY=${GEMINI_STORAGE_ACCESS_KEY}"
       - "GEMINI_STORAGE_SECRET_KEY=${GEMINI_STORAGE_SECRET_KEY}"
       - "GEMINI_STORAGE_BUCKET_NAME=${GEMINI_STORAGE_BUCKET_NAME}"
-      - "GEMINI_NODEODM_URL=http://gemini-nodeodm:3000"
+      - "GEMINI_NODEODM_URL=http://geminibase-nodeodm:3000"
     depends_on:
       rest-api:
         condition: service_healthy
-      gemini-nodeodm:
+      geminibase-nodeodm:
         condition: service_healthy
     networks:
-      - gemini_network
+      - geminibase_network
 
-  gemini-worker-geo:
-    container_name: gemini-worker-geo
+  geminibase-worker-geo:
+    container_name: geminibase-worker-geo
     restart: always
     build:
       context: ../../
@@ -272,10 +272,10 @@ services:
       rest-api:
         condition: service_healthy
     networks:
-      - gemini_network
+      - geminibase_network
   #
-  gemini-worker-flir:
-    container_name: gemini-worker-flir
+  geminibase-worker-flir:
+    container_name: geminibase-worker-flir
     restart: always
     build:
       context: ../../
@@ -294,10 +294,10 @@ services:
       rest-api:
         condition: service_healthy
     networks:
-      - gemini_network
+      - geminibase_network
 
-  gemini-worker-gwas:
-    container_name: gemini-worker-gwas
+  geminibase-worker-gwas:
+    container_name: geminibase-worker-gwas
     restart: always
     build:
       context: ../../
@@ -323,10 +323,10 @@ services:
       db:
         condition: service_started
     networks:
-      - gemini_network
+      - geminibase_network
 
-  gemini-ui:
-    container_name: gemini-ui
+  geminibase-ui:
+    container_name: geminibase-ui
     restart: always
     build:
       context: ../../gemini-ui
@@ -337,16 +337,16 @@ services:
       rest-api:
         condition: service_healthy
     networks:
-      - gemini_network
+      - geminibase_network
 
 networks:
-  gemini_network:
+  geminibase_network:
     driver: bridge
-    name: gemini_network
+    name: geminibase_network
 
 volumes:
-  gemini_db_data:
-  gemini_logger_data:
-  gemini_storage_data:
-  gemini_scheduler_db_data:
+  geminibase_db_data:
+  geminibase_logger_data:
+  geminibase_storage_data:
+  geminibase_scheduler_db_data:
   nodeodm_data:

@@ -527,7 +527,7 @@ wheels = [
 ]
 
 [[package]]
-name = "gemini-framework"
+name = "geminibase"
 version = "0.9.6"
 source = { editable = "." }
 dependencies = [

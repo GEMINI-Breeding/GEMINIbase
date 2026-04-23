@@ -4,7 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-GEMINI Framework is a Python back-end for the GEMINI Breeding project (UC Davis). It provides a data management pipeline for agricultural breeding research, encompassing sensor data, trait records, experiments, plots, cultivars, and more. The system runs as a set of Docker containers (PostgreSQL, Redis, MinIO, REST API, scheduler).
+GEMINIbase is a Python back-end for the GEMINI Breeding project (UC Davis). It provides a data management pipeline for agricultural breeding research, encompassing sensor data, trait records, experiments, plots, cultivars, and more. The system runs as a set of Docker containers (PostgreSQL, Redis, MinIO, REST API, scheduler).
+
+Note: the product is "GEMINIbase" but the Python package is still named `gemini` (e.g. `from gemini.api.experiment import Experiment`). The `GEMINI_*` env-var prefix and Postgres `gemini` schema are also unchanged — these are internal identifiers, not product branding.
 
 ## Build & Run Commands
 
@@ -13,12 +15,12 @@ GEMINI Framework is a Python back-end for the GEMINI Breeding project (UC Davis)
 poetry install
 
 # CLI commands (after install)
-gemini setup --default   # First-time setup: writes .env and builds containers
-gemini build             # Build Docker containers
-gemini start             # Start pipeline (docker compose up)
-gemini stop              # Stop pipeline
-gemini clean             # Remove containers and images
-gemini reset             # Save settings, rebuild from scratch
+geminibase setup --default   # First-time setup: writes .env and builds containers
+geminibase build             # Build Docker containers
+geminibase start             # Start pipeline (docker compose up)
+geminibase stop              # Stop pipeline
+geminibase clean             # Remove containers and images
+geminibase reset             # Save settings, rebuild from scratch
 
 # Alternative via Taskfile (requires 'task' CLI)
 task start               # Start containers

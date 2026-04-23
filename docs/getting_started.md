@@ -9,13 +9,13 @@ Install all the prerequisites above before continuing
 Clone the repository and enter the root folder
 
 ```
-$ git clone https://github.com/GEMINI-Breeding/gemini-framework.git
-$ cd gemini-framework
+$ git clone https://github.com/GEMINI-Breeding/GEMINIbase.git geminibase
+$ cd geminibase
 ```
 
 #### Step 2
 
-Run poetry installation command to install global `gemini` python module.
+Run poetry installation command to install the `geminibase` CLI (backed by the `gemini` Python package).
 
 ```
 $ poetry install
@@ -26,7 +26,7 @@ $ poetry install
 Setup the GEMINI Pipeline
 
 ```
-$ gemini setup --default
+$ geminibase setup --default
 ```
 
 #### Step 4
@@ -34,7 +34,7 @@ $ gemini setup --default
 Build the Docker containers that make up the GEMINI Pipeline
 
 ```
-$ gemini build
+$ geminibase build
 ```
 
 #### Step 5
@@ -42,7 +42,7 @@ $ gemini build
 Start the GEMINI Pipeline
 
 ```
-$ gemini start
+$ geminibase start
 ```
 
 ## Next Steps

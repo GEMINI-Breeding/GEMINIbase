@@ -4,7 +4,7 @@ Root conftest.py - Patches import-time side effects.
 This MUST be loaded before any gemini module is imported.
 Pytest loads conftest.py files top-down, so this runs first.
 
-The GEMINI Framework has several modules that execute infrastructure-connecting
+GEMINIbase has several modules that execute infrastructure-connecting
 code at import time:
 - gemini/manager.py: docker.from_env() as class default
 - gemini/db/core/base.py: GEMINIManager().get_component_settings()

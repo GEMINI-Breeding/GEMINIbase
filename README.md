@@ -1,10 +1,10 @@
-# GEMINI Backend Database Framework
+# GEMINIbase
 
 ![GEMINI Logo](docs/assets/logo_large.png "GEMINI Project")
 
 Back-end data management framework for the [GEMINI Breeding project](https://projectgemini.ucdavis.edu/) (UC Davis). Manages field phenotyping data — sensor imagery, trait measurements, genomics, weather — across experiments, sites, seasons, plots, and populations.
 
-[Documentation](https://gemini-breeding.github.io/gemini-framework/)
+[Documentation](https://gemini-breeding.github.io/GEMINIbase/)
 
 ## Requirements
 
@@ -14,8 +14,8 @@ Back-end data management framework for the [GEMINI Breeding project](https://pro
 ## Quick Start
 
 ```bash
-git clone https://github.com/GEMINI-Breeding/gemini-framework.git
-cd gemini-framework
+git clone https://github.com/GEMINI-Breeding/GEMINIbase.git geminibase
+cd geminibase
 
 python3.12 -m venv .venv
 source .venv/bin/activate
@@ -34,14 +34,14 @@ pytest tests/integration/ -v
 docker compose -f tests/docker-compose.test.yaml down -v
 ```
 
-See [Testing documentation](https://gemini-breeding.github.io/gemini-framework/testing/) for details.
+See [Testing documentation](https://gemini-breeding.github.io/GEMINIbase/testing/) for details.
 
 ### Run the full pipeline
 
 ```bash
-gemini setup --default   # First-time setup
-gemini build             # Build Docker containers
-gemini start             # Start pipeline
+geminibase setup --default   # First-time setup
+geminibase build             # Build Docker containers
+geminibase start             # Start pipeline
 
 # REST API at http://localhost:7777
 ```

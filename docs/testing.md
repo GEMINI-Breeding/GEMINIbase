@@ -1,6 +1,6 @@
 # Testing
 
-The GEMINI Framework has two test suites: **unit tests** that run without any infrastructure, and **integration tests** that run against real PostgreSQL, MinIO, and Redis via Docker.
+GEMINIbase has two test suites: **unit tests** that run without any infrastructure, and **integration tests** that run against real PostgreSQL, MinIO, and Redis via Docker.
 
 ## Running Tests
 
