@@ -38,12 +38,18 @@ def _extract_bearer_token(connection: ASGIConnection) -> str | None:
     header = connection.headers.get("authorization") or connection.headers.get(
         "Authorization"
     )
-    if not header:
-        return None
-    parts = header.split()
-    if len(parts) != 2 or parts[0].lower() != "bearer":
-        return None
-    return parts[1]
+    if header:
+        parts = header.split()
+        if len(parts) == 2 and parts[0].lower() == "bearer":
+            return parts[1]
+    # Fallback: `?token=...` query parameter. WebSocket clients in the
+    # browser cannot set custom request headers, so the only place they
+    # can pass the JWT is on the URL. We accept the same claim here; the
+    # signature check downstream prevents random strings from passing.
+    qs_token = connection.query_params.get("token")
+    if isinstance(qs_token, str) and qs_token:
+        return qs_token
+    return None
 
 
 def authenticated_guard(
