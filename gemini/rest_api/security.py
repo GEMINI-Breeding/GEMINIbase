@@ -1,31 +1,40 @@
 """
 Password hashing and JWT helpers for per-user authentication.
 
-Ports the approach used by the previous FastAPI backend: bcrypt for
-password hashing (via passlib) and HS256 JWTs for access tokens. The
-module is intentionally framework-agnostic — the Litestar controller
-and dependency provider call these helpers directly.
+bcrypt for passwords (directly; passlib is unmaintained) and HS256 JWTs
+for access tokens. Framework-agnostic — the Litestar controller and
+dependency provider call these helpers directly.
 """
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+import bcrypt
 import jwt
-from passlib.context import CryptContext
 
 from gemini.config.settings import GEMINISettings
 
-_pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 _settings = GEMINISettings()
 
+# bcrypt refuses inputs longer than 72 bytes. Matches the behavior the old
+# FastAPI backend got from passlib, which silently truncated.
+_BCRYPT_MAX_BYTES = 72
 
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return _pwd_context.verify(plain_password, hashed_password)
+
+def _truncate(password: str) -> bytes:
+    return password.encode("utf-8")[:_BCRYPT_MAX_BYTES]
 
 
 def get_password_hash(password: str) -> str:
-    return _pwd_context.hash(password)
+    return bcrypt.hashpw(_truncate(password), bcrypt.gensalt()).decode("utf-8")
+
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    try:
+        return bcrypt.checkpw(_truncate(plain_password), hashed_password.encode("utf-8"))
+    except ValueError:
+        return False
 
 
 def create_access_token(

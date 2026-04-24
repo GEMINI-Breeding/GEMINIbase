@@ -13,7 +13,7 @@ from datetime import datetime
 from typing import List, Optional, TYPE_CHECKING
 from uuid import UUID
 
-from pydantic import AliasChoices, EmailStr, Field
+from pydantic import AliasChoices, Field
 
 from gemini.api.base import APIBase
 from gemini.api.types import ID
@@ -33,7 +33,7 @@ class User(APIBase):
 
     id: Optional[ID] = Field(None, validation_alias=AliasChoices("id", "user_id"))
 
-    email: EmailStr
+    email: str
     full_name: Optional[str] = None
     is_active: bool = True
     is_superuser: bool = False

@@ -270,6 +270,24 @@ CREATE TABLE IF NOT EXISTS gemini.experiment_genotyping_studies (
 
 ALTER TABLE gemini.experiment_genotyping_studies ADD CONSTRAINT experiment_genotyping_study_unique UNIQUE (experiment_id, study_id);
 
+-------------------------------------------------------------------------------
+-- User Experiments Table
+-- Per-user authorization scope: which experiments a user has access to.
+-- `role` is a free-form label (e.g., 'owner', 'collaborator', 'viewer')
+-- consumed by higher-layer access checks.
+
+CREATE TABLE IF NOT EXISTS gemini.user_experiments (
+    user_id UUID REFERENCES gemini.users(id) ON DELETE CASCADE,
+    experiment_id UUID REFERENCES gemini.experiments(id) ON DELETE CASCADE,
+    role VARCHAR(50),
+    info JSONB DEFAULT '{}',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (user_id, experiment_id)
+);
+
+ALTER TABLE gemini.user_experiments ADD CONSTRAINT user_experiment_unique UNIQUE (user_id, experiment_id);
+
 -- Create Datatype Formats associations
 INSERT INTO gemini.data_type_formats (data_type_id, data_format_id)
 VALUES

@@ -585,3 +585,22 @@ CREATE INDEX IF NOT EXISTS idx_jobs_status ON gemini.jobs (status);
 CREATE INDEX IF NOT EXISTS idx_jobs_type ON gemini.jobs (job_type);
 CREATE INDEX IF NOT EXISTS idx_jobs_experiment ON gemini.jobs (experiment_id);
 CREATE INDEX IF NOT EXISTS idx_jobs_detail ON gemini.jobs USING GIN (progress_detail);
+
+-------------------------------------------------------------------------------
+-- Users Table
+-- Application users for per-user authentication (JWT bearer tokens)
+CREATE TABLE IF NOT EXISTS gemini.users (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    email VARCHAR(255) NOT NULL,
+    hashed_password VARCHAR(255) NOT NULL,
+    full_name VARCHAR(255),
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    is_superuser BOOLEAN NOT NULL DEFAULT FALSE,
+    user_info JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS users_email_unique ON gemini.users (email);
+CREATE INDEX IF NOT EXISTS idx_users_email ON gemini.users (email);
+CREATE INDEX IF NOT EXISTS idx_users_info ON gemini.users USING GIN (user_info);
