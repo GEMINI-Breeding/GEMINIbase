@@ -604,3 +604,62 @@ CREATE TABLE IF NOT EXISTS gemini.users (
 CREATE UNIQUE INDEX IF NOT EXISTS users_email_unique ON gemini.users (email);
 CREATE INDEX IF NOT EXISTS idx_users_email ON gemini.users (email);
 CREATE INDEX IF NOT EXISTS idx_users_info ON gemini.users USING GIN (user_info);
+
+-------------------------------------------------------------------------------
+-- Reference Datasets Table
+-- Breeder-supplied "ground truth" uploads (CSV/Excel → per-plot trait data).
+CREATE TABLE IF NOT EXISTS gemini.reference_datasets (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name VARCHAR(255) NOT NULL,
+    experiment VARCHAR(255),
+    location VARCHAR(255),
+    population VARCHAR(255),
+    dataset_date DATE,
+    trait_columns TEXT[] NOT NULL DEFAULT '{}',
+    dataset_info JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_reference_datasets_name ON gemini.reference_datasets (name);
+CREATE INDEX IF NOT EXISTS idx_reference_datasets_experiment ON gemini.reference_datasets (experiment);
+CREATE INDEX IF NOT EXISTS idx_reference_datasets_population ON gemini.reference_datasets (population);
+
+-------------------------------------------------------------------------------
+-- Reference Plots Table
+-- One row per plot inside a reference dataset; traits stored as JSONB to
+-- accommodate per-dataset trait columns without schema migrations.
+CREATE TABLE IF NOT EXISTS gemini.reference_plots (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    dataset_id UUID NOT NULL REFERENCES gemini.reference_datasets(id) ON DELETE CASCADE,
+    plot_id VARCHAR(255),
+    plot_column VARCHAR(64),
+    plot_row VARCHAR(64),
+    accession VARCHAR(255),
+    traits JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_reference_plots_dataset ON gemini.reference_plots (dataset_id);
+CREATE INDEX IF NOT EXISTS idx_reference_plots_plot_id ON gemini.reference_plots (plot_id);
+CREATE INDEX IF NOT EXISTS idx_reference_plots_accession ON gemini.reference_plots (accession);
+CREATE INDEX IF NOT EXISTS idx_reference_plots_traits ON gemini.reference_plots USING GIN (traits);
+
+-------------------------------------------------------------------------------
+-- Plot Geometry Versions Table
+-- Named snapshots of plot-marking state per directory (the scoping key used
+-- by the plot_geometry controller). At most one active version per directory.
+CREATE TABLE IF NOT EXISTS gemini.plot_geometry_versions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    directory VARCHAR(1024) NOT NULL,
+    version INT NOT NULL,
+    name VARCHAR(255),
+    is_active BOOLEAN NOT NULL DEFAULT FALSE,
+    state_snapshot JSONB NOT NULL DEFAULT '{}',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_by VARCHAR(255)
+);
+
+ALTER TABLE gemini.plot_geometry_versions ADD CONSTRAINT plot_geometry_version_unique UNIQUE (directory, version);
+CREATE INDEX IF NOT EXISTS idx_plot_geometry_versions_directory ON gemini.plot_geometry_versions (directory);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_plot_geometry_versions_active ON gemini.plot_geometry_versions (directory) WHERE is_active;

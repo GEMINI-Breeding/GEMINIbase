@@ -14,6 +14,7 @@ from litestar.controller import Controller
 
 from gemini.rest_api.models import RESTAPIError
 from gemini.rest_api.controllers.files import minio_storage_provider, minio_storage_config
+from gemini.api.plot_geometry_version import PlotGeometryVersion
 
 from pydantic import BaseModel
 from typing import Optional, List, Any
@@ -37,6 +38,23 @@ class GpsShiftRequest(BaseModel):
     directory: str
     current_lat: float
     current_lon: float
+
+class VersionSaveRequest(BaseModel):
+    directory: str
+    state_snapshot: dict
+    name: Optional[str] = None
+    created_by: Optional[str] = None
+
+class VersionLoadRequest(BaseModel):
+    directory: str
+    version: Optional[int] = None
+
+class VersionTargetRequest(BaseModel):
+    directory: str
+    version: int
+
+class VersionListRequest(BaseModel):
+    directory: str
 
 class MarkPlotRequest(BaseModel):
     directory: str
@@ -722,3 +740,102 @@ class PlotGeometryController(Controller):
                 content=RESTAPIError(error=str(e), error_description="Failed to associate plots"),
                 status_code=500,
             )
+
+    # ------------------------------------------------------------------
+    # Versioning — named snapshots of plot-geometry state per directory.
+    # ------------------------------------------------------------------
+
+    @post(path="/versions/save", sync_to_thread=True)
+    def save_version(self, data: VersionSaveRequest) -> dict:
+        version = PlotGeometryVersion.save(
+            directory=data.directory,
+            state_snapshot=data.state_snapshot,
+            name=data.name,
+            created_by=data.created_by,
+        )
+        if version is None:
+            return Response(
+                content=RESTAPIError(
+                    error="Version not saved",
+                    error_description="Failed to save plot-geometry version.",
+                ),
+                status_code=500,
+            )
+        return {
+            "version": version.version,
+            "name": version.name,
+            "is_active": version.is_active,
+            "created_at": version.created_at.isoformat() if version.created_at else None,
+        }
+
+    @post(path="/versions/list", sync_to_thread=True)
+    def list_versions(self, data: VersionListRequest) -> List[dict]:
+        versions = PlotGeometryVersion.list_for_directory(directory=data.directory)
+        return [
+            {
+                "version": v.version,
+                "name": v.name,
+                "is_active": v.is_active,
+                "created_at": v.created_at.isoformat() if v.created_at else None,
+                "created_by": v.created_by,
+            }
+            for v in versions
+        ]
+
+    @post(path="/versions/load", sync_to_thread=True)
+    def load_version(self, data: VersionLoadRequest) -> dict:
+        version = PlotGeometryVersion.load(
+            directory=data.directory, version=data.version
+        )
+        if version is None:
+            return Response(
+                content=RESTAPIError(
+                    error="Version not found",
+                    error_description=(
+                        "No matching version found for the given directory."
+                    ),
+                ),
+                status_code=404,
+            )
+        return {
+            "version": version.version,
+            "name": version.name,
+            "is_active": version.is_active,
+            "created_at": version.created_at.isoformat() if version.created_at else None,
+            "created_by": version.created_by,
+            "state_snapshot": version.state_snapshot,
+        }
+
+    @post(path="/versions/activate", sync_to_thread=True)
+    def activate_version(self, data: VersionTargetRequest) -> dict:
+        version = PlotGeometryVersion.activate(
+            directory=data.directory, version=data.version
+        )
+        if version is None:
+            return Response(
+                content=RESTAPIError(
+                    error="Version not found",
+                    error_description="No matching version to activate.",
+                ),
+                status_code=404,
+            )
+        return {
+            "version": version.version,
+            "name": version.name,
+            "is_active": version.is_active,
+        }
+
+    @post(path="/versions/delete", sync_to_thread=True)
+    def delete_version(self, data: VersionTargetRequest) -> dict:
+        ok = PlotGeometryVersion.delete_version(
+            directory=data.directory, version=data.version
+        )
+        if not ok:
+            return Response(
+                content=RESTAPIError(
+                    error="Version not found",
+                    error_description="No matching version to delete.",
+                ),
+                status_code=404,
+            )
+        return {"status": "deleted", "version": data.version}

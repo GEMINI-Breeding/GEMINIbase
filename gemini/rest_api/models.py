@@ -1408,3 +1408,62 @@ class UserExperimentInput(RESTAPIBase):
 
 class MessageOutput(RESTAPIBase):
     message: str
+
+
+# --------------------------------
+# Reference Data Classes
+# --------------------------------
+
+class ParseHeadersRequest(RESTAPIBase):
+    file: UploadFile
+
+
+class ParseHeadersResponse(RESTAPIBase):
+    headers: List[str]
+
+
+class ReferenceUploadRequest(RESTAPIBase):
+    file: UploadFile
+
+
+class ReferenceMatchReport(RESTAPIBase):
+    total: int
+    matched: int
+    unmatched: int
+
+
+class ReferenceDatasetOutput(RESTAPIBase):
+    id: Optional[ID] = None
+    name: Optional[str] = None
+    experiment: Optional[str] = None
+    location: Optional[str] = None
+    population: Optional[str] = None
+    dataset_date: Optional[datetime] = None
+    trait_columns: List[str] = []
+    plot_count: Optional[int] = 0
+    dataset_info: Optional[JSONB] = None
+    created_at: Optional[datetime] = None
+    match_report: Optional[ReferenceMatchReport] = None
+
+
+class ReferencePlotOutput(RESTAPIBase):
+    id: Optional[ID] = None
+    dataset_id: Optional[ID] = None
+    plot_id: Optional[str] = None
+    plot_column: Optional[str] = None
+    plot_row: Optional[str] = None
+    accession: Optional[str] = None
+    traits: Optional[JSONB] = None
+
+
+class ReferencePlotList(RESTAPIBase):
+    data: List[ReferencePlotOutput]
+    count: int
+
+
+class ReferenceAggregateOutput(RESTAPIBase):
+    dataset_id: str
+    metric: str
+    aggregation: str
+    value: Optional[float] = None
+    count: int
