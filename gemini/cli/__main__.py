@@ -128,5 +128,48 @@ def update(ctx: GEMINICLIContext):
     _require(ctx.manager.rebuild(), "Update failed during rebuild. See Docker output above.")
     click.echo(click.style("GEMINIbase pipeline updated", fg="blue"))
 
+@cli.command("bootstrap-superuser")
+@click.option("--email", default=None, help="Superuser email. Defaults to GEMINI_FIRST_SUPERUSER_EMAIL.")
+@click.option("--password", default=None, help="Superuser password. Defaults to GEMINI_FIRST_SUPERUSER_PASSWORD.")
+@click.option("--full-name", default=None, help="Superuser full name. Defaults to GEMINI_FIRST_SUPERUSER_FULL_NAME.")
+@click.pass_obj
+def bootstrap_superuser(
+    ctx: GEMINICLIContext,
+    email: str | None,
+    password: str | None,
+    full_name: str | None,
+):
+    """Create the initial superuser if one does not already exist.
+
+    Idempotent: if a user with the given email already exists, the command
+    prints a notice and exits successfully without modifying the account.
+    """
+    # Lazy import so `geminibase --help` doesn't touch the DB.
+    from gemini.api.user import User
+    from gemini.config.settings import GEMINISettings
+
+    settings = GEMINISettings()
+    email = email or settings.GEMINI_FIRST_SUPERUSER_EMAIL
+    password = password or settings.GEMINI_FIRST_SUPERUSER_PASSWORD
+    full_name = full_name or settings.GEMINI_FIRST_SUPERUSER_FULL_NAME
+
+    _require(bool(email), "Superuser email is required (set GEMINI_FIRST_SUPERUSER_EMAIL or pass --email).")
+    _require(bool(password), "Superuser password is required (set GEMINI_FIRST_SUPERUSER_PASSWORD or pass --password).")
+
+    if User.exists(email=email):
+        click.echo(click.style(f"Superuser already exists: {email}", fg="yellow"))
+        return
+
+    user = User.create(
+        email=email,
+        password=password,
+        full_name=full_name,
+        is_active=True,
+        is_superuser=True,
+    )
+    _require(user is not None, "Failed to create superuser (see logs).")
+    click.echo(click.style(f"Created superuser: {email}", fg="green"))
+
+
 # Add the settings command group to the main CLI
 cli.add_command(settings_group)

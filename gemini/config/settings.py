@@ -56,6 +56,18 @@ class GEMINISettings(BaseSettings):
     GEMINI_API_KEY : str = ""
     GEMINI_CORS_ORIGINS : str = "*"
 
+    # JWT Auth
+    # When GEMINI_JWT_SECRET is empty, auth is disabled (endpoints that depend
+    # on CurrentUser return 503 with a clear message). Rotate in production.
+    GEMINI_JWT_SECRET : str = ""
+    GEMINI_JWT_ALGORITHM : str = "HS256"
+    GEMINI_JWT_ACCESS_TOKEN_EXPIRE_MINUTES : int = 60 * 24 * 8  # 8 days
+
+    # Initial superuser bootstrap (applied by `geminibase bootstrap-superuser`)
+    GEMINI_FIRST_SUPERUSER_EMAIL : str = ""
+    GEMINI_FIRST_SUPERUSER_PASSWORD : str = ""
+    GEMINI_FIRST_SUPERUSER_FULL_NAME : str = "GEMINI Admin"
+
     # Scheduler DB
     GEMINI_SCHEDULER_DB_CONTAINER_NAME : str = "geminibase-scheduler-db"
     GEMINI_SCHEDULER_DB_IMAGE_NAME : str = "geminibase/scheduler-db"

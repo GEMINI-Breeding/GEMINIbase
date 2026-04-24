@@ -5,7 +5,7 @@ These models represent many-to-many relationships and store additional informati
 about these relationships, such as creation and update timestamps.
 """
 
-from sqlalchemy import Integer, JSON, TIMESTAMP
+from sqlalchemy import Integer, JSON, String, TIMESTAMP
 from sqlalchemy import ForeignKey, UniqueConstraint, PrimaryKeyConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.dialects.postgresql import UUID, JSONB
@@ -341,4 +341,25 @@ class ExperimentGenotypingStudyModel(BaseModel):
 
     __table_args__ = (
         UniqueConstraint("experiment_id", "study_id", name="experiment_genotyping_study_unique"),
+    )
+
+
+class UserExperimentModel(BaseModel):
+    """
+    Represents the association between a user and an experiment.
+
+    `role` is a free-form string (e.g., "owner", "collaborator", "viewer")
+    that higher layers can use to implement per-experiment authorization.
+    """
+    __tablename__ = "user_experiments"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=False), ForeignKey("gemini.users.id", ondelete="CASCADE"), primary_key=True)
+    experiment_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=False), ForeignKey("gemini.experiments.id", ondelete="CASCADE"), primary_key=True)
+    role: Mapped[str] = mapped_column(String(50), nullable=True)
+    info: Mapped[dict] = mapped_column(JSONB, default={})
+    created_at: Mapped[datetime] = mapped_column(TIMESTAMP, default=datetime.now)
+    updated_at: Mapped[datetime] = mapped_column(TIMESTAMP, default=datetime.now, onupdate=datetime.now)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "experiment_id", name="user_experiment_unique"),
     )

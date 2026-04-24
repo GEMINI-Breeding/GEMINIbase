@@ -28,6 +28,7 @@ from gemini.rest_api.controllers.variant import VariantController
 from gemini.rest_api.controllers.genotyping_study import GenotypingStudyController
 from gemini.rest_api.controllers.germplasm_resolver import GermplasmResolverController
 from gemini.rest_api.controllers.gwas import GwasController
+from gemini.rest_api.controllers.users import UsersController
 
 controllers = {
     "populations": PopulationController,
@@ -60,5 +61,6 @@ controllers = {
     "genotyping_studies": GenotypingStudyController,
     "germplasm": GermplasmResolverController,
     "gwas": GwasController,
+    "users": UsersController,
 }
 

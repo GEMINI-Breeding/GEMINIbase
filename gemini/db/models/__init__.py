@@ -34,6 +34,7 @@ from gemini.db.models.plots import PlotModel
 from gemini.db.models.jobs import JobModel
 from gemini.db.models.variants import VariantModel
 from gemini.db.models.genotyping_studies import GenotypingStudyModel
+from gemini.db.models.users import UserModel
 
 # Associations
 import gemini.db.models.associations as Associations

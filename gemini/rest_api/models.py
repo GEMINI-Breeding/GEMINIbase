@@ -1340,3 +1340,71 @@ class GenotypeRecordOutput(RESTAPIBase):
     accession_name: Optional[str] = None
     call_value: Optional[str] = None
     record_info: Optional[JSONB] = None
+
+
+# --------------------------------
+# User / Auth Classes
+# --------------------------------
+
+class UserInput(RESTAPIBase):
+    email: str
+    password: str
+    full_name: Optional[str] = None
+    is_active: Optional[bool] = True
+    is_superuser: Optional[bool] = False
+    user_info: Optional[JSONB] = {}
+
+
+class UserRegister(RESTAPIBase):
+    email: str
+    password: str
+    full_name: Optional[str] = None
+
+
+class UserUpdate(RESTAPIBase):
+    email: Optional[str] = None
+    full_name: Optional[str] = None
+    is_active: Optional[bool] = None
+    is_superuser: Optional[bool] = None
+    user_info: Optional[JSONB] = None
+    password: Optional[str] = None
+
+
+class UserUpdateMe(RESTAPIBase):
+    email: Optional[str] = None
+    full_name: Optional[str] = None
+    user_info: Optional[JSONB] = None
+
+
+class UpdatePassword(RESTAPIBase):
+    current_password: str
+    new_password: str
+
+
+class UserOutput(RESTAPIBase):
+    id: Optional[ID] = None
+    email: str = None
+    full_name: Optional[str] = None
+    is_active: Optional[bool] = True
+    is_superuser: Optional[bool] = False
+    user_info: Optional[JSONB] = None
+
+
+class Token(RESTAPIBase):
+    access_token: str
+    token_type: str = "bearer"
+
+
+class LoginInput(RESTAPIBase):
+    email: str
+    password: str
+
+
+class UserExperimentInput(RESTAPIBase):
+    experiment_id: str
+    role: Optional[str] = None
+    info: Optional[JSONB] = {}
+
+
+class MessageOutput(RESTAPIBase):
+    message: str
