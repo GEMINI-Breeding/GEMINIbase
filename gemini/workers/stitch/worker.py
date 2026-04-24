@@ -99,9 +99,13 @@ class StitchWorker(BaseWorker):
         image_paths: List[str] = list(parameters["image_paths"])
         output_mosaic_path: str = parameters["output_mosaic_path"]
         user_config: dict = dict(parameters.get("config") or {})
-        cpu_count: int = int(
-            parameters.get("cpu_count") or max(1, (multiprocessing.cpu_count() or 1) - 1)
-        )
+        # AgRowStitch treats cpu_count=0 as "auto" — preserve that explicit
+        # sentinel; only supply a default when the caller omits the key.
+        raw_cpu = parameters.get("cpu_count")
+        if raw_cpu is None:
+            cpu_count = max(1, (multiprocessing.cpu_count() or 1) - 1)
+        else:
+            cpu_count = int(raw_cpu)
 
         if len(image_paths) < 2:
             raise ValueError(
@@ -173,17 +177,18 @@ class StitchWorker(BaseWorker):
             # `image_directory`. It's a blocking call (minutes to hours).
             agrowstitch_run(str(config_path), cpu_count)
 
-            # Find the produced mosaic — AgRowStitch names them
-            # full_res_mosaic_temp_plot_*.png inside the image dir's parent.
+            # Find the produced mosaic. AgRowStitch writes
+            # ``full_res_mosaic_temp_plot_*.png`` (optionally with a ``.tif``
+            # companion) either alongside ``images_dir`` or inside it; match
+            # only those prefixes so we never accidentally upload an input
+            # image as the "primary mosaic."
             mosaic_candidates = sorted(
-                list(images_dir.parent.glob("full_res_mosaic_*.png"))
-                + list(images_dir.parent.glob("*.png"))
-                + list(images_dir.parent.glob("*.tif"))
-            )
-            # Fall back to searching images_dir as well — AgRowStitch's output
-            # layout has shifted across versions; be liberal with what we look at.
-            mosaic_candidates += sorted(
-                list(images_dir.glob("full_res_mosaic_*.png"))
+                set(
+                    list(images_dir.parent.glob("full_res_mosaic_*.png"))
+                    + list(images_dir.parent.glob("full_res_mosaic_*.tif"))
+                    + list(images_dir.glob("full_res_mosaic_*.png"))
+                    + list(images_dir.glob("full_res_mosaic_*.tif"))
+                )
             )
             mosaic_candidates = [p for p in mosaic_candidates if p.exists()]
             if not mosaic_candidates:

@@ -152,11 +152,14 @@ def _infer_cloud(
     api_key: str, model_id: str, confidence_threshold: float
 ) -> Callable[[str], List[dict]]:
     endpoint = f"{CLOUD_API_URL}/{model_id}"
+    # Reuse a single TLS connection across all crops — a 10k-crop image
+    # otherwise triggers 10k handshakes and dominates wall-clock time.
+    session = requests.Session()
 
     def _call(crop_path: str) -> List[dict]:
         with open(crop_path, "rb") as f:
             img_b64 = base64.b64encode(f.read()).decode("ascii")
-        resp = requests.post(
+        resp = session.post(
             endpoint,
             params={"api_key": api_key, "confidence": confidence_threshold},
             data=img_b64,

@@ -69,12 +69,16 @@ def estimate_height_from_dem(
     else:
         ground = float(np.percentile(all_valid, 5))
 
+    # Match the old backend's semantics: any vegetation pixels at all are
+    # enough to estimate a canopy top. Dropping sparse-canopy plots with a
+    # `< 10` threshold would silently change the trait output vs. the old
+    # output for the same orthomosaic.
     canopy_pixels = dem_data[(mask > 0) & valid_mask]
-    if len(canopy_pixels) < 10:
+    if len(canopy_pixels) == 0:
         return None
     canopy_top = float(np.percentile(canopy_pixels, 95))
     height = canopy_top - ground
-    return round(height, 3) if height > 0 else 0.0
+    return round(height, 4) if height > 0 else 0.0
 
 
 def extract_traits_from_ortho(

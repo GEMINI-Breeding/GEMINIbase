@@ -28,17 +28,19 @@ class JobStatus(str, Enum):
     CANCELLED = "CANCELLED"
 
 
-# Maps job types to the worker service that handles them
+# Documentation-only map of job types to the compose service that claims them.
+# Not used by dispatch — workers self-claim types via their `supported_job_types`
+# set. Kept in sync with docker-compose.yaml service names as a lookup aid.
 JOB_TYPE_WORKER_MAP = {
-    JobType.TRAIN_MODEL: "gemini-worker-ml",
-    JobType.LOCATE_PLANTS: "gemini-worker-ml",
-    JobType.EXTRACT_TRAITS: "gemini-worker-ml",
-    JobType.RUN_STITCH: "gemini-worker-stitch",
-    JobType.RUN_ODM: "gemini-worker-odm",
-    JobType.SPLIT_ORTHOMOSAIC: "gemini-worker-geo",
-    JobType.PROCESS_DRONE_TIFF: "gemini-worker-geo",
-    JobType.TIF_TO_PNG: "gemini-worker-geo",
-    JobType.CREATE_COG: "gemini-worker-geo",
-    JobType.EXTRACT_BINARY: "gemini-worker-flir",
-    JobType.RUN_GWAS: "gemini-worker-gwas",
+    JobType.TRAIN_MODEL: "geminibase-worker-ml",
+    JobType.LOCATE_PLANTS: "geminibase-worker-ml",
+    JobType.EXTRACT_TRAITS: "geminibase-worker-ml",
+    JobType.RUN_STITCH: "geminibase-worker-stitch",
+    JobType.RUN_ODM: "geminibase-worker-odm",
+    JobType.SPLIT_ORTHOMOSAIC: "geminibase-worker-geo",
+    JobType.PROCESS_DRONE_TIFF: "geminibase-worker-geo",
+    JobType.TIF_TO_PNG: "geminibase-worker-geo",
+    JobType.CREATE_COG: "geminibase-worker-geo",
+    JobType.EXTRACT_BINARY: "geminibase-worker-flir",
+    JobType.RUN_GWAS: "geminibase-worker-gwas",
 }
