@@ -2,9 +2,16 @@
 from pathlib import Path
 
 import pytest
-from PIL import Image
 
-from gemini.workers.ml.inference_utils import (
+# Pillow is used by crop_image_with_overlap; it's the only worker-specific
+# dep these tests touch. Skip cleanly if it isn't installed (e.g. running
+# pytest inside the backend's top-level poetry venv, which doesn't pull
+# worker deps).
+pytest.importorskip("PIL")
+
+from PIL import Image  # noqa: E402
+
+from gemini.workers.ml.inference_utils import (  # noqa: E402
     apply_nms,
     crop_image_with_overlap,
 )

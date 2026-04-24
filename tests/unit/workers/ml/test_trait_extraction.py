@@ -2,7 +2,13 @@
 import numpy as np
 import pytest
 
-from gemini.workers.ml.trait_extraction import (
+# These kernels import cv2 at call time. cv2 lives in the ml worker image,
+# not in the backend's top-level deps; skip the whole module when it isn't
+# available (running these in the worker container stays the source of
+# truth).
+pytest.importorskip("cv2")
+
+from gemini.workers.ml.trait_extraction import (  # noqa: E402
     compute_exg_mask,
     estimate_height_from_dem,
 )
