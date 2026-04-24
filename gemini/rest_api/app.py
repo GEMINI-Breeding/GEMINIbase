@@ -4,6 +4,7 @@ from litestar.openapi.plugins import StoplightRenderPlugin
 from litestar.config.cors import CORSConfig
 from gemini.rest_api.controllers import controllers
 from gemini.rest_api.auth import create_api_key_middleware
+from gemini.rest_api.guards import authenticated_guard
 from gemini.rest_api.infrastructure import (
     database_health,
     exception_handlers as infra_exception_handlers,
@@ -66,7 +67,12 @@ for key, value in controllers.items():
     router = Router(
         path=f"/api/{key}",
         route_handlers=[value],
-        tags=[key.replace("_", " ").title()]
+        tags=[key.replace("_", " ").title()],
+        # Every controller router inherits the JWT-bearer guard. The guard
+        # is a no-op when GEMINI_JWT_SECRET is empty, and its own path
+        # whitelist keeps /login, /signup, and health checks open so
+        # unauthenticated clients can bootstrap.
+        guards=[authenticated_guard],
     )
     routers.append(router)
 
