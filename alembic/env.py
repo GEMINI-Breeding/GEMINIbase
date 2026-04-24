@@ -19,12 +19,17 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 # Build database URL from environment variables (same vars used by the app)
-db_user = os.environ.get("GEMINI_DB_USER", "gemini")
-db_pass = os.environ.get("GEMINI_DB_PASSWORD", "gemini")
-db_host = os.environ.get("GEMINI_DB_HOSTNAME", "localhost")
-db_port = os.environ.get("GEMINI_DB_PORT", "5432")
-db_name = os.environ.get("GEMINI_DB_NAME", "gemini")
-database_url = f"postgresql://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}"
+# Prefer GEMINI_DB_URL (passed into the rest-api container) and fall back to
+# the individual GEMINI_DB_* vars (used by local dev/pytest against a
+# published port on the host).
+database_url = os.environ.get("GEMINI_DB_URL")
+if not database_url:
+    db_user = os.environ.get("GEMINI_DB_USER", "gemini")
+    db_pass = os.environ.get("GEMINI_DB_PASSWORD", "gemini")
+    db_host = os.environ.get("GEMINI_DB_HOSTNAME", "localhost")
+    db_port = os.environ.get("GEMINI_DB_PORT", "5432")
+    db_name = os.environ.get("GEMINI_DB_NAME", "gemini")
+    database_url = f"postgresql://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}"
 
 # Override the sqlalchemy.url from alembic.ini with the env-based URL
 config.set_main_option("sqlalchemy.url", database_url)
