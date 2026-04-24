@@ -44,9 +44,46 @@ def root_handler() -> dict:
         "email": "pghate@ucdavis.edu"
     }
 
-@get(path="/settings", sync_to_thread=False, tags=["GEMINIbase"])
+# Any settings field whose name matches one of these substrings is redacted
+# before being returned by GET /settings. Keeps hostnames/ports/bucket names
+# visible for debugging while never exposing credentials — even to superusers.
+_SECRET_SETTING_SUBSTRINGS = (
+    "PASSWORD",
+    "SECRET",
+    "ACCESS_KEY",
+    "API_KEY",
+    "JWT",
+    "FIRST_SUPERUSER_PASSWORD",
+)
+
+
+def _redact_settings(raw: dict) -> dict:
+    return {
+        k: ("***REDACTED***" if _is_secret_field(k) and v else v)
+        for k, v in raw.items()
+    }
+
+
+def _is_secret_field(key: str) -> bool:
+    upper = key.upper()
+    return any(s in upper for s in _SECRET_SETTING_SUBSTRINGS)
+
+
+@get(
+    path="/settings",
+    sync_to_thread=False,
+    tags=["GEMINIbase"],
+    guards=[authenticated_guard],
+)
 def settings_handler() -> dict:
-    return GEMINISettings().model_dump()
+    """Return non-secret runtime settings for diagnostic UIs.
+
+    Requires a valid JWT (once GEMINI_JWT_SECRET is set) and redacts every
+    credential-shaped field. Before this change, /settings was unauthenticated
+    and returned the full settings object — including GEMINI_JWT_SECRET,
+    DB passwords, and MinIO credentials — to any caller on the network.
+    """
+    return _redact_settings(GEMINISettings().model_dump())
 
 @get(path="/healthz", sync_to_thread=True, tags=["GEMINIbase"])
 def healthz_handler() -> Response:
