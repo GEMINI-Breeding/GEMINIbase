@@ -184,6 +184,25 @@ class ReferenceDataController(Controller):
                 )
                 return Response(content=error, status_code=400)
 
+            # Reject ambiguous mappings where two source columns would collapse
+            # to the same non-identity (trait) canonical — the UI should guide
+            # the user to rename one side rather than silently coalescing.
+            trait_canonicals = [
+                v for v in mapping.values() if v and v not in IDENTITY_FIELDS
+            ]
+            if len(trait_canonicals) != len(set(trait_canonicals)):
+                dupes = {
+                    c for c in trait_canonicals if trait_canonicals.count(c) > 1
+                }
+                error = RESTAPIError(
+                    error="Duplicate column mapping",
+                    error_description=(
+                        "Multiple source columns map to the same trait: "
+                        + ", ".join(sorted(dupes))
+                    ),
+                )
+                return Response(content=error, status_code=400)
+
             raw = data.file.file.read()
             try:
                 df = _read_dataframe(data.file.filename or "", raw)
@@ -233,7 +252,17 @@ class ReferenceDataController(Controller):
                 )
                 return Response(content=error, status_code=500)
 
-            inserted = dataset.insert_plots(rows)
+            try:
+                inserted = dataset.insert_plots(rows)
+            except Exception as e:
+                # Roll back the dataset so the user doesn't see an empty "success".
+                logger.exception("insert_plots failed — rolling back the dataset")
+                dataset.delete()
+                error = RESTAPIError(
+                    error="Plot insertion failed",
+                    error_description=f"Failed to insert plots: {e}",
+                )
+                return Response(content=error, status_code=500)
             return _dataset_to_output(dataset, plot_count=inserted)
         except Exception as e:
             logger.exception("reference-data upload failed")

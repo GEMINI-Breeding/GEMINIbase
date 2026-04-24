@@ -225,12 +225,26 @@ class User(APIBase):
 
     # --- Auth ---
 
+    # A fixed bcrypt hash of an unguessable string, used to equalize the
+    # response time when a username doesn't exist. Prevents "user exists?"
+    # timing oracle.
+    _DUMMY_HASH = (
+        "$2b$12$p60tjXVAUaPm1fZf0ZL/G.UDFMwgjZy9T0rGhQOEwdLI2j96zJzRG"
+    )
+
     @classmethod
     def authenticate(cls, email: str, password: str) -> Optional["User"]:
-        """Return the user if credentials match, else None."""
+        """Return the user if credentials match, else None.
+
+        Always performs a bcrypt check (against a dummy hash when the user
+        does not exist) so that response time doesn't differ between
+        "no such user" and "wrong password".
+        """
         try:
             db_instance = UserModel.get_by_parameters(email=email)
             if not db_instance:
+                # Intentional: run a bcrypt compare to equalize timing.
+                verify_password(password, cls._DUMMY_HASH)
                 return None
             if not verify_password(password, db_instance.hashed_password):
                 return None

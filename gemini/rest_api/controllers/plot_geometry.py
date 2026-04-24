@@ -16,7 +16,7 @@ from gemini.rest_api.models import RESTAPIError
 from gemini.rest_api.controllers.files import minio_storage_provider, minio_storage_config
 from gemini.api.plot_geometry_version import PlotGeometryVersion
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List, Any
 
 
@@ -47,11 +47,11 @@ class VersionSaveRequest(BaseModel):
 
 class VersionLoadRequest(BaseModel):
     directory: str
-    version: Optional[int] = None
+    version: Optional[int] = Field(default=None, ge=1)
 
 class VersionTargetRequest(BaseModel):
     directory: str
-    version: int
+    version: int = Field(ge=1)
 
 class VersionListRequest(BaseModel):
     directory: str

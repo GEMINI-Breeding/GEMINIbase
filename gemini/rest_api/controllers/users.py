@@ -20,6 +20,7 @@ Provides:
 """
 from __future__ import annotations
 
+import logging
 from datetime import timedelta
 from typing import Annotated, List, Optional
 
@@ -32,7 +33,6 @@ from litestar.params import Body
 from gemini.api.user import User
 from gemini.config.settings import GEMINISettings
 from gemini.rest_api.dependencies import (
-    provide_current_user,
     require_current_user,
     require_superuser,
 )
@@ -53,13 +53,13 @@ from gemini.rest_api.models import (
 )
 from gemini.rest_api.security import create_access_token, verify_password
 
+logger = logging.getLogger(__name__)
 _settings = GEMINISettings()
 
 
 class UsersController(Controller):
 
     dependencies = {
-        "current_user_optional": Provide(provide_current_user, sync_to_thread=True),
         "current_user": Provide(require_current_user, sync_to_thread=True),
         "superuser": Provide(require_superuser, sync_to_thread=True),
     }
@@ -94,10 +94,11 @@ class UsersController(Controller):
             expires = timedelta(minutes=_settings.GEMINI_JWT_ACCESS_TOKEN_EXPIRE_MINUTES)
             token = create_access_token(subject=user.id, expires_delta=expires)
             return Token(access_token=token)
-        except Exception as e:
+        except Exception:
+            logger.exception("Login failed with unexpected error")
             error = RESTAPIError(
-                error=str(e),
-                error_description="An error occurred during login.",
+                error="Login failed",
+                error_description="An internal error occurred during login.",
             )
             return Response(content=error, status_code=500)
 
@@ -368,6 +369,22 @@ class UsersController(Controller):
                     error_description="The user with the given ID was not found.",
                 )
                 return Response(content=error, status_code=404)
+            # Guard against a superuser locking themselves (or the system) out:
+            # block the caller from removing their own superuser role or
+            # deactivating their own account.
+            if str(user.id) == str(superuser.id):
+                if data.is_superuser is False:
+                    error = RESTAPIError(
+                        error="Self-demotion blocked",
+                        error_description="A superuser cannot remove their own superuser role.",
+                    )
+                    return Response(content=error, status_code=403)
+                if data.is_active is False:
+                    error = RESTAPIError(
+                        error="Self-deactivate blocked",
+                        error_description="A superuser cannot deactivate their own account.",
+                    )
+                    return Response(content=error, status_code=403)
             user_info = (
                 str_to_dict(data.user_info) if data.user_info is not None else None
             )

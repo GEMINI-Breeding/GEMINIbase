@@ -14,7 +14,7 @@ from typing import Any, Iterable, List, Optional, Tuple
 from uuid import UUID
 
 from pydantic import AliasChoices, Field
-from sqlalchemy import func, select
+from sqlalchemy import Float, func, select
 
 from gemini.api.base import APIBase
 from gemini.api.types import ID
@@ -226,28 +226,26 @@ class ReferenceDataset(APIBase):
         return _plot_count(self.id)
 
     def insert_plots(self, rows: Iterable[dict]) -> int:
-        """Bulk-insert plot rows. Returns number of rows inserted."""
-        try:
-            with db_engine.get_session() as session:
-                inserted = 0
-                batch: List[ReferencePlotModel] = []
-                for row in rows:
-                    batch.append(
-                        ReferencePlotModel(
-                            dataset_id=self.id,
-                            plot_id=row.get("plot_id"),
-                            plot_column=row.get("col"),
-                            plot_row=row.get("row"),
-                            accession=row.get("accession"),
-                            traits=row.get("traits") or {},
-                        )
+        """Bulk-insert plot rows. Returns number of rows inserted.
+
+        Raises on DB error so the caller can surface the failure instead of
+        silently reporting ``plot_count=0`` on an otherwise-succeeded upload.
+        """
+        with db_engine.get_session() as session:
+            batch: List[ReferencePlotModel] = []
+            for row in rows:
+                batch.append(
+                    ReferencePlotModel(
+                        dataset_id=self.id,
+                        plot_id=row.get("plot_id"),
+                        plot_column=row.get("col"),
+                        plot_row=row.get("row"),
+                        accession=row.get("accession"),
+                        traits=row.get("traits") or {},
                     )
-                    inserted += 1
-                session.add_all(batch)
-            return inserted
-        except Exception as e:
-            logger.error(f"Error inserting plots into dataset {self.id}: {e}")
-            return 0
+                )
+            session.add_all(batch)
+            return len(batch)
 
     def get_plots(
         self, limit: Optional[int] = None, offset: Optional[int] = None
@@ -291,9 +289,7 @@ class ReferenceDataset(APIBase):
         if aggregation not in {"avg", "min", "max", "sum", "count"}:
             raise ValueError(f"Unsupported aggregation: {aggregation}")
         try:
-            trait_expr = ReferencePlotModel.traits[metric].astext.cast(
-                __import__("sqlalchemy").Float
-            )
+            trait_expr = ReferencePlotModel.traits[metric].astext.cast(Float)
             agg_fns = {
                 "avg": func.avg,
                 "min": func.min,

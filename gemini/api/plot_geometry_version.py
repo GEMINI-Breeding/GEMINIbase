@@ -15,6 +15,7 @@ from typing import List, Optional
 
 from pydantic import AliasChoices, Field
 from sqlalchemy import desc, func, select, update
+from sqlalchemy.exc import IntegrityError
 
 from gemini.api.base import APIBase
 from gemini.api.types import ID
@@ -47,43 +48,60 @@ class PlotGeometryVersion(APIBase):
         state_snapshot: dict,
         name: Optional[str] = None,
         created_by: Optional[str] = None,
+        _attempts: int = 3,
     ) -> Optional["PlotGeometryVersion"]:
         """Create a new version for `directory`, auto-activate it, and
-        deactivate whatever version was previously active."""
-        try:
-            with db_engine.get_session() as session:
-                # Determine next version number
-                max_version = session.execute(
-                    select(func.max(PlotGeometryVersionModel.version)).where(
-                        PlotGeometryVersionModel.directory == directory
+        deactivate whatever version was previously active.
+
+        Two concurrent saves for the same directory compute the same
+        ``max_version+1`` and race on ``UNIQUE(directory, version)``. On
+        IntegrityError we retry up to ``_attempts`` times; each retry
+        re-reads the current max and tries a new number.
+        """
+        last_error: Optional[Exception] = None
+        for attempt in range(_attempts):
+            try:
+                with db_engine.get_session() as session:
+                    max_version = session.execute(
+                        select(func.max(PlotGeometryVersionModel.version)).where(
+                            PlotGeometryVersionModel.directory == directory
+                        )
+                    ).scalar()
+                    next_version = int(max_version or 0) + 1
+
+                    session.execute(
+                        update(PlotGeometryVersionModel)
+                        .where(PlotGeometryVersionModel.directory == directory)
+                        .where(PlotGeometryVersionModel.is_active.is_(True))
+                        .values(is_active=False)
                     )
-                ).scalar()
-                next_version = int(max_version or 0) + 1
 
-                # Deactivate any currently active version in this directory
-                session.execute(
-                    update(PlotGeometryVersionModel)
-                    .where(PlotGeometryVersionModel.directory == directory)
-                    .where(PlotGeometryVersionModel.is_active.is_(True))
-                    .values(is_active=False)
+                    row = PlotGeometryVersionModel(
+                        directory=directory,
+                        version=next_version,
+                        name=name,
+                        is_active=True,
+                        state_snapshot=state_snapshot or {},
+                        created_by=created_by,
+                    )
+                    session.add(row)
+                    session.flush()
+                    session.refresh(row)
+                    return cls.model_validate(row)
+            except IntegrityError as e:
+                last_error = e
+                logger.warning(
+                    f"save race on ({directory!r}, v{next_version}); "
+                    f"attempt {attempt + 1}/{_attempts}"
                 )
-
-                # Insert the new (active) version
-                row = PlotGeometryVersionModel(
-                    directory=directory,
-                    version=next_version,
-                    name=name,
-                    is_active=True,
-                    state_snapshot=state_snapshot or {},
-                    created_by=created_by,
-                )
-                session.add(row)
-                session.flush()
-                session.refresh(row)
-                return cls.model_validate(row)
-        except Exception as e:
-            logger.error(f"Error saving plot-geometry version: {e}")
-            return None
+                continue
+            except Exception as e:
+                logger.error(f"Error saving plot-geometry version: {e}")
+                return None
+        logger.error(
+            f"Exhausted retries saving plot-geometry version for {directory!r}: {last_error}"
+        )
+        return None
 
     @classmethod
     def list_for_directory(

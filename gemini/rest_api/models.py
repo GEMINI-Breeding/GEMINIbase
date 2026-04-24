@@ -1383,7 +1383,7 @@ class UpdatePassword(RESTAPIBase):
 
 class UserOutput(RESTAPIBase):
     id: Optional[ID] = None
-    email: str = None
+    email: Optional[str] = None
     full_name: Optional[str] = None
     is_active: Optional[bool] = True
     is_superuser: Optional[bool] = False
@@ -1403,7 +1403,7 @@ class LoginInput(RESTAPIBase):
 class UserExperimentInput(RESTAPIBase):
     experiment_id: str
     role: Optional[str] = None
-    info: Optional[JSONB] = {}
+    info: Optional[JSONB] = None
 
 
 class MessageOutput(RESTAPIBase):

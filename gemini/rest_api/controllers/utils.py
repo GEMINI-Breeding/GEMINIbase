@@ -25,7 +25,11 @@ from pathlib import Path
 from typing import Any, List, Optional
 
 from litestar.controller import Controller
+from litestar.di import Provide
 from litestar.handlers import get
+
+from gemini.api.user import User
+from gemini.rest_api.dependencies import require_superuser
 
 # ────────────────────────────────────────────────────────────────────────────
 # In-memory log ring buffer — attached to the root logger at import time so
@@ -156,6 +160,10 @@ def _docker_status() -> dict:
 
 class UtilsController(Controller):
 
+    dependencies = {
+        "superuser": Provide(require_superuser, sync_to_thread=True),
+    }
+
     @get(path="/health-check", sync_to_thread=False)
     def health_check(self) -> bool:
         return True
@@ -174,6 +182,7 @@ class UtilsController(Controller):
     @get(path="/logs", sync_to_thread=False)
     def get_logs(
         self,
+        superuser: User,
         limit: Optional[int] = None,
         level: Optional[str] = None,
         since: Optional[float] = None,
