@@ -71,8 +71,17 @@ def _get_minio_client():
 
 
 def _build_image_prefix(params: dict) -> str:
-    """Build the MinIO prefix for raw images from job parameters."""
+    """Build the MinIO prefix for raw images from job parameters.
+
+    Mirrors the frontend upload-form convention from
+    `gemini-app/frontend/src/config/dataTypes.ts`: drone images land under
+    `Raw/{year}/{experiment}/{location}/{population}/{date}/{platform}/
+    {sensor}/Images/`. The bare `{year}/...` form has never been used by
+    the upload UI; the missing `Raw/` prefix here was causing every
+    RUN_ODM job to fail with "No images found in MinIO".
+    """
     parts = [
+        "Raw",
         params.get("year", ""),
         params.get("experiment", ""),
         params.get("location", ""),
