@@ -20,8 +20,8 @@ from abc import ABC, abstractmethod
 from typing import Set
 
 import redis
-import requests
 
+from gemini.workers.auth import session_from_env
 from gemini.workers.types import JobType, JobStatus
 
 logger = logging.getLogger(__name__)
@@ -45,6 +45,11 @@ class BaseWorker(ABC):
         self.poll_interval = int(os.environ.get("GEMINI_WORKER_POLL_INTERVAL", "5"))
         self._running = True
         self._redis_client = None
+        # Authenticated HTTP session for REST-API calls. The WorkerSession
+        # signs in with GEMINI_FIRST_SUPERUSER_EMAIL/PASSWORD, caches the
+        # bearer token, and refreshes on 401 — required because the
+        # REST-API JWT guard rejects unauthenticated /api/* traffic.
+        self._http = session_from_env(api_base_url=self.api_base_url)
 
         signal.signal(signal.SIGTERM, self._handle_shutdown)
         signal.signal(signal.SIGINT, self._handle_shutdown)
@@ -100,10 +105,9 @@ class BaseWorker(ABC):
             if detail is not None:
                 payload["progress_detail"] = detail
 
-            requests.patch(
-                f"{self.api_base_url}/api/jobs/{job_id}/status",
+            self._http.patch(
+                f"/api/jobs/{job_id}/status",
                 json=payload,
-                timeout=10,
             )
         except Exception as e:
             logger.warning(f"Failed to report progress for {job_id}: {e}")
@@ -111,10 +115,7 @@ class BaseWorker(ABC):
     def is_cancelled(self, job_id: str) -> bool:
         """Check if the job has been cancelled."""
         try:
-            resp = requests.get(
-                f"{self.api_base_url}/api/jobs/{job_id}",
-                timeout=5,
-            )
+            resp = self._http.get(f"/api/jobs/{job_id}", timeout=5)
             if resp.status_code == 200:
                 return resp.json().get("status") == "CANCELLED"
         except Exception:
@@ -132,10 +133,9 @@ class BaseWorker(ABC):
         for job_type in self.supported_job_types:
             try:
                 # Try atomic claim first (prevents race conditions)
-                resp = requests.post(
-                    f"{self.api_base_url}/api/jobs/claim",
+                resp = self._http.post(
+                    "/api/jobs/claim",
                     json={"job_type": job_type.value, "worker_id": self.worker_id},
-                    timeout=10,
                 )
                 if resp.status_code in (200, 201):
                     job = resp.json()
@@ -154,10 +154,9 @@ class BaseWorker(ABC):
         """Legacy polling: GET pending jobs then claim via PATCH (race-prone)."""
         for job_type in self.supported_job_types:
             try:
-                resp = requests.get(
-                    f"{self.api_base_url}/api/jobs/all",
+                resp = self._http.get(
+                    "/api/jobs/all",
                     params={"status": "PENDING", "job_type": job_type.value},
-                    timeout=10,
                 )
                 if resp.status_code == 200:
                     jobs = resp.json()
@@ -176,10 +175,9 @@ class BaseWorker(ABC):
         # If not already claimed via atomic endpoint, claim via PATCH
         if not job.get("_claimed"):
             try:
-                resp = requests.patch(
-                    f"{self.api_base_url}/api/jobs/{job_id}/status",
+                resp = self._http.patch(
+                    f"/api/jobs/{job_id}/status",
                     json={"status": "RUNNING", "worker_id": self.worker_id},
-                    timeout=10,
                 )
                 if resp.status_code != 200:
                     logger.warning(f"Failed to claim job {job_id}: {resp.status_code}")
@@ -192,28 +190,26 @@ class BaseWorker(ABC):
         try:
             result = self.process(job_id, job_type, parameters)
             # Mark completed
-            requests.patch(
-                f"{self.api_base_url}/api/jobs/{job_id}/status",
+            self._http.patch(
+                f"/api/jobs/{job_id}/status",
                 json={
                     "status": "COMPLETED",
                     "progress": 100.0,
                     "result": result or {},
                     "worker_id": self.worker_id,
                 },
-                timeout=10,
             )
             logger.info(f"Job {job_id} completed successfully")
         except Exception as e:
             logger.error(f"Job {job_id} failed: {e}")
             try:
-                requests.patch(
-                    f"{self.api_base_url}/api/jobs/{job_id}/status",
+                self._http.patch(
+                    f"/api/jobs/{job_id}/status",
                     json={
                         "status": "FAILED",
                         "error_message": str(e),
                         "worker_id": self.worker_id,
                     },
-                    timeout=10,
                 )
             except Exception:
                 logger.error(f"Failed to report failure for job {job_id}")

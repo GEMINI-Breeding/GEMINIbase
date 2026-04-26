@@ -468,13 +468,12 @@ class OdmWorker(BaseWorker):
     def _submit_cog_job(self, ortho_path: str) -> str:
         """Submit a CREATE_COG job to convert the orthophoto to a tiled pyramid for map display."""
         try:
-            resp = requests.post(
-                f"{self.api_base_url}/api/jobs/submit",
+            resp = self._http.post(
+                "/api/jobs/submit",
                 json={
                     "job_type": "CREATE_COG",
                     "parameters": {"input_path": ortho_path},
                 },
-                timeout=10,
             )
             if resp.status_code in (200, 201):
                 return str(resp.json().get("id", ""))
