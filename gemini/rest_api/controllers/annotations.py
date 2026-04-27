@@ -45,12 +45,14 @@ class AnnotationsController(Controller):
         try:
             existing = set()
             try:
+                # list_files returns list[str] of object_name paths; the
+                # filename is the basename of the trailing segment.
                 items = minio_storage_provider.list_files(
                     bucket_name=_bucket(),
                     prefix=data.dirPath,
                 )
-                for item in items:
-                    filename = item.object_name.split("/")[-1]
+                for object_name in items:
+                    filename = object_name.split("/")[-1]
                     existing.add(filename)
             except Exception:
                 pass
