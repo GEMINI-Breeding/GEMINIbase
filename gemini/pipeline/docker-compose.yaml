@@ -253,6 +253,10 @@ services:
       - "GEMINI_FIRST_SUPERUSER_EMAIL=${GEMINI_FIRST_SUPERUSER_EMAIL}"
       - "GEMINI_FIRST_SUPERUSER_PASSWORD=${GEMINI_FIRST_SUPERUSER_PASSWORD}"
       - "GEMINI_NODEODM_URL=http://geminibase-nodeodm:3000"
+    volumes:
+      # Live-reload dev mount: edits to gemini/workers/* on the host take
+      # effect on the next worker poll cycle without needing `compose build`.
+      - ../../gemini:/app/gemini:ro
     depends_on:
       rest-api:
         condition: service_healthy

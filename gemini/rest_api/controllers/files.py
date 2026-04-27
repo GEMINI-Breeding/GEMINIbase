@@ -102,29 +102,25 @@ class FileController(Controller):
                 )
                 return Response(content=error, status_code=404)
             prefix = '/'.join(file_path.split('/')[2:])
-            object_names = minio_storage_provider.list_files(
+            # Single MinIO list call returns object_name + size +
+            # last_modified + etag inline. Content type isn't in the listing
+            # response, so it's reported as unknown — callers that need it
+            # can fetch the object directly.
+            entries = minio_storage_provider.list_files_with_metadata(
                 bucket_name=bucket_name,
-                prefix=prefix
+                prefix=prefix,
             )
-            if not object_names:
-                return []
-            # Convert object names to FileMetadata
-            file_metadata_list = []
-            for object_name in object_names:
-                file_info = minio_storage_provider.get_file_metadata(
-                    object_name=object_name,
-                    bucket_name=bucket_name
+            return [
+                FileMetadata(
+                    bucket_name=entry["bucket_name"],
+                    object_name=entry["object_name"],
+                    size=entry["size"],
+                    last_modified=entry["last_modified"],
+                    content_type="application/octet-stream",
+                    etag=entry["etag"],
                 )
-                file_metadata = FileMetadata(
-                    bucket_name=file_info['bucket_name'],
-                    object_name=file_info['object_name'],
-                    size=file_info['size'],
-                    last_modified=file_info['last_modified'],
-                    content_type=file_info['content_type'],
-                    etag=file_info['etag']
-                )
-                file_metadata_list.append(file_metadata)
-            return file_metadata_list
+                for entry in entries
+            ]
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),

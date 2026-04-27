@@ -385,6 +385,47 @@ class MinioStorageProvider(StorageProvider):
         except Exception as e:
             raise StorageError(f"Unexpected error while listing files: {e}")
 
+    def list_files_with_metadata(
+        self,
+        prefix: Optional[str] = None,
+        recursive: bool = True,
+        bucket_name: Optional[str] = None,
+    ) -> list[dict]:
+        """List files with the metadata MinIO returns inline.
+
+        Avoids the N+1 stat-object call pattern of `list_files` followed by
+        per-object `get_file_metadata`. The MinIO SDK already populates
+        `object_name`, `size`, `last_modified`, and `etag` from the bucket
+        listing call. Content type isn't part of the listing response, so
+        callers that need it must still stat individual objects — but that
+        cost is opt-in instead of paid on every list.
+        """
+        bn = self.bucket_name if bucket_name is None else bucket_name
+        try:
+            objects = self.client.list_objects(
+                bucket_name=bn,
+                prefix=prefix,
+                recursive=recursive,
+            )
+            return [
+                {
+                    "bucket_name": bn,
+                    "object_name": obj.object_name,
+                    "size": obj.size or 0,
+                    "last_modified": obj.last_modified.isoformat() if obj.last_modified else None,
+                    "etag": (obj.etag or "").strip('"'),
+                }
+                for obj in objects
+            ]
+        except S3Error as e:
+            if 'AccessDenied' in str(e):
+                raise StorageAuthError(f"Access denied while listing files: {e}")
+            raise StorageError(f"Failed to list files: {e}")
+        except ConnectionError as e:
+            raise StorageConnectionError(f"Connection failed while listing files: {e}")
+        except Exception as e:
+            raise StorageError(f"Unexpected error while listing files: {e}")
+
     def list_files_paginated(
         self,
         prefix: Optional[str] = None,

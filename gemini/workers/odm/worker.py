@@ -58,6 +58,64 @@ DEFAULT_OPTIONS = [
 ]
 
 
+# Reconstruction-quality presets exposed by the OrthomosaicTool dropdown.
+# Each preset is a flat list of NodeODM `{name, value}` overrides that get
+# merged into DEFAULT_OPTIONS at submit time. The pre-existing UI exposed
+# these labels for months without the worker honoring any of them — the
+# silent decorative dropdown is now backed by real flag mappings.
+#
+# Memory budget: NodeODM's default is "high" feature-quality + "medium"
+# pc-quality + 1280px depth maps, which needs ~15-25 GiB RAM for a
+# few-hundred-image flight. Lowest is tuned to finish on a 7-8 GiB
+# Docker engine cap; Ultra is for users with 32 GiB+ headroom.
+QUALITY_PRESETS: dict[str, list[dict]] = {
+    "Lowest": [
+        {"name": "feature-quality", "value": "lowest"},
+        {"name": "pc-quality", "value": "lowest"},
+        {"name": "depthmap-resolution", "value": 320},
+        {"name": "max-concurrency", "value": 4},
+    ],
+    "Low": [
+        {"name": "feature-quality", "value": "low"},
+        {"name": "pc-quality", "value": "low"},
+        {"name": "depthmap-resolution", "value": 512},
+    ],
+    "Medium": [
+        {"name": "feature-quality", "value": "medium"},
+        {"name": "pc-quality", "value": "medium"},
+        {"name": "depthmap-resolution", "value": 640},
+    ],
+    "High": [
+        {"name": "feature-quality", "value": "high"},
+        {"name": "pc-quality", "value": "high"},
+    ],
+    "Ultra": [
+        {"name": "feature-quality", "value": "ultra"},
+        {"name": "pc-quality", "value": "ultra"},
+        {"name": "depthmap-resolution", "value": 1280},
+    ],
+}
+
+
+def _apply_quality_preset(quality: str | None) -> list[dict]:
+    """Return DEFAULT_OPTIONS with the matching quality-preset overrides
+    merged in (preset values win on key collisions). Unknown / empty
+    quality strings (`Default`, `Custom`, `None`) just yield DEFAULT_OPTIONS.
+
+    Returns a fresh list so callers can mutate without polluting module
+    state. Pure function — covered by pytest in
+    tests/workers/odm/test_quality_presets.py.
+    """
+    base = list(DEFAULT_OPTIONS)
+    if not quality or quality not in QUALITY_PRESETS:
+        return base
+    overrides = QUALITY_PRESETS[quality]
+    by_name = {opt["name"]: opt for opt in base}
+    for opt in overrides:
+        by_name[opt["name"]] = opt
+    return list(by_name.values())
+
+
 def _get_minio_client():
     """Create a MinIO client for file access."""
     from minio import Minio
@@ -155,6 +213,68 @@ def _parse_custom_options(custom_options) -> list[dict]:
     return options if options else DEFAULT_OPTIONS
 
 
+def _diagnose_odm_failure(log_lines: list[str]) -> str:
+    """Scan the ODM task log for common failure signatures and return a
+    short, actionable description.
+
+    NodeODM only ever surfaces "Cannot process dataset" via its
+    `errorMessage` field — the actual root cause is buried in the task
+    output. The patterns here cover the failure modes we've actually
+    seen in the field; returning an empty string is fine when nothing
+    matches and falls back to the generic message at the call site.
+    """
+    if not log_lines:
+        return ""
+    # Search the tail first — failures are almost always near the end.
+    tail = "\n".join(log_lines[-200:])
+
+    # OOM-killer SIGKILL on a sub-process. Most common ODM failure on
+    # large flights: OpenMVS depth-fusion or PoissonRecon spikes RAM
+    # past Docker's container limit, the kernel kills the subprocess,
+    # ODM observes the dead exit code, marks the sub-scene unrecoverable,
+    # and ends with "Could not compute dense point cloud".
+    if "Killed" in tail and (
+        "depth-maps" in tail
+        or "Could not compute dense point cloud" in tail
+        or "could not be reconstructed" in tail
+    ):
+        return (
+            "out-of-memory during depth-map fusion. The OpenMVS step needs "
+            "~15-25 GiB RAM for hundreds of high-res images; the Docker "
+            "engine is likely capped lower than that. Raise Docker Desktop's "
+            "memory limit (Settings → Resources → Memory) to at least 16 GiB, "
+            "or retry with `--feature-quality medium` / fewer images / a "
+            "smaller `--depthmap-resolution`."
+        )
+
+    # Out-of-disk on the NodeODM working volume.
+    if "No space left on device" in tail or "ENOSPC" in tail:
+        return (
+            "NodeODM ran out of disk space. Free space on the Docker volume "
+            "(`gemini-app_nodeodm_data`) or prune old tasks via the NodeODM "
+            "admin UI."
+        )
+
+    # SfM bailed because images don't overlap enough or GPS metadata is bad.
+    if "Not enough images" in tail or "Not enough features" in tail:
+        return (
+            "not enough overlapping features between images. ODM needs ~80% "
+            "forward overlap; verify the flight plan or remove blurry frames."
+        )
+    if "could not be matched" in tail or "0 cameras matched" in tail:
+        return (
+            "ODM couldn't match any image pairs. Common causes: missing/wrong "
+            "EXIF GPS, all images of the same point, or extreme lighting "
+            "differences between frames."
+        )
+
+    # GPU/CUDA path failed — uncommon but possible.
+    if "CUDA" in tail and ("error" in tail.lower() or "failed" in tail.lower()):
+        return "CUDA/GPU path crashed. Retry with CPU-only options."
+
+    return ""
+
+
 class OdmWorker(BaseWorker):
     """Worker for orthomosaic generation via NodeODM."""
 
@@ -185,12 +305,28 @@ class OdmWorker(BaseWorker):
         image_prefix = _build_image_prefix(parameters)
         output_prefix = _build_output_prefix(parameters)
 
-        # Parse ODM options
+        # Parse ODM options. Precedence:
+        #   1. Explicit `custom_options` string/list always wins — the user
+        #      typed CLI flags into the textbox; honor them as-is.
+        #   2. Otherwise apply the `reconstruction_quality` preset
+        #      (Lowest/Low/Medium/High/Ultra) merged into DEFAULT_OPTIONS.
+        #   3. Fall back to DEFAULT_OPTIONS for `Default` / unknown values.
+        # The previous behaviour silently discarded both inputs unless
+        # quality=="Custom"; both halves are now honored.
+        custom = parameters.get("custom_options")
         quality = parameters.get("reconstruction_quality", "Default")
-        if quality == "Custom":
-            options = _parse_custom_options(parameters.get("custom_options"))
+        if isinstance(custom, str) and custom.strip():
+            options = _parse_custom_options(custom)
+            logger.info(f"Using user-supplied custom options: {options}")
+        elif isinstance(custom, list) and custom:
+            options = _parse_custom_options(custom)
+            logger.info(f"Using user-supplied custom options: {options}")
+        elif quality in QUALITY_PRESETS:
+            options = _apply_quality_preset(quality)
+            logger.info(f"Using quality preset {quality!r}: {options}")
         else:
-            options = DEFAULT_OPTIONS
+            options = list(DEFAULT_OPTIONS)
+            logger.info(f"Using default options (quality={quality!r}): {options}")
 
         with tempfile.TemporaryDirectory() as tmpdir:
             images_dir = os.path.join(tmpdir, "images")
@@ -348,8 +484,9 @@ class OdmWorker(BaseWorker):
             client.fget_object(STORAGE_BUCKET, obj.object_name, local_path)
             paths.append(local_path)
 
-            # Map download progress to 2-15% range
-            progress = 2 + (13 * (i + 1) / total)
+            # Map download progress to 2-15% range. Round before sending so
+            # the frontend doesn't render "3.2729970326409497%".
+            progress = round(2 + (13 * (i + 1) / total))
             if (i + 1) % max(1, total // 10) == 0 or i == total - 1:
                 self.report_progress(job_id, progress, {
                     "stage": "downloading_images",
@@ -408,8 +545,9 @@ class OdmWorker(BaseWorker):
             except Exception:
                 pass
 
-            # Map ODM progress (0-100) to our 20-85 range
-            mapped_progress = 20 + (odm_progress / 100.0) * 65
+            # Map ODM progress (0-100) to our 20-85 range; round so the UI
+            # gets clean integers instead of "23.471823..." labels.
+            mapped_progress = round(20 + (odm_progress / 100.0) * 65)
 
             log_tail = log_buffer[-5:] if log_buffer else []
             self.report_progress(job_id, mapped_progress, {
@@ -428,11 +566,19 @@ class OdmWorker(BaseWorker):
             if status_code == STATUS_COMPLETED:
                 break
             elif status_code == STATUS_FAILED:
-                error_msg = info.get("status", {}).get("errorMessage", "Unknown ODM error")
-                # Save final log before failing
+                generic_msg = info.get("status", {}).get("errorMessage", "Unknown ODM error")
+                # Save final log before failing.
                 if log_buffer:
                     self._write_log_to_minio(log_buffer, output_prefix, client)
-                raise RuntimeError(f"ODM processing failed: {error_msg}")
+                # NodeODM's `errorMessage` is almost always the generic
+                # "Cannot process dataset". The real cause lives in the task
+                # log — scan the tail for the common signatures so the user
+                # gets an actionable message instead of digging through MinIO.
+                detail = _diagnose_odm_failure(log_buffer)
+                raise RuntimeError(
+                    f"ODM processing failed: {generic_msg}"
+                    + (f" — likely cause: {detail}" if detail else "")
+                )
             elif status_code == STATUS_CANCELLED:
                 raise _CancelledError()
 

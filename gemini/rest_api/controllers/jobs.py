@@ -6,6 +6,7 @@ real-time progress streaming via Redis pub/sub.
 """
 import json
 import logging
+from datetime import datetime
 from typing import Annotated, List, Optional
 
 from litestar import Response, WebSocket
@@ -133,7 +134,14 @@ class JobController(Controller):
     def get_all_jobs(self, limit: int = 100, offset: int = 0,
                      status: Optional[str] = None,
                      job_type: Optional[str] = None) -> List[JobOutput]:
-        """List jobs, optionally filtered by status or type."""
+        """List jobs, optionally filtered by status or type.
+
+        Returns newest-first by `created_at` so consumers (frontend
+        Recent-jobs table, status pollers) get the most relevant rows
+        without each having to re-sort. The underlying `Job.search` /
+        `Job.get_all` come back in insertion order, which surfaces stale
+        CANCELLED rows above the running job — confusing.
+        """
         try:
             search_kwargs = {}
             if status:
@@ -146,7 +154,12 @@ class JobController(Controller):
             else:
                 jobs = Job.get_all(limit=limit, offset=offset)
 
-            return jobs or []
+            jobs = jobs or []
+            jobs.sort(
+                key=lambda j: getattr(j, "created_at", None) or datetime.min,
+                reverse=True,
+            )
+            return jobs
         except Exception as e:
             return Response(
                 content=RESTAPIError(error=str(e), error_description="Failed to list jobs"),
@@ -191,6 +204,21 @@ class JobController(Controller):
                     content=RESTAPIError(error="Not found", error_description=f"Job {job_id} not found"),
                     status_code=404,
                 )
+            # Refuse to transition out of a terminal state. Without this guard,
+            # a worker that finishes its `process()` after the user has already
+            # cancelled the job overwrites the CANCELLED status with COMPLETED
+            # and progress=100, making it look like the cancellation never
+            # happened.
+            terminal_states = ("COMPLETED", "FAILED", "CANCELLED")
+            if (
+                job.status in terminal_states
+                and data.status != job.status
+            ):
+                logger.info(
+                    f"Refusing status transition {job.status} → {data.status} "
+                    f"for job {job_id} (job is already terminal)"
+                )
+                return job
             update_kwargs = {"status": data.status}
             if data.worker_id is not None:
                 update_kwargs["worker_id"] = data.worker_id

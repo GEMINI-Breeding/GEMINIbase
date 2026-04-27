@@ -49,6 +49,12 @@ class Job(APIBase):
     worker_id: Optional[str] = None
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
+    # Surfaced so the frontend's Recent-jobs table can show a "Created"
+    # column. The DB has these as NOT NULL with `default=now()`; without
+    # declaring them on the API model, Pydantic silently drops them from
+    # the serialized response and every UI cell renders the "—" fallback.
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
     @classmethod
     def exists(cls, **kwargs) -> bool:

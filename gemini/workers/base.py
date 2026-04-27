@@ -189,17 +189,36 @@ class BaseWorker(ABC):
         logger.info(f"Processing job {job_id} ({job_type})")
         try:
             result = self.process(job_id, job_type, parameters)
-            # Mark completed
-            self._http.patch(
-                f"/api/jobs/{job_id}/status",
-                json={
-                    "status": "COMPLETED",
-                    "progress": 100.0,
-                    "result": result or {},
-                    "worker_id": self.worker_id,
-                },
+            # Workers signal cancellation by returning {"status": "cancelled"}
+            # (the only way to bail out of `process()` without raising). Without
+            # this branch, the base loop would PATCH the job to COMPLETED with
+            # progress=100, which is misleading and breaks any downstream code
+            # that branches on job.status.
+            cancelled = (
+                isinstance(result, dict)
+                and str(result.get("status", "")).lower() == "cancelled"
             )
-            logger.info(f"Job {job_id} completed successfully")
+            if cancelled:
+                self._http.patch(
+                    f"/api/jobs/{job_id}/status",
+                    json={
+                        "status": "CANCELLED",
+                        "result": result,
+                        "worker_id": self.worker_id,
+                    },
+                )
+                logger.info(f"Job {job_id} cancelled mid-processing")
+            else:
+                self._http.patch(
+                    f"/api/jobs/{job_id}/status",
+                    json={
+                        "status": "COMPLETED",
+                        "progress": 100.0,
+                        "result": result or {},
+                        "worker_id": self.worker_id,
+                    },
+                )
+                logger.info(f"Job {job_id} completed successfully")
         except Exception as e:
             logger.error(f"Job {job_id} failed: {e}")
             try:

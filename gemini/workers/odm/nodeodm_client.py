@@ -47,6 +47,18 @@ class NodeODMClient:
         """
         Create a new processing task by uploading images.
 
+        Uses NodeODM's chunked-init/upload/commit protocol:
+            POST /task/new/init           → returns uuid
+            POST /task/new/upload/{uuid}  → one image per request (streaming)
+            POST /task/new/commit/{uuid}  → finalises the task
+
+        The single-shot ``POST /task/new`` with all images as one multipart
+        body is unusable for any real flight: requests buffers the whole
+        body in RAM (337 × 10 MB ≈ 3 GB) before sending, blowing past the
+        worker's container memory limit and getting OOM-killed mid-upload.
+        Streaming one file per request keeps memory flat regardless of
+        flight size.
+
         Args:
             image_paths: List of local file paths to upload.
             options: ODM processing options as list of {"name": ..., "value": ...} dicts.
@@ -54,32 +66,56 @@ class NodeODMClient:
         Returns:
             Task UUID string.
         """
-        files = []
-        try:
-            for path in image_paths:
-                filename = os.path.basename(path)
-                fh = open(path, "rb")
-                files.append(("images", (filename, fh, "image/jpeg")))
+        # 1. Init: register the task and get its uuid.
+        init_data = {}
+        if options:
+            init_data["options"] = json.dumps(options)
+        init_resp = requests.post(
+            f"{self.base_url}/task/new/init",
+            data=init_data,
+            timeout=self.timeout,
+        )
+        init_resp.raise_for_status()
+        init_body = init_resp.json()
+        task_uuid = init_body.get("uuid")
+        if not task_uuid:
+            raise NodeODMError(f"NodeODM /task/new/init returned no uuid: {init_body}")
 
-            data = {}
-            if options:
-                data["options"] = json.dumps(options)
+        # 2. Upload images one at a time. Each request opens a single file
+        #    handle and streams it, so peak memory is one image, not all of
+        #    them.
+        upload_url = f"{self.base_url}/task/new/upload/{task_uuid}"
+        for path in image_paths:
+            filename = os.path.basename(path)
+            with open(path, "rb") as fh:
+                up_resp = requests.post(
+                    upload_url,
+                    files={"images": (filename, fh, "image/jpeg")},
+                    timeout=(self.timeout, 600),  # (connect, read)
+                )
+            try:
+                up_resp.raise_for_status()
+            except requests.HTTPError as e:
+                raise NodeODMError(
+                    f"Upload failed for {filename} (task {task_uuid}): "
+                    f"{up_resp.status_code} {up_resp.text[:200]}"
+                ) from e
 
-            resp = requests.post(
-                f"{self.base_url}/task/new",
-                files=files,
-                data=data,
-                timeout=600,  # Large uploads may take a while
+        # 3. Commit: tell NodeODM the task is complete and ready to process.
+        commit_resp = requests.post(
+            f"{self.base_url}/task/new/commit/{task_uuid}",
+            timeout=self.timeout,
+        )
+        commit_resp.raise_for_status()
+        commit_body = commit_resp.json()
+        # /commit returns the same uuid; double-check.
+        committed_uuid = commit_body.get("uuid", task_uuid)
+        if committed_uuid != task_uuid:
+            raise NodeODMError(
+                f"NodeODM /task/new/commit returned uuid {committed_uuid} "
+                f"but init returned {task_uuid}"
             )
-        finally:
-            for _, (_, fh, _) in files:
-                fh.close()
-
-        resp.raise_for_status()
-        result = resp.json()
-        if "uuid" not in result:
-            raise NodeODMError(f"NodeODM did not return a task UUID: {result}")
-        return result["uuid"]
+        return task_uuid
 
     def get_task_info(self, task_id: str) -> dict:
         """
