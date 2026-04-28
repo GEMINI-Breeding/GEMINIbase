@@ -18,7 +18,17 @@ class TestGEMINISettingsDefaults:
         assert isinstance(s.GEMINI_PUBLIC_DOMAIN, str)
         assert isinstance(s.GEMINI_PUBLIC_IP, str)
 
-    def test_db_defaults(self):
+    def test_db_defaults(self, monkeypatch):
+        # Clear env overrides so we test the *class* defaults, not
+        # whatever the test runner happens to inject. The root conftest
+        # points GEMINI_DB_* at the test stack (port 15432), which is
+        # legit for runtime but unrelated to the field defaults this
+        # test asserts on.
+        monkeypatch.delenv("GEMINI_DB_PORT", raising=False)
+        monkeypatch.setattr(
+            "gemini.config.settings.GEMINISettings.model_config",
+            {**GEMINISettings.model_config, "env_file": None},
+        )
         s = GEMINISettings()
         assert s.GEMINI_DB_CONTAINER_NAME == "geminibase-db"
         assert s.GEMINI_DB_IMAGE_NAME == "geminibase/db"

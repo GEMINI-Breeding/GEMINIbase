@@ -147,32 +147,51 @@ class MockNodeODMHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         content_length = int(self.headers.get("Content-Length", 0))
 
-        # /task/new
-        if self.path == "/task/new":
-            # Read and discard the multipart body
+        # NodeODM chunked-upload protocol (matches nodeodm_client.py:46-118):
+        #   POST /task/new/init           → returns {"uuid"}
+        #   POST /task/new/upload/{uuid}  → one image per request
+        #   POST /task/new/commit/{uuid}  → finalises; task status flips here
+        if self.path == "/task/new/init":
             if content_length > 0:
                 self.rfile.read(content_length)
-
             task_id = str(uuid4())
+            # Init creates a placeholder; status is finalised on commit.
+            self.tasks[task_id] = {
+                "uuid": task_id,
+                "status": {"code": 10},  # QUEUED
+                "progress": 0,
+                "processingTime": 0,
+                "imagesCount": 0,
+            }
+            self._json_response({"uuid": task_id})
+            return
 
+        if self.path.startswith("/task/new/upload/"):
+            # Per-image streaming upload — drain body and ack.
+            if content_length > 0:
+                self.rfile.read(content_length)
+            self._json_response({"success": True})
+            return
+
+        if self.path.startswith("/task/new/commit/"):
+            task_id = self.path.rsplit("/", 1)[-1]
+            if task_id not in self.tasks:
+                self._json_response({"error": "not found"}, 404)
+                return
             if self.fail_next:
                 self.__class__.fail_next = False
-                self.tasks[task_id] = {
-                    "uuid": task_id,
+                self.tasks[task_id].update({
                     "status": {"code": 30, "errorMessage": "ODM processing failed: test error"},
                     "progress": 0,
-                    "processingTime": 0,
                     "imagesCount": 0,
-                }
+                })
             else:
-                self.tasks[task_id] = {
-                    "uuid": task_id,
+                self.tasks[task_id].update({
                     "status": {"code": 40},  # COMPLETED immediately
                     "progress": 100,
                     "processingTime": 1,
                     "imagesCount": 3,
-                }
-
+                })
             self._json_response({"uuid": task_id})
             return
 
@@ -374,7 +393,9 @@ class TestOdmWorkerHelpers:
             "sensor": "RGB",
         }
         prefix = _build_image_prefix(params)
-        assert prefix == "2024/test_exp/field_a/pop1/2024-06-15/DJI/RGB/Images/"
+        # _build_image_prefix prepends Raw/ to match the upload UI's
+        # canonical layout (gemini/workers/odm/worker.py:131-138).
+        assert prefix == "Raw/2024/test_exp/field_a/pop1/2024-06-15/DJI/RGB/Images/"
 
     def test_build_output_prefix(self):
         from gemini.workers.odm.worker import _build_output_prefix
@@ -444,7 +465,8 @@ class TestOdmWorkerPipeline:
 
     def test_successful_pipeline(self, mock_nodeodm, minio_client):
         """Full happy path: seed images → run worker → verify output in MinIO."""
-        image_prefix = "test_odm/2024/exp/loc/pop/2024-06-15/DJI/RGB/Images/"
+        # Worker reads from Raw/... (see _build_image_prefix).
+        image_prefix = "Raw/test_odm/2024/exp/loc/pop/2024-06-15/DJI/RGB/Images/"
         output_prefix = "Processed/test_odm/2024/exp/loc/pop/2024-06-15/DJI/RGB/"
 
         try:
@@ -510,7 +532,7 @@ class TestOdmWorkerPipeline:
 
     def test_odm_failure_propagates(self, mock_nodeodm, minio_client):
         """Worker should raise RuntimeError when ODM reports failure."""
-        image_prefix = "test_odm_fail/Images/"
+        image_prefix = "Raw/test_odm_fail/Images/"
 
         try:
             _seed_test_images(minio_client, image_prefix, count=2)
@@ -536,7 +558,7 @@ class TestOdmWorkerPipeline:
 
     def test_custom_options_passed(self, mock_nodeodm, minio_client):
         """Verify custom CLI options are parsed and worker completes."""
-        image_prefix = "test_odm_custom/2024/exp/loc/pop/2024-06-15/DJI/RGB/Images/"
+        image_prefix = "Raw/test_odm_custom/2024/exp/loc/pop/2024-06-15/DJI/RGB/Images/"
 
         try:
             _seed_test_images(minio_client, image_prefix, count=2)

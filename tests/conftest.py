@@ -48,11 +48,16 @@ _test_env = {
     "GEMINI_TYPE": "local",
     "GEMINI_PUBLIC_DOMAIN": "",
     "GEMINI_PUBLIC_IP": "",
+    # Point GEMINISettings + the import-time db_engine at the test stack
+    # (tests/docker-compose.test.yaml). Modules that capture db_engine
+    # by value at import (gemini.db.models.columnar.*, api.plot, api.job_reaper,
+    # rest_api.infrastructure, …) then resolve to the right engine without
+    # needing setup_real_db's per-module monkey-patch to reach them.
     "GEMINI_DB_HOSTNAME": "localhost",
-    "GEMINI_DB_PORT": "5432",
-    "GEMINI_DB_USER": "test_user",
-    "GEMINI_DB_PASSWORD": "test_pass",
-    "GEMINI_DB_NAME": "test_db",
+    "GEMINI_DB_PORT": "15432",
+    "GEMINI_DB_USER": "gemini_test",
+    "GEMINI_DB_PASSWORD": "gemini_test",
+    "GEMINI_DB_NAME": "gemini_test",
     "GEMINI_STORAGE_HOSTNAME": "localhost",
     "GEMINI_STORAGE_PORT": "9000",
     "GEMINI_STORAGE_API_PORT": "9001",
@@ -73,15 +78,24 @@ _test_env = {
     "GEMINI_SCHEDULER_DB_NAME": "test_scheduler",
     "GEMINI_SCHEDULER_SERVER_HOSTNAME": "localhost",
     "GEMINI_SCHEDULER_SERVER_PORT": "4200",
+    # WorkerSession (gemini/workers/auth.py) refuses to instantiate
+    # without these. Real worker containers get them from pipeline/.env;
+    # tests mock the HTTP layer but BaseWorker.__init__ still calls
+    # session_from_env() unconditionally and would error otherwise.
+    "GEMINI_FIRST_SUPERUSER_EMAIL": "test-worker@example.com",
+    "GEMINI_FIRST_SUPERUSER_PASSWORD": "test-worker-password",
 }
+# Hard-set (not setdefault) so the developer's shell or pipeline/.env
+# can't bleed production credentials into the test process. The DB block
+# in particular MUST point at the test stack — pydantic-settings picks
+# env vars over .env, so as long as we set os.environ before any
+# gemini.* module imports, GEMINISettings() and the import-time
+# DatabaseEngine in gemini.db.core.base will both resolve correctly.
 for key, value in _test_env.items():
-    os.environ.setdefault(key, value)
+    os.environ[key] = value
 
-# JWT guard must be a no-op in tests. GEMINISettings auto-loads
-# pipeline/.env, which on dev machines holds a real secret — that gets
-# baked into guards.py's module-level _settings before any fixture runs,
-# so setdefault won't help. Hard-set to "" so authenticated_guard short-
-# circuits regardless of what the developer's shell or .env contain.
+# JWT guard is a no-op when GEMINI_JWT_SECRET is empty (see
+# gemini/rest_api/guards.py). Tests don't authenticate, so disable it.
 os.environ["GEMINI_JWT_SECRET"] = ""
 
 # ============================================================
