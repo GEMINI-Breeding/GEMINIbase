@@ -1,7 +1,10 @@
+import logging
+
 from litestar import Litestar, Router, get, Response
 from litestar.openapi.config import OpenAPIConfig
 from litestar.openapi.plugins import StoplightRenderPlugin
 from litestar.config.cors import CORSConfig
+from gemini.api.job_reaper import reap_orphaned_jobs
 from gemini.rest_api.controllers import controllers
 from gemini.rest_api.auth import create_api_key_middleware
 from gemini.rest_api.guards import authenticated_guard
@@ -11,6 +14,8 @@ from gemini.rest_api.infrastructure import (
     infrastructure_gate,
 )
 from gemini.config.settings import GEMINISettings
+
+logger = logging.getLogger(__name__)
 
 settings = GEMINISettings()
 
@@ -114,6 +119,19 @@ for key, value in controllers.items():
     routers.append(router)
 
 
+def _reap_orphaned_jobs_on_startup(_app: Litestar) -> None:
+    """Sweep stale PENDING/RUNNING jobs once on boot.
+
+    Wrapped so a reaper failure can never prevent the REST-API from starting —
+    a stale job left RUNNING is annoying, but a REST-API that won't boot is
+    catastrophic.
+    """
+    try:
+        reap_orphaned_jobs(settings.GEMINI_JOB_REAPER_STALE_AFTER_SECONDS)
+    except Exception as exc:
+        logger.warning("Orphaned-job reaper failed on startup: %s", exc)
+
+
 # Entry point for the application
 app = Litestar(
     route_handlers=[root_handler, settings_handler, healthz_handler] + routers,
@@ -122,4 +140,5 @@ app = Litestar(
     middleware=middleware,
     before_request=infrastructure_gate,
     exception_handlers=infra_exception_handlers,
+    on_startup=[_reap_orphaned_jobs_on_startup],
 )

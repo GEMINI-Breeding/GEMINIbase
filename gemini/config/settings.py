@@ -56,6 +56,13 @@ class GEMINISettings(BaseSettings):
     GEMINI_API_KEY : str = ""
     GEMINI_CORS_ORIGINS : str = "*"
 
+    # Orphaned-job reaper. On REST-API startup we mark any PENDING/RUNNING job
+    # whose updated_at is older than this threshold as FAILED, so a worker that
+    # was killed mid-process() (compose down, OOM, container crash) doesn't
+    # leave a ghost job that the frontend keeps re-opening WebSockets to.
+    # Set to 0 to disable.
+    GEMINI_JOB_REAPER_STALE_AFTER_SECONDS : int = 3600
+
     # JWT Auth
     # When GEMINI_JWT_SECRET is empty, auth is disabled (endpoints that depend
     # on CurrentUser return 503 with a clear message). Rotate in production.
