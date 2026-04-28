@@ -77,6 +77,13 @@ _test_env = {
 for key, value in _test_env.items():
     os.environ.setdefault(key, value)
 
+# JWT guard must be a no-op in tests. GEMINISettings auto-loads
+# pipeline/.env, which on dev machines holds a real secret — that gets
+# baked into guards.py's module-level _settings before any fixture runs,
+# so setdefault won't help. Hard-set to "" so authenticated_guard short-
+# circuits regardless of what the developer's shell or .env contain.
+os.environ["GEMINI_JWT_SECRET"] = ""
+
 # ============================================================
 # PHASE 3: Patch MinIO client before api/base.py is imported
 # ============================================================
