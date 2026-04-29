@@ -154,11 +154,18 @@ class TestDownloadFile:
 
 
 class TestUploadChunk:
+    # The chunked-upload controller now streams each chunk straight into a
+    # MinIO multipart part rather than buffering temp files on the API
+    # container. The session shape is `{upload_id, bucket_name, object_name,
+    # parts: {part_number: etag}, total}`. The response is a
+    # ChunkStatusResponse with `uploaded_part_numbers` (1-indexed list).
 
     @patch(CHUNKS_PATH, {})
     @patch(MINIO_PATH)
     def test_single_chunk_of_many(self, mock_minio, test_client):
-        """Uploading chunk 0 of 3 should return complete=False."""
+        """Chunk 0 of 3 → multipart init + upload_part(1) + complete=False."""
+        mock_minio.create_multipart_upload.return_value = "upload-xyz"
+        mock_minio.upload_part.return_value = "etag-1"
         response = test_client.post(
             "/api/files/upload_chunk",
             data={
@@ -173,24 +180,27 @@ class TestUploadChunk:
         assert response.status_code == 201
         data = response.json()
         assert data["file_identifier"] == "test-file-abc"
-        assert data["uploaded_chunks"] == 1
+        assert data["uploaded_part_numbers"] == [1]
         assert data["total_chunks"] == 3
         assert data["complete"] is False
+        mock_minio.create_multipart_upload.assert_called_once()
+        mock_minio.upload_part.assert_called_once()
+        mock_minio.complete_multipart_upload.assert_not_called()
 
     @patch(CHUNKS_PATH, {})
     @patch(MINIO_PATH)
     def test_final_chunk_assembles_and_uploads(self, mock_minio, test_client):
-        """When all chunks arrive, the file should be assembled and uploaded to MinIO."""
-        import tempfile, os
-        # Pre-populate chunk 0
-        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".chunk0")
-        tmp.write(b"part-one-")
-        tmp.close()
-
+        """When the last chunk arrives, MinIO is told to complete the multipart."""
         from gemini.rest_api.controllers.files import _chunk_uploads
-        _chunk_uploads["assemble-test"] = {0: tmp.name}
-
-        mock_minio.upload_file.return_value = "http://minio/test-bucket/file.bin"
+        # Pre-seed an in-progress multipart session for chunk 0 already done.
+        _chunk_uploads["assemble-test"] = {
+            "upload_id": "upload-xyz",
+            "bucket_name": "test-bucket",
+            "object_name": "path/to/file.bin",
+            "parts": {1: "etag-1"},
+            "total": 2,
+        }
+        mock_minio.upload_part.return_value = "etag-2"
 
         response = test_client.post(
             "/api/files/upload_chunk",
@@ -206,19 +216,18 @@ class TestUploadChunk:
         assert response.status_code == 201
         data = response.json()
         assert data["complete"] is True
-        assert data["uploaded_chunks"] == 2
-        mock_minio.upload_file.assert_called_once()
-        # Verify temp chunk files were cleaned up
-        assert not os.path.exists(tmp.name)
+        assert data["uploaded_part_numbers"] == [1, 2]
+        mock_minio.complete_multipart_upload.assert_called_once()
+        mock_minio.create_multipart_upload.assert_not_called()
         assert "assemble-test" not in _chunk_uploads
 
     @patch(CHUNKS_PATH, {})
     @patch(MINIO_PATH)
     def test_upload_error_cleans_up_temps(self, mock_minio, test_client):
-        """If MinIO upload fails, temp files should be cleaned up."""
-        mock_minio.upload_file.side_effect = Exception("MinIO down")
+        """If MinIO upload_part fails, the multipart is aborted + session dropped."""
+        mock_minio.create_multipart_upload.return_value = "upload-xyz"
+        mock_minio.upload_part.side_effect = Exception("MinIO down")
 
-        # Upload chunk 0 of 1 — will try to assemble and fail
         response = test_client.post(
             "/api/files/upload_chunk",
             data={
@@ -233,11 +242,20 @@ class TestUploadChunk:
         assert response.status_code == 500
         from gemini.rest_api.controllers.files import _chunk_uploads
         assert "fail-test" not in _chunk_uploads
+        mock_minio.abort_multipart_upload.assert_called_once()
 
 
 class TestCheckUploadedChunks:
 
-    @patch(CHUNKS_PATH, {"existing-file": {0: "/tmp/a", 1: "/tmp/b"}})
+    @patch(CHUNKS_PATH, {
+        "existing-file": {
+            "upload_id": "u",
+            "bucket_name": "b",
+            "object_name": "o",
+            "parts": {1: "etag-1", 2: "etag-2"},
+            "total": 5,
+        }
+    })
     def test_returns_count_for_existing(self, test_client):
         response = test_client.post(
             "/api/files/check_uploaded_chunks",
@@ -246,7 +264,7 @@ class TestCheckUploadedChunks:
         assert response.status_code == 201
         data = response.json()
         assert data["file_identifier"] == "existing-file"
-        assert data["uploaded_chunks"] == 2
+        assert data["uploaded_part_numbers"] == [1, 2]
         assert data["total_chunks"] == 5
         assert data["complete"] is False
 
@@ -258,7 +276,7 @@ class TestCheckUploadedChunks:
         )
         assert response.status_code == 201
         data = response.json()
-        assert data["uploaded_chunks"] == 0
+        assert data["uploaded_part_numbers"] == []
 
 
 class TestClearUploadCache:
@@ -273,13 +291,16 @@ class TestClearUploadCache:
         assert response.json()["status"] == "ok"
 
     @patch(CHUNKS_PATH, {})
-    def test_clear_existing_removes_entry(self, test_client):
-        import tempfile
+    @patch(MINIO_PATH)
+    def test_clear_existing_removes_entry(self, mock_minio, test_client):
         from gemini.rest_api.controllers.files import _chunk_uploads
-        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".chunk0")
-        tmp.write(b"data")
-        tmp.close()
-        _chunk_uploads["cleanup-test"] = {0: tmp.name}
+        _chunk_uploads["cleanup-test"] = {
+            "upload_id": "upload-xyz",
+            "bucket_name": "test-bucket",
+            "object_name": "path/to/file.bin",
+            "parts": {1: "etag-1"},
+            "total": 1,
+        }
 
         response = test_client.post(
             "/api/files/clear_upload_cache",
@@ -287,8 +308,7 @@ class TestClearUploadCache:
         )
         assert response.status_code == 201
         assert "cleanup-test" not in _chunk_uploads
-        import os
-        assert not os.path.exists(tmp.name)
+        mock_minio.abort_multipart_upload.assert_called_once()
 
 
 class TestPresignUrl:

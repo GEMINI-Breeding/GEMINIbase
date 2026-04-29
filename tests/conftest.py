@@ -118,8 +118,24 @@ class _S3Error(Exception):
 mock_minio_error.S3Error = _S3Error
 mock_minio_module.error = mock_minio_error
 
+# minio.datatypes — gemini/storage/providers/minio_storage.py imports
+# Part from here for the multipart-upload finalize call. Replacing the
+# `minio` module wholesale (above) without also providing datatypes
+# breaks the import as soon as anything pulls in minio_storage.
+mock_minio_datatypes = types.ModuleType("minio.datatypes")
+
+class _Part:
+    """Minimal stand-in for minio.datatypes.Part (kwargs-only ctor)."""
+    def __init__(self, part_number=0, etag=""):
+        self.part_number = part_number
+        self.etag = etag
+
+mock_minio_datatypes.Part = _Part
+mock_minio_module.datatypes = mock_minio_datatypes
+
 sys.modules["minio"] = mock_minio_module
 sys.modules["minio.error"] = mock_minio_error
+sys.modules["minio.datatypes"] = mock_minio_datatypes
 
 # ============================================================
 # PHASE 4: Patch redis before logger is imported
