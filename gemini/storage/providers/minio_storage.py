@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from typing import BinaryIO, Optional, Union, Dict, Any
 from pathlib import Path
 from minio import Minio
+from minio.datatypes import Part
 from minio.error import S3Error
 from urllib3.response import HTTPResponse
 
@@ -164,6 +165,178 @@ class MinioStorageProvider(StorageProvider):
 
         # Fallback if loop finishes without success or raising (should not happen with current logic)
         raise StorageUploadError(f"Upload failed definitively for {object_name} after {max_retries} attempts.")
+
+    # --- S3 multipart upload helpers --------------------------------------
+    # These wrap the underscore-prefixed multipart API on the minio Python SDK
+    # so the chunked-upload controller can map one HTTP chunk → one S3 part
+    # and let MinIO assemble server-side. The whole purpose is to avoid
+    # buffering the file through local disk on the API container.
+
+    def create_multipart_upload(
+        self,
+        object_name: str,
+        bucket_name: Optional[str] = None,
+        content_type: Optional[str] = None,
+        metadata: Optional[Dict[str, str]] = None,
+    ) -> str:
+        """Initiate a multipart upload; return the upload_id."""
+        target_bucket = bucket_name if bucket_name is not None else self.bucket_name
+        headers: Dict[str, str] = {}
+        if content_type:
+            headers["Content-Type"] = content_type
+        if metadata:
+            for k, v in metadata.items():
+                if v is None:
+                    continue
+                # MinIO/S3 user metadata must be x-amz-meta-* prefixed.
+                key = k if k.lower().startswith("x-amz-meta-") else f"x-amz-meta-{k}"
+                headers[key] = str(v)
+        try:
+            return self.client._create_multipart_upload(
+                bucket_name=target_bucket,
+                object_name=object_name,
+                headers=headers,
+            )
+        except S3Error as e:
+            if "AccessDenied" in str(e):
+                raise StorageAuthError(f"Access denied initiating multipart upload: {e}")
+            raise StorageUploadError(f"Failed to initiate multipart upload for '{object_name}': {e}")
+        except ConnectionError as e:
+            raise StorageConnectionError(f"Connection failed initiating multipart upload: {e}")
+
+    def upload_part(
+        self,
+        object_name: str,
+        upload_id: str,
+        part_number: int,
+        data: bytes,
+        bucket_name: Optional[str] = None,
+    ) -> str:
+        """Upload one part of a multipart upload; return the part's etag.
+
+        Retries with exponential backoff on transient failures, mirroring
+        :meth:`upload_file`.
+        """
+        target_bucket = bucket_name if bucket_name is not None else self.bucket_name
+        max_retries = 5
+        base_delay = 1.0
+        for attempt in range(max_retries):
+            try:
+                return self.client._upload_part(
+                    bucket_name=target_bucket,
+                    object_name=object_name,
+                    data=data,
+                    headers=None,
+                    upload_id=upload_id,
+                    part_number=part_number,
+                )
+            except Exception as e:
+                if attempt == max_retries - 1:
+                    if isinstance(e, S3Error) and "AccessDenied" in str(e):
+                        raise StorageAuthError(f"Access denied uploading part {part_number}: {e}")
+                    if isinstance(e, ConnectionError):
+                        raise StorageConnectionError(f"Connection failed uploading part {part_number}: {e}")
+                    raise StorageUploadError(
+                        f"Failed to upload part {part_number} for '{object_name}' after {max_retries} attempts: {e}"
+                    )
+                time.sleep(base_delay * (2 ** attempt))
+        raise StorageUploadError(f"Part {part_number} upload failed definitively for '{object_name}'.")
+
+    def complete_multipart_upload(
+        self,
+        object_name: str,
+        upload_id: str,
+        parts: list[tuple[int, str]],
+        bucket_name: Optional[str] = None,
+    ) -> None:
+        """Tell MinIO to assemble the uploaded parts into the final object.
+
+        ``parts`` is a list of ``(part_number, etag)`` tuples. They are sorted
+        by part_number before being sent — S3 requires monotonically increasing
+        part numbers in the completion request.
+        """
+        target_bucket = bucket_name if bucket_name is not None else self.bucket_name
+        sorted_parts = sorted(parts, key=lambda p: p[0])
+        part_objs = [Part(part_number=pn, etag=etag) for pn, etag in sorted_parts]
+        try:
+            self.client._complete_multipart_upload(
+                bucket_name=target_bucket,
+                object_name=object_name,
+                upload_id=upload_id,
+                parts=part_objs,
+            )
+        except S3Error as e:
+            if "AccessDenied" in str(e):
+                raise StorageAuthError(f"Access denied completing multipart upload: {e}")
+            raise StorageUploadError(f"Failed to complete multipart upload for '{object_name}': {e}")
+        except ConnectionError as e:
+            raise StorageConnectionError(f"Connection failed completing multipart upload: {e}")
+
+    def abort_multipart_upload(
+        self,
+        object_name: str,
+        upload_id: str,
+        bucket_name: Optional[str] = None,
+    ) -> bool:
+        """Cancel an in-progress multipart upload.
+
+        Returns True on success, False if MinIO returned an S3Error (already
+        aborted, never existed, or — notably — the access key lacks the
+        ``s3:AbortMultipartUpload`` permission). The latter case is a silent
+        leak: orphaned multiparts will accumulate. Callers that care can log
+        the False return; the controller treats it as best-effort.
+        """
+        target_bucket = bucket_name if bucket_name is not None else self.bucket_name
+        try:
+            self.client._abort_multipart_upload(
+                bucket_name=target_bucket,
+                object_name=object_name,
+                upload_id=upload_id,
+            )
+            return True
+        except S3Error:
+            return False
+        except ConnectionError as e:
+            raise StorageConnectionError(f"Connection failed aborting multipart upload: {e}")
+
+    def list_uploaded_part_numbers(
+        self,
+        object_name: str,
+        upload_id: str,
+        bucket_name: Optional[str] = None,
+    ) -> list[int]:
+        """Return the sorted list of part numbers MinIO has stored for this upload.
+
+        Used to power resume after the API container restarts (the in-memory
+        session dict is gone but MinIO still has the parts). Walks the
+        pagination cursor until exhausted.
+        """
+        target_bucket = bucket_name if bucket_name is not None else self.bucket_name
+        numbers: list[int] = []
+        marker: Optional[str] = None
+        try:
+            while True:
+                result = self.client._list_parts(
+                    bucket_name=target_bucket,
+                    object_name=object_name,
+                    upload_id=upload_id,
+                    part_number_marker=marker,
+                )
+                for p in result.parts or []:
+                    if p.part_number is not None:
+                        numbers.append(p.part_number)
+                if not result.is_truncated:
+                    break
+                marker = str(result.next_part_number_marker) if result.next_part_number_marker else None
+                if marker is None:
+                    break
+        except S3Error:
+            # No such upload — treat as empty so callers can decide whether to restart.
+            return []
+        except ConnectionError as e:
+            raise StorageConnectionError(f"Connection failed listing parts: {e}")
+        numbers.sort()
+        return numbers
 
     def download_file_stream(
         self,

@@ -1,6 +1,4 @@
 import io
-import os
-import tempfile
 import hashlib
 
 from litestar import Response
@@ -20,6 +18,7 @@ from gemini.rest_api.models import (
     UploadFileRequest,
     ChunkUploadRequest,
     ChunkStatusResponse,
+    AbortUploadRequest,
     PresignedUrlResponse,
 )
 
@@ -29,8 +28,23 @@ from gemini.storage.config.storage_config import MinioStorageConfig
 
 from typing import Annotated, List
 
-# In-memory tracking of chunked uploads: { file_identifier: { chunk_index: temp_path, ... } }
-_chunk_uploads: dict[str, dict[int, str]] = {}
+# In-memory session state for in-flight S3 multipart uploads. One entry per
+# file_identifier, populated when the first chunk arrives and torn down on
+# completion or abort.
+#
+#   {
+#     file_identifier: {
+#       "upload_id":   str,                 # opaque MinIO multipart id
+#       "bucket_name": str,
+#       "object_name": str,
+#       "parts":       dict[int, str],      # part_number (1-indexed) -> etag
+#       "total":       int,                 # expected total_chunks
+#     }
+#   }
+#
+# Single-process safe (Uvicorn runs --workers=1). If we ever scale horizontally
+# this needs to move to Redis.
+_chunk_uploads: dict[str, dict] = {}
 
 manager = GEMINIManager()
 minio_storage_settings = manager.get_component_settings(GEMINIComponentType.STORAGE)
@@ -276,66 +290,83 @@ class FileController(Controller):
         self,
         data: Annotated[ChunkUploadRequest, Body(media_type=RequestEncodingType.MULTI_PART)]
     ) -> ChunkStatusResponse:
-        """Receive a single chunk of a multi-part file upload.
-        When all chunks are received, assembles and uploads to MinIO."""
+        """Receive a single chunk and stream it directly into a MinIO multipart part.
+
+        The first chunk for a given file_identifier initiates the multipart
+        upload; each chunk is uploaded as one S3 part (1-indexed); when the
+        recorded part count equals total_chunks we ask MinIO to assemble.
+        No local-disk buffering on the API container.
+        """
+        file_id = data.file_identifier
         try:
-            file_id = data.file_identifier
             chunk_idx = data.chunk_index
             total = data.total_chunks
+            part_number = chunk_idx + 1  # S3 parts are 1-indexed
+            bucket_name = data.bucket_name or minio_storage_config.bucket_name
 
-            # Save chunk to temp file
-            if file_id not in _chunk_uploads:
-                _chunk_uploads[file_id] = {}
-
-            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=f".chunk{chunk_idx}")
-            chunk_data = data.file_chunk.file.read()
-            tmp.write(chunk_data)
-            tmp.close()
-            _chunk_uploads[file_id][chunk_idx] = tmp.name
-
-            uploaded = len(_chunk_uploads[file_id])
-
-            # If all chunks received, assemble and upload
-            if uploaded == total:
-                bucket_name = data.bucket_name or minio_storage_config.bucket_name
-                assembled = tempfile.NamedTemporaryFile(delete=False, suffix=".assembled")
-                for i in range(total):
-                    chunk_path = _chunk_uploads[file_id][i]
-                    with open(chunk_path, 'rb') as cf:
-                        assembled.write(cf.read())
-                    os.unlink(chunk_path)
-                assembled.close()
-
-                minio_storage_provider.upload_file(
-                    bucket_name=bucket_name,
+            session = _chunk_uploads.get(file_id)
+            if session is None:
+                upload_id = minio_storage_provider.create_multipart_upload(
                     object_name=data.object_name,
-                    input_file_path=assembled.name,
+                    bucket_name=bucket_name,
                 )
-                os.unlink(assembled.name)
-                del _chunk_uploads[file_id]
+                session = {
+                    "upload_id": upload_id,
+                    "bucket_name": bucket_name,
+                    "object_name": data.object_name,
+                    "parts": {},
+                    "total": total,
+                }
+                _chunk_uploads[file_id] = session
 
+            # Idempotent re-send of an already-uploaded part: skip the upload but
+            # still report current progress.
+            if part_number not in session["parts"]:
+                chunk_bytes = data.file_chunk.file.read()
+                etag = minio_storage_provider.upload_part(
+                    object_name=session["object_name"],
+                    upload_id=session["upload_id"],
+                    part_number=part_number,
+                    data=chunk_bytes,
+                    bucket_name=session["bucket_name"],
+                )
+                session["parts"][part_number] = etag
+
+            uploaded_part_numbers = sorted(session["parts"].keys())
+
+            if len(uploaded_part_numbers) == total:
+                minio_storage_provider.complete_multipart_upload(
+                    object_name=session["object_name"],
+                    upload_id=session["upload_id"],
+                    parts=list(session["parts"].items()),
+                    bucket_name=session["bucket_name"],
+                )
+                del _chunk_uploads[file_id]
                 return ChunkStatusResponse(
                     file_identifier=file_id,
-                    uploaded_chunks=total,
+                    uploaded_part_numbers=uploaded_part_numbers,
                     total_chunks=total,
                     complete=True,
                 )
 
             return ChunkStatusResponse(
                 file_identifier=file_id,
-                uploaded_chunks=uploaded,
+                uploaded_part_numbers=uploaded_part_numbers,
                 total_chunks=total,
                 complete=False,
             )
         except Exception as e:
-            # Clean up temp files on error
-            if data.file_identifier in _chunk_uploads:
-                for path in _chunk_uploads[data.file_identifier].values():
-                    try:
-                        os.unlink(path)
-                    except OSError:
-                        pass
-                del _chunk_uploads[data.file_identifier]
+            # Best-effort abort so we don't leak an in-progress multipart upload.
+            session = _chunk_uploads.pop(file_id, None)
+            if session is not None:
+                try:
+                    minio_storage_provider.abort_multipart_upload(
+                        object_name=session["object_name"],
+                        upload_id=session["upload_id"],
+                        bucket_name=session["bucket_name"],
+                    )
+                except Exception:
+                    pass
             return Response(
                 content=RESTAPIError(error=str(e), error_description="Chunk upload failed"),
                 status_code=500,
@@ -346,31 +377,58 @@ class FileController(Controller):
         self,
         data: dict,
     ) -> ChunkStatusResponse:
-        """Check how many chunks have been uploaded for a given file identifier."""
+        """Report which part numbers MinIO has stored for this file_identifier.
+
+        If the in-memory session is gone (e.g. API container restarted), we
+        cannot recover the upload_id, so resume from MinIO is not possible and
+        we report nothing uploaded — the client will start fresh.
+        """
         file_id = data.get("file_identifier", "")
-        total = data.get("total_chunks", 0)
-        chunks = _chunk_uploads.get(file_id, {})
+        total = int(data.get("total_chunks", 0) or 0)
+        session = _chunk_uploads.get(file_id)
+        uploaded_part_numbers = sorted(session["parts"].keys()) if session else []
         return ChunkStatusResponse(
             file_identifier=file_id,
-            uploaded_chunks=len(chunks),
+            uploaded_part_numbers=uploaded_part_numbers,
             total_chunks=total,
             complete=False,
         )
+
+    @post(path="/abort_upload", sync_to_thread=True)
+    def abort_upload(
+        self,
+        data: AbortUploadRequest,
+    ) -> dict:
+        """Cancel an in-progress multipart upload and free its session state."""
+        session = _chunk_uploads.pop(data.file_identifier, None)
+        if session is not None:
+            try:
+                minio_storage_provider.abort_multipart_upload(
+                    object_name=session["object_name"],
+                    upload_id=session["upload_id"],
+                    bucket_name=session["bucket_name"],
+                )
+            except Exception:
+                pass
+        return {"status": "ok", "file_identifier": data.file_identifier}
 
     @post(path="/clear_upload_cache", sync_to_thread=True)
     def clear_upload_cache(
         self,
         data: dict,
     ) -> dict:
-        """Clear cached chunks for a file identifier."""
+        """Backwards-compatible alias for /abort_upload."""
         file_id = data.get("file_identifier", "")
-        if file_id in _chunk_uploads:
-            for path in _chunk_uploads[file_id].values():
-                try:
-                    os.unlink(path)
-                except OSError:
-                    pass
-            del _chunk_uploads[file_id]
+        session = _chunk_uploads.pop(file_id, None)
+        if session is not None:
+            try:
+                minio_storage_provider.abort_multipart_upload(
+                    object_name=session["object_name"],
+                    upload_id=session["upload_id"],
+                    bucket_name=session["bucket_name"],
+                )
+            except Exception:
+                pass
         return {"status": "ok", "file_identifier": file_id}
 
     @get(path="/presign/{file_path:path}", sync_to_thread=True)

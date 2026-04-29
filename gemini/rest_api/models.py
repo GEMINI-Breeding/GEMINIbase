@@ -95,9 +95,15 @@ class ChunkUploadRequest(RESTAPIBase):
 
 class ChunkStatusResponse(RESTAPIBase):
     file_identifier: str
-    uploaded_chunks: int
+    # 1-indexed S3 part numbers that MinIO has already stored. The frontend
+    # diffs this against {1..total_chunks} to know which parts to (re)send,
+    # which lets it upload missing parts in any order.
+    uploaded_part_numbers: List[int]
     total_chunks: int
     complete: bool
+
+class AbortUploadRequest(RESTAPIBase):
+    file_identifier: str
 
 class PresignedUrlResponse(RESTAPIBase):
     url: str

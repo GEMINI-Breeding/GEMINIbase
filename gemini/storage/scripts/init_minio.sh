@@ -35,7 +35,10 @@ cat << EOF > "${POLICY_FILE}"
             "s3:PutObject",
             "s3:ListBucket",
             "s3:List*",
-            "s3:GetBucketLocation"
+            "s3:GetBucketLocation",
+            "s3:AbortMultipartUpload",
+            "s3:ListBucketMultipartUploads",
+            "s3:ListMultipartUploadParts"
         ],
         "Resource": [
             "arn:aws:s3:::${GEMINI_STORAGE_BUCKET_NAME}",
