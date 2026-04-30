@@ -187,51 +187,111 @@ class BaseWorker(ABC):
                 return
 
         logger.info(f"Processing job {job_id} ({job_type})")
+        # Run the actual job. Any exception here is a *job* failure, not a
+        # transport failure — keep this try/except narrowly scoped so we can
+        # tell the two apart when reporting status back to the API.
+        process_failed = False
+        result: dict | None = None
+        process_error: Exception | None = None
         try:
             result = self.process(job_id, job_type, parameters)
-            # Workers signal cancellation by returning {"status": "cancelled"}
-            # (the only way to bail out of `process()` without raising). Without
-            # this branch, the base loop would PATCH the job to COMPLETED with
-            # progress=100, which is misleading and breaks any downstream code
-            # that branches on job.status.
-            cancelled = (
-                isinstance(result, dict)
-                and str(result.get("status", "")).lower() == "cancelled"
-            )
-            if cancelled:
-                self._http.patch(
-                    f"/api/jobs/{job_id}/status",
-                    json={
-                        "status": "CANCELLED",
-                        "result": result,
-                        "worker_id": self.worker_id,
-                    },
-                )
-                logger.info(f"Job {job_id} cancelled mid-processing")
-            else:
-                self._http.patch(
-                    f"/api/jobs/{job_id}/status",
-                    json={
-                        "status": "COMPLETED",
-                        "progress": 100.0,
-                        "result": result or {},
-                        "worker_id": self.worker_id,
-                    },
-                )
-                logger.info(f"Job {job_id} completed successfully")
         except Exception as e:
+            process_failed = True
+            process_error = e
             logger.error(f"Job {job_id} failed: {e}")
+
+        if process_failed:
+            self._report_terminal_status(
+                job_id,
+                {
+                    "status": "FAILED",
+                    "error_message": str(process_error),
+                    "worker_id": self.worker_id,
+                },
+                outcome_label="failure",
+            )
+            return
+
+        # Workers signal cancellation by returning {"status": "cancelled"}
+        # (the only way to bail out of `process()` without raising). Without
+        # this branch, the base loop would PATCH the job to COMPLETED with
+        # progress=100, which is misleading and breaks any downstream code
+        # that branches on job.status.
+        cancelled = (
+            isinstance(result, dict)
+            and str(result.get("status", "")).lower() == "cancelled"
+        )
+        if cancelled:
+            self._report_terminal_status(
+                job_id,
+                {
+                    "status": "CANCELLED",
+                    "result": result,
+                    "worker_id": self.worker_id,
+                },
+                outcome_label="cancellation",
+            )
+            logger.info(f"Job {job_id} cancelled mid-processing")
+            return
+
+        self._report_terminal_status(
+            job_id,
+            {
+                "status": "COMPLETED",
+                "progress": 100.0,
+                "result": result or {},
+                "worker_id": self.worker_id,
+            },
+            outcome_label="completion",
+        )
+        logger.info(f"Job {job_id} completed successfully")
+
+    def _report_terminal_status(
+        self,
+        job_id: str,
+        payload: dict,
+        outcome_label: str,
+    ) -> None:
+        """PATCH a terminal status with an extra retry loop on top of WorkerSession.
+
+        The WorkerSession already retries transport-level errors a few times,
+        but the terminal PATCH is special: if it never lands, the DB stays in
+        RUNNING and any frontend WebSocket subscriber will hang on the
+        previous progress frame indefinitely (Redis pub/sub is ephemeral and
+        the WS controller hydrates from the DB on connect). So we burn a
+        little extra time here in the rare case the WorkerSession exhausted
+        its own retries — losing the terminal write is much worse than a
+        delayed worker.
+        """
+        max_outer_attempts = 3
+        for attempt in range(max_outer_attempts):
             try:
-                self._http.patch(
-                    f"/api/jobs/{job_id}/status",
-                    json={
-                        "status": "FAILED",
-                        "error_message": str(e),
-                        "worker_id": self.worker_id,
-                    },
+                self._http.patch(f"/api/jobs/{job_id}/status", json=payload)
+                return
+            except Exception as e:
+                if attempt + 1 >= max_outer_attempts:
+                    logger.critical(
+                        "Failed to report %s for job %s after %d attempts: %s — "
+                        "DB will be left in non-terminal state until manual "
+                        "intervention or worker restart",
+                        outcome_label,
+                        job_id,
+                        max_outer_attempts,
+                        e,
+                    )
+                    return
+                delay = 2 ** attempt
+                logger.warning(
+                    "Failed to report %s for job %s on attempt %d/%d (%s); "
+                    "retrying in %ds",
+                    outcome_label,
+                    job_id,
+                    attempt + 1,
+                    max_outer_attempts,
+                    e,
+                    delay,
                 )
-            except Exception:
-                logger.error(f"Failed to report failure for job {job_id}")
+                time.sleep(delay)
 
     def _handle_shutdown(self, signum, frame):
         """Handle graceful shutdown."""

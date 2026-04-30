@@ -18,11 +18,24 @@ from __future__ import annotations
 import logging
 import os
 import threading
+import time
 from typing import Any
 
 import requests
 
 logger = logging.getLogger(__name__)
+
+# Transport-layer exceptions worth retrying. These cover the
+# Connection-reset-by-peer / RemoteDisconnected pattern we see when the worker
+# holds an idle keep-alive socket to the REST API and a router or the API
+# itself drops it between requests. HTTP 4xx/5xx are NOT in this list — they
+# get the existing pass-through behaviour.
+_TRANSPORT_RETRY_EXCEPTIONS: tuple[type[BaseException], ...] = (
+    requests.exceptions.ConnectionError,
+    requests.exceptions.Timeout,
+    requests.exceptions.ChunkedEncodingError,
+)
+_TRANSPORT_RETRY_BACKOFFS: tuple[float, ...] = (0.5, 1.5, 4.0)
 
 
 class WorkerAuthError(RuntimeError):
@@ -162,7 +175,7 @@ class WorkerSession:
         headers = dict(kwargs.pop("headers", {}) or {})
         token = self._ensure_token()
         headers["Authorization"] = f"Bearer {token}"
-        resp = self._session.request(method, url, headers=headers, **kwargs)
+        resp = self._send_with_transport_retry(method, url, headers, kwargs)
         if resp.status_code != 401:
             return resp
 
@@ -178,7 +191,7 @@ class WorkerSession:
 
         # One-shot refresh-and-retry on 401 (token expired or revoked).
         headers["Authorization"] = f"Bearer {self._refresh_token(token)}"
-        retry_resp = self._session.request(method, url, headers=headers, **kwargs)
+        retry_resp = self._send_with_transport_retry(method, url, headers, kwargs)
         if retry_resp.status_code == 401:
             raise WorkerAuthError(
                 "Worker request returned 401 even after refreshing the "
@@ -186,6 +199,49 @@ class WorkerSession:
                 "user disabled."
             )
         return retry_resp
+
+    def _send_with_transport_retry(
+        self,
+        method: str,
+        url: str,
+        headers: dict[str, str],
+        kwargs: dict[str, Any],
+    ) -> requests.Response:
+        """Send a single HTTP request with bounded retry on transport errors.
+
+        Connection resets, RemoteDisconnected, and short timeouts all surface
+        as `requests.exceptions.ConnectionError` / `Timeout` /
+        `ChunkedEncodingError`. These are routinely transient inside the
+        docker-compose network — the keep-alive socket goes stale and the
+        next write returns ECONNRESET. Without retry, terminal status PATCHes
+        from workers can be silently lost, leaving jobs stuck in RUNNING.
+
+        Bodies that are not safely rewindable (streaming uploads) get a single
+        attempt only; we do not want to half-send a payload twice.
+        """
+        retryable_body = _is_retryable_body(kwargs)
+        last_exc: BaseException | None = None
+        for attempt in range(len(_TRANSPORT_RETRY_BACKOFFS) + 1):
+            try:
+                return self._session.request(method, url, headers=headers, **kwargs)
+            except _TRANSPORT_RETRY_EXCEPTIONS as exc:
+                last_exc = exc
+                if attempt >= len(_TRANSPORT_RETRY_BACKOFFS) or not retryable_body:
+                    break
+                delay = _TRANSPORT_RETRY_BACKOFFS[attempt]
+                logger.warning(
+                    "Worker HTTP %s %s failed on attempt %d/%d (%s); "
+                    "retrying in %.1fs",
+                    method,
+                    url,
+                    attempt + 1,
+                    len(_TRANSPORT_RETRY_BACKOFFS) + 1,
+                    exc,
+                    delay,
+                )
+                time.sleep(delay)
+        assert last_exc is not None
+        raise last_exc
 
     def get(self, path: str, **kwargs: Any) -> requests.Response:
         return self.request("GET", path, **kwargs)
