@@ -97,6 +97,96 @@ QUALITY_PRESETS: dict[str, list[dict]] = {
 }
 
 
+# Piecewise mapping from NodeODM's `progress` field (0-100, computed as the
+# linear sum of ODM stage weights) to the worker's 20-85 UI band. The
+# breakpoints are chosen so the slow stages — opensfm (ODM 5-25) and openmvs
+# (ODM 25-50) — span more of the visible range than their natural ODM weights
+# imply. Without this remap the bar sits at ~23% for the entire opensfm phase
+# (commonly 30-50% of total wall-clock on real flights).
+#
+# ODM 0-5    (dataset)              → UI 20-23
+# ODM 5-25   (opensfm)              → UI 23-48     (was 23-36)
+# ODM 25-50  (openmvs)              → UI 48-65     (was 36-52)
+# ODM 50-100 (filterpoints+mesh+
+#             texturing+geo+dem+
+#             ortho+report)         → UI 65-85     (was 52-85)
+_ODM_REMAP_BREAKPOINTS = (
+    (0, 20),
+    (5, 23),
+    (25, 48),
+    (50, 65),
+    (100, 85),
+)
+
+
+def _remap_odm_progress(odm_progress: float) -> float:
+    """Piecewise-linear remap of NodeODM's progress field to the UI band.
+
+    See _ODM_REMAP_BREAKPOINTS for the mapping rationale.
+    """
+    p = max(0.0, min(100.0, float(odm_progress)))
+    pts = _ODM_REMAP_BREAKPOINTS
+    for i in range(len(pts) - 1):
+        x0, y0 = pts[i]
+        x1, y1 = pts[i + 1]
+        if x0 <= p <= x1:
+            if x1 == x0:
+                return y0
+            return y0 + (p - x0) * (y1 - y0) / (x1 - x0)
+    return pts[-1][1]
+
+
+# Time constant (seconds) for the asymptotic plateau-creep. After ~tau seconds
+# stuck at the same NodeODM progress value, the smoothed bar is halfway to the
+# segment ceiling; after 2*tau, ~67%; after 4*tau, ~80%. Five minutes is tuned
+# for the opensfm/openmvs plateaus seen in real flights — small enough that
+# the bar visibly moves within the first minute, large enough that we never
+# crowd the ceiling before the next ODM tick arrives.
+SMOOTH_TAU_SECONDS = float(os.environ.get("GEMINI_ODM_SMOOTH_TAU", "300"))
+
+
+def _segment_ceiling(odm_progress: float) -> float:
+    """Mapped ceiling of the piecewise segment containing odm_progress."""
+    p = max(0.0, min(100.0, float(odm_progress)))
+    pts = _ODM_REMAP_BREAKPOINTS
+    for i in range(len(pts) - 1):
+        x0, _ = pts[i]
+        x1, y1 = pts[i + 1]
+        if x0 <= p < x1:
+            return float(y1)
+    return float(pts[-1][1])
+
+
+def _smooth_progress(
+    odm_progress: float,
+    plateau_elapsed: float,
+    last_reported: float,
+    tau: float = SMOOTH_TAU_SECONDS,
+) -> float:
+    """Asymptotic plateau-creep on top of `_remap_odm_progress`.
+
+    NodeODM's `progress` field is chunky — it can sit at the same value for
+    many minutes while opensfm or openmvs grinds through internal sub-stages
+    that NodeODM doesn't surface. Without smoothing, the UI bar appears
+    frozen even though the worker is polling and the job is making progress
+    (one real flight reported only 5 distinct ODM progress values across
+    14 minutes of opensfm). We approach — but never reach — the next
+    breakpoint asymptotically, then re-base when ODM finally ticks.
+    Monotonic: never regresses on re-base.
+    """
+    base = _remap_odm_progress(odm_progress)
+    ceiling = _segment_ceiling(odm_progress)
+    # Reserve 1 UI point of headroom so we never collide with the next
+    # breakpoint — leaves visible motion for the real ODM tick.
+    headroom = max(0.0, ceiling - 1.0 - base)
+    creep = (
+        headroom * plateau_elapsed / (plateau_elapsed + tau)
+        if plateau_elapsed > 0
+        else 0.0
+    )
+    return max(last_reported, base + creep)
+
+
 def _apply_quality_preset(quality: str | None) -> list[dict]:
     """Return DEFAULT_OPTIONS with the matching quality-preset overrides
     merged in (preset values win on key collisions). Unknown / empty
@@ -289,6 +379,20 @@ class OdmWorker(BaseWorker):
     def process(self, job_id: str, job_type: str, parameters: dict) -> dict:
         return self._run_odm(job_id, parameters)
 
+    def _get_experiment_id(self, job_id: str) -> str | None:
+        """Look up the parent job's `experiment_id` so chained child
+        jobs (e.g. CREATE_COG) can inherit it. Required for the
+        experiment-cascade delete to find and reap them — a job row
+        with `experiment_id IS NULL` is invisible to the cascade.
+        """
+        try:
+            resp = self._http.get(f"/api/jobs/{job_id}", timeout=5)
+            if resp.status_code == 200:
+                return resp.json().get("experiment_id")
+        except Exception as e:
+            logger.warning(f"Failed to look up experiment_id for {job_id}: {e}")
+        return None
+
     def _run_odm(self, job_id: str, parameters: dict) -> dict:
         """
         Full ODM orthomosaic generation pipeline.
@@ -435,7 +539,10 @@ class OdmWorker(BaseWorker):
 
             # Phase 7: Submit CREATE_COG job for tile serving (96-98%)
             self.report_progress(job_id, 97, {"stage": "submitting_cog_job"})
-            cog_job_id = self._submit_cog_job(ortho_object_path)
+            cog_job_id = self._submit_cog_job(
+                ortho_object_path,
+                experiment_id=self._get_experiment_id(job_id),
+            )
             if cog_job_id:
                 logger.info(f"Submitted CREATE_COG job {cog_job_id} for {ortho_object_path}")
 
@@ -512,6 +619,23 @@ class OdmWorker(BaseWorker):
         log_save_interval = 5  # seconds
         consecutive_failures = 0
 
+        # Smoothing state for the chunky NodeODM `progress` field — see
+        # `_smooth_progress` for the rationale. Without this the UI bar
+        # appears frozen on the long opensfm/openmvs plateaus.
+        #
+        # Plateau is tracked against the *UI segment ceiling*, not the raw
+        # ODM progress value. NodeODM emits `progress` as a float that
+        # walks in tiny sub-percent steps inside a single ODM stage
+        # (e.g. opensfm: 5.0 → 5.4 → 6.6 → 7.2), and resetting on every
+        # tick zeros out `plateau_elapsed` before the asymptotic creep
+        # ever accumulates — leaving the bar visually stuck. Resetting
+        # only on segment crossings (dataset → opensfm → openmvs → tail)
+        # lets creep run within a stage while still re-seating the
+        # creep window when ODM enters a genuinely new phase.
+        prev_segment_ceiling: float | None = None
+        plateau_start = time.time()
+        last_smoothed = 0.0
+
         while True:
             if self.is_cancelled(job_id):
                 raise _CancelledError()
@@ -545,9 +669,27 @@ class OdmWorker(BaseWorker):
             except Exception:
                 pass
 
-            # Map ODM progress (0-100) to our 20-85 range; round so the UI
-            # gets clean integers instead of "23.471823..." labels.
-            mapped_progress = round(20 + (odm_progress / 100.0) * 65)
+            # Map ODM progress (0-100) to our 20-85 range. NodeODM's `progress`
+            # field is the linear sum of ODM stage weights from
+            # /code/stages/odm_app.py (dataset 0-5, opensfm 5-25, openmvs 25-50,
+            # filterpoints/meshing/texturing/geo/dem 50-90, ortho 90-98). The
+            # opensfm and openmvs stages routinely consume ~70% of wall-clock
+            # time but only span 5-50 in ODM's own progress, so a linear remap
+            # makes the UI bar appear stuck in the low 20s for most of the run.
+            # `_remap_odm_progress` widens those slow segments; `_smooth_progress`
+            # then asymptotically creeps within each segment so the bar keeps
+            # visibly moving while NodeODM sits on the same chunk.
+            now = time.time()
+            current_ceiling = _segment_ceiling(odm_progress)
+            if prev_segment_ceiling is None or current_ceiling != prev_segment_ceiling:
+                plateau_start = now
+                prev_segment_ceiling = current_ceiling
+            plateau_elapsed = now - plateau_start
+            smoothed = _smooth_progress(
+                odm_progress, plateau_elapsed, last_smoothed
+            )
+            last_smoothed = smoothed
+            mapped_progress = round(smoothed)
 
             log_tail = log_buffer[-5:] if log_buffer else []
             self.report_progress(job_id, mapped_progress, {
@@ -620,15 +762,20 @@ class OdmWorker(BaseWorker):
             pass
         self._remove_nodeodm_task(task_id)
 
-    def _submit_cog_job(self, ortho_path: str) -> str:
+    def _submit_cog_job(
+        self, ortho_path: str, experiment_id: str | None = None,
+    ) -> str:
         """Submit a CREATE_COG job to convert the orthophoto to a tiled pyramid for map display."""
         try:
+            payload: dict = {
+                "job_type": "CREATE_COG",
+                "parameters": {"input_path": ortho_path},
+            }
+            if experiment_id:
+                payload["experiment_id"] = experiment_id
             resp = self._http.post(
                 "/api/jobs/submit",
-                json={
-                    "job_type": "CREATE_COG",
-                    "parameters": {"input_path": ortho_path},
-                },
+                json=payload,
             )
             if resp.status_code in (200, 201):
                 return str(resp.json().get("id", ""))
