@@ -555,7 +555,18 @@ class ScriptRecord(APIBase, FileHandlerMixin):
             if not script_record:
                 logger.info(f"No ScriptRecord found with ID: {current_id}")
                 return False
+            record_file = getattr(script_record, "record_file", None)
             ScriptRecordModel.delete(script_record)
+            if record_file:
+                try:
+                    self.minio_storage_provider.client.remove_object(
+                        bucket_name=self.minio_storage_provider.bucket_name,
+                        object_name=record_file,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "MinIO remove_object %s failed: %s", record_file, exc
+                    )
             return True
         except Exception as e:
             logger.error(f"Error deleting ScriptRecord: {e}")

@@ -92,6 +92,13 @@ class ChunkUploadRequest(RESTAPIBase):
     file_identifier: str
     object_name: str
     bucket_name: Optional[str] = None
+    # Phase 9j: when the upload is scoped to an experiment (which is now
+    # required by the Files page UI gate for every chunked upload), the
+    # frontend forwards the experiment id so the upload-finalize handler
+    # can write a `experiment_files` row. Optional for backwards
+    # compatibility with any legacy caller; uploads with no
+    # experiment_id won't be reachable from the experiment cascade.
+    experiment_id: Optional[str] = None
 
 class ChunkStatusResponse(RESTAPIBase):
     file_identifier: str
@@ -1297,40 +1304,50 @@ class GenotypingStudyOutput(RESTAPIBase):
 # --------------------------------
 # Genotype Record Classes
 # --------------------------------
-class GenotypeRecordInput(RESTAPIBase):
-    study_id: Optional[ID] = None
-    study_name: Optional[str] = None
-    variant_id: Optional[ID] = None
-    variant_name: Optional[str] = None
-    chromosome: Optional[int] = None
-    position: Optional[float] = None
-    accession_id: Optional[ID] = None
-    accession_name: Optional[str] = None
-    call_value: str
-    record_info: Optional[JSONB] = {}
-
-class GenotypeRecordBulkInput(RESTAPIBase):
-    records: List[dict]
 
 
-class GenotypeMatrixVariantRow(RESTAPIBase):
-    variant_name: str
-    chromosome: Optional[int] = None
-    position: Optional[float] = None
-    alleles: Optional[str] = None
-    design_sequence: Optional[str] = None
-    calls: List[Optional[str]]
+class GenotypePgenIngestRequest(RESTAPIBase):
+    """Multipart request for the PGEN-backed ingest endpoint.
+
+    The wizard sends:
+      - ``file``: the original upload (xlsx/HapMap/VCF/CSV/TSV).
+      - ``sample_canonical_map_json``: JSON-encoded ``raw_header →
+        canonical_accession_name`` from the sample-resolve step.
+      - ``skipped_headers_json``: JSON-encoded list of headers to drop.
+      - ``created_accessions_json``: JSON-encoded list of canonical
+        names that should be created as accessions before ingest.
+      - ``experiment_name`` + ``population_name``: optional. When both
+        are set, the ingest associates every accession the wizard
+        creates (whether from ``created_accessions_json`` or from the
+        sample-header pass) with that population in the named
+        experiment, mirroring how the trait wizard links plot accessions
+        to populations. Without these fields the ingest behaves as
+        before: accessions are created unaffiliated.
+
+    JSON-encoded fields are used (rather than nested objects) because
+    multipart-form bodies don't naturally carry structured data.
+    """
+    file: UploadFile
+    sample_canonical_map_json: Optional[str] = None
+    skipped_headers_json: Optional[str] = None
+    created_accessions_json: Optional[str] = None
+    experiment_name: Optional[str] = None
+    population_name: Optional[str] = None
 
 
-class GenotypeMatrixBatchInput(RESTAPIBase):
-    sample_headers: List[str]
-    variant_rows: List[GenotypeMatrixVariantRow]
-    record_info: Optional[JSONB] = None
+class GenotypePgenIngestResult(RESTAPIBase):
+    """Returned by POST /genotyping_studies/{id}/ingest-pgen.
 
-
-class GenotypeMatrixBatchResult(RESTAPIBase):
+    ``variants_inserted`` / ``samples_inserted`` count rows added to the
+    metadata catalog tables; ``records_inserted`` is the number of
+    biallelic calls written to PGEN. ``files`` maps file_kind →
+    ``s3://...`` URI so the wizard can show the user where the data
+    landed in MinIO.
+    """
     variants_inserted: int
     records_inserted: int
+    samples_inserted: int = 0
+    files: dict = {}
     errors: List[str] = []
 
 

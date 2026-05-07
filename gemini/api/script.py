@@ -341,6 +341,12 @@ class Script(APIBase):
             bool: True if the script was deleted, False otherwise.
         """
         try:
+            from sqlalchemy import select
+            from gemini.db.core.base import db_engine
+            from gemini.db.models.columnar.script_records import (
+                ScriptRecordModel,
+            )
+
             current_id = self.id
             script = ScriptModel.get(current_id)
             if not script:
@@ -354,10 +360,27 @@ class Script(APIBase):
                 if getattr(exp, "experiment_name", None)
             ]
 
+            with db_engine.get_session() as session:
+                candidate_dataset_ids = list(set(session.execute(
+                    select(ScriptDatasetModel.dataset_id).where(
+                        ScriptDatasetModel.script_id == current_id
+                    )
+                ).scalars().all()))
+
+            try:
+                ScriptRecordModel.delete_by_script(self.script_name)
+            except Exception as exc:
+                logger.warning(
+                    "script_records sweep for %s failed: %s",
+                    self.script_name, exc,
+                )
+
             ScriptModel.delete(script)
 
-            from gemini.api.base import sweep_minio_prefixes
+            from gemini.api.base import sweep_minio_prefixes, sweep_orphan_datasets
             sweep_minio_prefixes(prefixes)
+            if candidate_dataset_ids:
+                sweep_orphan_datasets(candidate_dataset_ids, owner=self.script_name)
             return True
         except Exception as e:
             logger.error(f"Error deleting script: {e}")

@@ -30,10 +30,20 @@ from gemini.db.models.lines import LineModel
 from gemini.db.models.accessions import AccessionModel
 from gemini.db.models.populations import PopulationModel
 from gemini.db.models.experiments import ExperimentModel
+from gemini.db.models.experiment_files import ExperimentFileModel
 from gemini.db.models.plots import PlotModel
 from gemini.db.models.jobs import JobModel
 from gemini.db.models.variants import VariantModel
 from gemini.db.models.genotyping_studies import GenotypingStudyModel
+from gemini.db.models.genotyping_study_files import (
+    ALLOWED_FILE_KINDS,
+    GenotypingStudyFileModel,
+)
+from gemini.db.models.genotyping_study_variants import GenotypingStudyVariantModel
+from gemini.db.models.genotyping_study_samples import GenotypingStudySampleModel
+from gemini.db.models.genotyping_study_variant_stats import (
+    GenotypingStudyVariantStatsModel,
+)
 from gemini.db.models.users import UserModel
 from gemini.db.models.reference_data import ReferenceDatasetModel, ReferencePlotModel
 from gemini.db.models.plot_geometry_versions import PlotGeometryVersionModel
@@ -48,7 +58,6 @@ from gemini.db.models.columnar.procedure_records import ProcedureRecordModel
 from gemini.db.models.columnar.script_records import ScriptRecordModel
 from gemini.db.models.columnar.sensor_records import SensorRecordModel
 from gemini.db.models.columnar.trait_records import TraitRecordModel
-from gemini.db.models.columnar.genotype_records import GenotypeRecordModel
 
 # Views
 from gemini.db.models.views.plot_view import PlotViewModel

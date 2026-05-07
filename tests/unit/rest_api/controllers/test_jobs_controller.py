@@ -161,6 +161,31 @@ class TestUpdateJobStatus:
         })
         assert response.status_code == 404
 
+    @patch(PUBLISH_PATH)
+    @patch(JOB_API_PATH)
+    def test_update_failed_publishes_error_message(self, mock_job_cls, mock_publish, test_client):
+        # Regression: error_message must ride along on the WS publish so the
+        # frontend can surface the actual exception instead of the stage label.
+        job_id = str(uuid4())
+        job = MagicMock()
+        job.status = "RUNNING"
+        job.update.return_value = _job_output(job_id=job_id, status="FAILED")
+        mock_job_cls.get_by_id.return_value = job
+
+        response = test_client.patch(f"/api/jobs/{job_id}/status", json={
+            "status": "FAILED",
+            "progress": 5.0,
+            "progress_detail": {"stage": "downloading"},
+            "error_message": "S3 NoSuchKey: plot-boundaries/v1.geojson",
+        })
+        assert response.status_code == 200
+        mock_publish.assert_called_once()
+        _, args, _ = mock_publish.mock_calls[0]
+        # _publish_job_event(job_id, status, data_dict)
+        assert args[1] == "FAILED"
+        assert args[2]["error_message"] == "S3 NoSuchKey: plot-boundaries/v1.geojson"
+        assert args[2]["progress_detail"] == {"stage": "downloading"}
+
 
 class TestDeleteJob:
 

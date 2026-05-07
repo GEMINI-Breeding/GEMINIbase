@@ -358,7 +358,42 @@ class Dataset(APIBase):
                 if getattr(exp, "experiment_name", None)
             ]
 
-            TraitRecordModel.delete_by_dataset(self.dataset_name)
+            # Sweep all six columnar record tables by dataset_name. Each
+            # helper opens its own transaction (Dataset.delete doesn't
+            # use an outer-session pattern), so wrap each individually:
+            # a partial failure in one helper must not stop the others.
+            from gemini.db.models.columnar.sensor_records import (
+                SensorRecordModel,
+            )
+            from gemini.db.models.columnar.dataset_records import (
+                DatasetRecordModel,
+            )
+            from gemini.db.models.columnar.procedure_records import (
+                ProcedureRecordModel,
+            )
+            from gemini.db.models.columnar.script_records import (
+                ScriptRecordModel,
+            )
+            from gemini.db.models.columnar.model_records import (
+                ModelRecordModel,
+            )
+
+            for label, helper in (
+                ("trait_records", lambda: TraitRecordModel.delete_by_dataset(self.dataset_name)),
+                ("sensor_records", lambda: SensorRecordModel.delete_by_dataset(self.dataset_name)),
+                ("dataset_records", lambda: DatasetRecordModel.delete_by_dataset(self.dataset_name)),
+                ("procedure_records", lambda: ProcedureRecordModel.delete_by_dataset(self.dataset_name)),
+                ("script_records", lambda: ScriptRecordModel.delete_by_dataset(self.dataset_name)),
+                ("model_records", lambda: ModelRecordModel.delete_by_dataset(self.dataset_name)),
+            ):
+                try:
+                    helper()
+                except Exception as exc:
+                    logger.warning(
+                        "%s sweep for dataset %s failed: %s",
+                        label, self.dataset_name, exc,
+                    )
+
             DatasetModel.delete(dataset)
 
             from gemini.api.base import sweep_minio_prefixes

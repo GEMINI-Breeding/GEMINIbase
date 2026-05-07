@@ -252,33 +252,9 @@ ALTER TABLE gemini.model_records ADD CONSTRAINT model_records_unique UNIQUE NULL
 
 CREATE INDEX model_records_record_info_idx ON gemini.model_records USING GIN (record_info);
 
-------------------------------------------------------------------------------
--- Genotype Records Table
--- Each row = one allele call: one variant in one accession within one study
-------------------------------------------------------------------------------
-
-CREATE TABLE IF NOT EXISTS gemini.genotype_records (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    study_id UUID,
-    study_name TEXT,
-    variant_id UUID,
-    variant_name TEXT,
-    chromosome INTEGER,
-    position FLOAT,
-    accession_id UUID,
-    accession_name TEXT,
-    call_value VARCHAR(10),
-    record_info JSONB NOT NULL DEFAULT '{}'
-) USING columnar;
-
-ALTER TABLE gemini.genotype_records ADD CONSTRAINT genotype_records_unique UNIQUE (
-    study_id,
-    variant_id,
-    accession_id
-);
-
-CREATE INDEX genotype_records_study_variant_idx ON gemini.genotype_records (study_id, variant_id);
-CREATE INDEX genotype_records_study_accession_idx ON gemini.genotype_records (study_id, accession_id);
-CREATE INDEX genotype_records_chromosome_idx ON gemini.genotype_records (chromosome);
-CREATE INDEX genotype_records_record_info_idx ON gemini.genotype_records USING GIN (record_info);
+-- Genotype calls are no longer stored as one-row-per-call in Postgres.
+-- They live in PGEN files in MinIO; the Postgres-side catalog tables
+-- (genotyping_study_files, genotyping_study_variants,
+-- genotyping_study_samples, genotyping_study_variant_stats) are created
+-- in 2_init_schema.sql.
 

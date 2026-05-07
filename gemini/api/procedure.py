@@ -316,6 +316,12 @@ class Procedure(APIBase):
             bool: True if the procedure was deleted, False otherwise.
         """
         try:
+            from sqlalchemy import select
+            from gemini.db.core.base import db_engine
+            from gemini.db.models.columnar.procedure_records import (
+                ProcedureRecordModel,
+            )
+
             current_id = self.id
             procedure = ProcedureModel.get(current_id)
             if not procedure:
@@ -329,10 +335,27 @@ class Procedure(APIBase):
                 if getattr(exp, "experiment_name", None)
             ]
 
+            with db_engine.get_session() as session:
+                candidate_dataset_ids = list(set(session.execute(
+                    select(ProcedureDatasetModel.dataset_id).where(
+                        ProcedureDatasetModel.procedure_id == current_id
+                    )
+                ).scalars().all()))
+
+            try:
+                ProcedureRecordModel.delete_by_procedure(self.procedure_name)
+            except Exception as exc:
+                logger.warning(
+                    "procedure_records sweep for %s failed: %s",
+                    self.procedure_name, exc,
+                )
+
             ProcedureModel.delete(procedure)
 
-            from gemini.api.base import sweep_minio_prefixes
+            from gemini.api.base import sweep_minio_prefixes, sweep_orphan_datasets
             sweep_minio_prefixes(prefixes)
+            if candidate_dataset_ids:
+                sweep_orphan_datasets(candidate_dataset_ids, owner=self.procedure_name)
             return True
         except Exception as e:
             logger.error(f"Error deleting procedure: {e}")

@@ -2,8 +2,11 @@
 SQLAlchemy model for GenotypingStudy entities in the GEMINIbase database.
 
 A GenotypingStudy represents a genotyping protocol or run (e.g. a SNP array
-run, RNA-seq, whole genome sequencing). Individual allele calls are stored
-in GenotypeRecordModel, which references this table via study_id.
+run, RNA-seq, whole genome sequencing). Genotype calls live in PGEN files
+in MinIO; per-study file pointers and the variant/sample catalogs live in
+``genotyping_study_files`` / ``genotyping_study_variants`` /
+``genotyping_study_samples``, which all reference this table via study_id
+with ON DELETE CASCADE.
 """
 
 from sqlalchemy import String, TIMESTAMP, UniqueConstraint, Index

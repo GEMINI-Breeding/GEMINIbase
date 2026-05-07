@@ -31,6 +31,7 @@ from gemini.rest_api.controllers.gwas import GwasController
 from gemini.rest_api.controllers.users import UsersController
 from gemini.rest_api.controllers.utils import UtilsController
 from gemini.rest_api.controllers.reference_data import ReferenceDataController
+from gemini.rest_api.controllers.e2e_cleanup import E2ECleanupController
 
 controllers = {
     "populations": PopulationController,
@@ -66,5 +67,6 @@ controllers = {
     "users": UsersController,
     "utils": UtilsController,
     "reference_data": ReferenceDataController,
+    "e2e_cleanup": E2ECleanupController,
 }
 

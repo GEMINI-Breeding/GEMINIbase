@@ -2,6 +2,31 @@ FROM python:3.12
 
 RUN echo "Debug: Building image"
 
+# Genomic toolchain (Phase 9d'): plink2 packs/unpacks PGEN, bcftools
+# converts VCF↔BCF and computes per-variant stats, tabix indexes BCF
+# for region queries. The rest-api owns the genomic ingest path that
+# transcodes uploads into PGEN+BCF in MinIO; the GWAS worker container
+# already has these tools but we now need them here too.
+#
+# bcftools + tabix come from Debian. plink2 we install from the
+# upstream prebuilt binary — same as the GWAS worker container does
+# (gemini/workers/gwas/Dockerfile) so both code paths behave
+# identically. Without the version pin Debian's plink2 may diverge
+# from what the worker expects.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        bcftools \
+        tabix \
+        unzip \
+        ca-certificates \
+        curl \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN curl -fsSL https://s3.amazonaws.com/plink2-assets/alpha6/plink2_linux_x86_64_20250129.zip \
+      -o /tmp/plink2.zip \
+ && unzip /tmp/plink2.zip -d /usr/local/bin/ \
+ && chmod +x /usr/local/bin/plink2 \
+ && rm /tmp/plink2.zip
+
 # Install poetry
 RUN pip install poetry
 

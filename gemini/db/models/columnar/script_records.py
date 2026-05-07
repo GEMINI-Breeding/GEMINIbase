@@ -3,7 +3,18 @@ SQLAlchemy model for columnar ScriptRecord entities in the GEMINIbase database.
 """
 
 from sqlalchemy.orm import relationship, mapped_column, Mapped, Relationship
-from sqlalchemy import UUID, JSON, String, Integer, UniqueConstraint, Index, ForeignKey, TIMESTAMP, DATE
+from sqlalchemy import (
+    UUID,
+    JSON,
+    String,
+    Integer,
+    UniqueConstraint,
+    Index,
+    ForeignKey,
+    TIMESTAMP,
+    DATE,
+    delete as sa_delete,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy import text, bindparam
 from gemini.db.core.base import ColumnarBaseModel, db_engine
@@ -110,3 +121,44 @@ class ScriptRecordModel(ColumnarBaseModel):
             result = session.execute(stmt, execution_options={"yield_per": 1000})
             for record in result:
                 yield record
+
+    # See `trait_records._bulk_delete_in_session` for the rationale —
+    # this mirrors the pg_ivm-aware bulk-delete pattern, with the
+    # script_records table + its IMMV.
+    @classmethod
+    def _bulk_delete_in_session(cls, session, column_name: str, value: str) -> int:
+        session.execute(text("SET LOCAL session_replication_role = 'replica'"))
+        try:
+            base_col = cls.__table__.c[column_name]
+            result = session.execute(
+                sa_delete(cls.__table__).where(base_col == value)
+            )
+            session.execute(
+                text(
+                    f"DELETE FROM gemini.script_records_immv "
+                    f"WHERE {column_name} = :value"
+                ),
+                {"value": value},
+            )
+            return result.rowcount
+        finally:
+            session.execute(text("SET LOCAL session_replication_role = 'origin'"))
+
+    @classmethod
+    def _bulk_delete(cls, column_name: str, value: str, session=None) -> int:
+        if session is not None:
+            return cls._bulk_delete_in_session(session, column_name, value)
+        with db_engine.get_session() as s:
+            return cls._bulk_delete_in_session(s, column_name, value)
+
+    @classmethod
+    def delete_by_script(cls, script_name: str, session=None) -> int:
+        return cls._bulk_delete("script_name", script_name, session=session)
+
+    @classmethod
+    def delete_by_experiment(cls, experiment_name: str, session=None) -> int:
+        return cls._bulk_delete("experiment_name", experiment_name, session=session)
+
+    @classmethod
+    def delete_by_dataset(cls, dataset_name: str, session=None) -> int:
+        return cls._bulk_delete("dataset_name", dataset_name, session=session)

@@ -380,7 +380,12 @@ class Experiment(APIBase):
             from gemini.db.models.accession_aliases import AccessionAliasModel
             from gemini.db.models.lines import LineModel
             from gemini.db.models.genotyping_studies import GenotypingStudyModel
-            from gemini.db.models.columnar.genotype_records import GenotypeRecordModel
+            from gemini.db.models.genotyping_study_variants import (
+                GenotypingStudyVariantModel,
+            )
+            from gemini.db.models.genotyping_study_samples import (
+                GenotypingStudySampleModel,
+            )
             from gemini.db.models.variants import VariantModel
             from sqlalchemy import or_
 
@@ -437,7 +442,33 @@ class Experiment(APIBase):
                 # phase take minutes) then flips it back so FK cascades
                 # fire normally for the experiment row delete below.
                 TraitRecordModel.delete_by_experiment(exp_name, session=session)
-                t_phase = _phase("trait_records delete", t_start)
+                # Same pg_ivm-aware bulk-delete dance for the other five
+                # columnar record tables. They share the outer
+                # transaction so a mid-cascade interrupt rolls all of
+                # them back together. Mirrors the trait pattern at
+                # `trait_records.py:165-207`; wired into all five
+                # other models in `db/models/columnar/*_records.py`.
+                from gemini.db.models.columnar.sensor_records import (
+                    SensorRecordModel,
+                )
+                from gemini.db.models.columnar.dataset_records import (
+                    DatasetRecordModel,
+                )
+                from gemini.db.models.columnar.procedure_records import (
+                    ProcedureRecordModel,
+                )
+                from gemini.db.models.columnar.script_records import (
+                    ScriptRecordModel,
+                )
+                from gemini.db.models.columnar.model_records import (
+                    ModelRecordModel,
+                )
+                SensorRecordModel.delete_by_experiment(exp_name, session=session)
+                DatasetRecordModel.delete_by_experiment(exp_name, session=session)
+                ProcedureRecordModel.delete_by_experiment(exp_name, session=session)
+                ScriptRecordModel.delete_by_experiment(exp_name, session=session)
+                ModelRecordModel.delete_by_experiment(exp_name, session=session)
+                t_phase = _phase("columnar records delete (6 tables)", t_start)
                 # First pass: determine which populations are orphans, and
                 # while the population_accessions join rows still exist,
                 # determine which accessions will be orphaned once those
@@ -475,12 +506,60 @@ class Experiment(APIBase):
                         orphan_accession_ids = [
                             aid for aid in linked_accession_ids if aid not in kept_accession_ids
                         ]
+                # The orphan-study delete above cleared `genotyping_study_samples`
+                # for orphan studies via FK CASCADE, but a non-orphan study
+                # (one shared with another experiment) may still have a
+                # sample row pointing at one of these candidate accessions.
+                # That FK is `ON DELETE RESTRICT`, so we must drop those
+                # accessions from the orphan set or the bulk delete below
+                # rolls the whole transaction back — which is exactly the
+                # symptom this fix is for. The plot/alias path already
+                # applies the same filter; here we apply it to the
+                # population path too.
+                if orphan_accession_ids:
+                    still_in_studies = set(session.execute(
+                        select(GenotypingStudySampleModel.accession_id).where(
+                            GenotypingStudySampleModel.accession_id.in_(orphan_accession_ids)
+                        ).distinct()
+                    ).scalars().all())
+                    if still_in_studies:
+                        before = len(orphan_accession_ids)
+                        orphan_accession_ids = [
+                            aid for aid in orphan_accession_ids
+                            if aid not in still_in_studies
+                        ]
+                        logger.info(
+                            f"[delete:{exp_name}] Held back "
+                            f"{before - len(orphan_accession_ids)} accession(s) "
+                            f"still referenced by surviving genotyping studies."
+                        )
 
                 # Now do the usual association-table orphan cleanup for the
                 # other satellite entities. The Population branch re-runs
                 # the query for symmetry with the others, but we already
                 # know the answer.
+                #
+                # Genotyping studies used to be deferred until AFTER commit
+                # (so `GenotypingStudy.delete()` could sweep MinIO + orphan
+                # variants in its own session). That ordering broke the
+                # cascade: `genotyping_study_samples.accession_id` is a
+                # `ON DELETE RESTRICT` FK, so the in-transaction accession
+                # delete below blew up with a ForeignKeyViolation whenever
+                # an orphan study still had sample rows pointing at the
+                # population's accessions. Now we delete the orphan study
+                # rows INSIDE this transaction — `genotyping_study_files`,
+                # `genotyping_study_variants`, `genotyping_study_samples`,
+                # and `genotyping_study_variant_stats` all CASCADE off
+                # `genotyping_studies.id`, so the RESTRICT row is gone
+                # before the accession delete runs. MinIO + orphan-variant
+                # cleanup happens post-commit (see below) using the
+                # captured `orphan_study_ids` + `orphan_study_variant_ids`.
                 orphan_study_ids: list = []
+                # Variants reachable from the orphan studies we'll drop.
+                # Captured BEFORE the cascade clears
+                # `genotyping_study_variants` so we can sweep variants
+                # whose only remaining link was via these studies.
+                orphan_study_variant_ids: list = []
                 for assoc_model, child_model, fk_name in children:
                     fk_col = getattr(assoc_model, fk_name)
                     # Child rows linked to THIS experiment via the association.
@@ -498,65 +577,34 @@ class Experiment(APIBase):
                     ).scalars().all())
                     orphan_ids = [cid for cid in linked_child_ids if cid not in shared_ids]
                     if orphan_ids:
-                        session.execute(
-                            child_model.__table__.delete().where(child_model.id.in_(orphan_ids))
-                        )
-                        logger.info(
-                            f"Deleted {len(orphan_ids)} orphaned {child_model.__name__}"
-                            f" row(s) previously tied only to experiment {self.experiment_name}."
-                        )
                         if child_model is GenotypingStudyModel:
                             orphan_study_ids = list(orphan_ids)
-
-                # Genotype records carry study_id but no FK (columnar
-                # storage), so we have to sweep them manually once the
-                # owning study rows are gone.
-                orphan_variant_candidates: list = []
-                if orphan_study_ids:
-                    # Stash the variant_ids these records reference BEFORE
-                    # deleting them. Variants are a shared catalog across
-                    # studies; we'll cascade-delete only the ones nothing
-                    # else references after the records disappear.
-                    orphan_variant_candidates = list(set(session.execute(
-                        select(GenotypeRecordModel.variant_id).where(
-                            GenotypeRecordModel.study_id.in_(orphan_study_ids)
-                        )
-                    ).scalars().all()))
-
-                    deleted_records = session.execute(
-                        GenotypeRecordModel.__table__.delete().where(
-                            GenotypeRecordModel.study_id.in_(orphan_study_ids)
-                        )
-                    ).rowcount
-                    if deleted_records:
-                        logger.info(
-                            f"Deleted {deleted_records} genotype_record(s) for "
-                            f"{len(orphan_study_ids)} orphaned study/studies."
-                        )
-
-                # Sweep variants no longer referenced by any surviving
-                # record. Runs after the orphan records are gone so the
-                # "still referenced" check reflects post-cascade reality.
-                if orphan_variant_candidates:
-                    still_ref_variants = set(session.execute(
-                        select(GenotypeRecordModel.variant_id).where(
-                            GenotypeRecordModel.variant_id.in_(orphan_variant_candidates)
-                        ).distinct()
-                    ).scalars().all())
-                    orphan_variants = [
-                        v for v in orphan_variant_candidates
-                        if v not in still_ref_variants
-                    ]
-                    if orphan_variants:
-                        session.execute(
-                            VariantModel.__table__.delete().where(
-                                VariantModel.id.in_(orphan_variants)
+                            orphan_study_variant_ids = list(set(
+                                session.execute(
+                                    select(GenotypingStudyVariantModel.variant_id).where(
+                                        GenotypingStudyVariantModel.study_id.in_(orphan_ids)
+                                    )
+                                ).scalars().all()
+                            ))
+                            session.execute(
+                                GenotypingStudyModel.__table__.delete().where(
+                                    GenotypingStudyModel.id.in_(orphan_ids)
+                                )
                             )
-                        )
-                        logger.info(
-                            f"Deleted {len(orphan_variants)} orphan variant(s) "
-                            f"no longer referenced by any genotype_record."
-                        )
+                            logger.info(
+                                f"Deleted {len(orphan_ids)} orphaned GenotypingStudy"
+                                f" row(s) (cascading study_files/variants/samples"
+                                f"/variant_stats) previously tied only to"
+                                f" experiment {self.experiment_name}."
+                            )
+                        else:
+                            session.execute(
+                                child_model.__table__.delete().where(child_model.id.in_(orphan_ids))
+                            )
+                            logger.info(
+                                f"Deleted {len(orphan_ids)} orphaned {child_model.__name__}"
+                                f" row(s) previously tied only to experiment {self.experiment_name}."
+                            )
 
                 # Collect accessions/lines reachable from this experiment
                 # via paths the population-based cascade doesn't cover, so
@@ -625,12 +673,12 @@ class Experiment(APIBase):
                             PlotModel.accession_id.in_(extra_candidates)
                         )
                     ).scalars().all())
-                    # Records for orphan studies are already gone; any hit
-                    # here means a non-orphan study references this
-                    # accession.
+                    # Sample-level study references via the
+                    # genotyping_study_samples heap table — non-orphan
+                    # studies referencing this accession keep it alive.
                     still_ref |= set(session.execute(
-                        select(GenotypeRecordModel.accession_id).where(
-                            GenotypeRecordModel.accession_id.in_(extra_candidates)
+                        select(GenotypingStudySampleModel.accession_id).where(
+                            GenotypingStudySampleModel.accession_id.in_(extra_candidates)
                         ).distinct()
                     ).scalars().all())
                     newly_orphan = [a for a in extra_candidates if a not in still_ref]
@@ -711,6 +759,53 @@ class Experiment(APIBase):
                 if season_deleted:
                     logger.info(f"Deleted {season_deleted} season(s) owned by {self.experiment_name}.")
 
+                # Phase 9j: capture every (bucket, object_name) the
+                # chunked-upload endpoint recorded for this experiment
+                # BEFORE the experiment row is deleted. Once the row
+                # goes the FK CASCADE drops experiment_files itself, so
+                # we have to read it now. The MinIO sweep happens
+                # post-commit below.
+                from gemini.db.models.experiment_files import ExperimentFileModel
+                experiment_file_targets = list(session.execute(
+                    select(
+                        ExperimentFileModel.bucket,
+                        ExperimentFileModel.object_name,
+                    ).where(ExperimentFileModel.experiment_id == current_id)
+                ).all())
+
+                # Loose-coupled satellites: `reference_datasets` joins
+                # by `experiment` VARCHAR (not FK — see
+                # `2_init_schema.sql:666`). `reference_plots.dataset_id`
+                # IS `ON DELETE CASCADE`, so dropping reference_dataset
+                # rows reaps reference_plots automatically. `jobs` keeps
+                # `experiment_id` as bare UUID with no FK
+                # (`2_init_schema.sql:625`). Sweep both inside the same
+                # outer transaction so a rollback rolls back everything.
+                from gemini.db.models.reference_data import (
+                    ReferenceDatasetModel,
+                )
+                from gemini.db.models.jobs import JobModel
+                rd_count = session.execute(
+                    sa_delete(ReferenceDatasetModel).where(
+                        ReferenceDatasetModel.experiment == exp_name
+                    )
+                ).rowcount or 0
+                if rd_count:
+                    logger.info(
+                        "Deleted %d reference_datasets row(s) for %s.",
+                        rd_count, exp_name,
+                    )
+                job_count = session.execute(
+                    sa_delete(JobModel).where(
+                        JobModel.experiment_id == current_id
+                    )
+                ).rowcount or 0
+                if job_count:
+                    logger.info(
+                        "Deleted %d jobs row(s) for %s.",
+                        job_count, exp_name,
+                    )
+
                 # Finally, the experiment row itself. Doing this inline
                 # (rather than ExperimentModel.delete(instance), which
                 # opens its own session) keeps the whole cascade atomic.
@@ -722,33 +817,143 @@ class Experiment(APIBase):
             # failure is post-commit cleanup and doesn't affect the DB.
             t_phase = _phase("association cleanup + experiment delete + commit", t_phase)
 
-            # Cascade MinIO cleanup. Anything keyed by experiment name:
-            # uploads under Raw/ and per-record-type data prefixes.
-            # Processed/ is laid out as Processed/{year}/{experiment}/...,
-            # so we enumerate the year directories and sweep each one.
+            # The orphan genotyping_studies rows + their CASCADE-children
+            # (study_files/variants/samples/variant_stats) were dropped
+            # inside the outer transaction above (so the accession delete
+            # didn't trip `genotyping_study_samples_accession_id_fkey`).
+            # All that's left is the post-commit cleanup their
+            # `GenotypingStudy.delete()` helper used to do for us:
+            #   (a) sweep each study's MinIO prefix
+            #   (b) drop variants whose ONLY remaining link was via these
+            #       studies (the variants catalog is shared, so we have
+            #       to check `genotyping_study_variants` for survivors).
+            if orphan_study_ids:
+                from gemini.api.base import minio_storage_provider as _msp
+                _bucket = _msp.bucket_name
+                for sid in orphan_study_ids:
+                    prefix = f"genotyping/{sid}/"
+                    try:
+                        objs = list(_msp.client.list_objects(
+                            bucket_name=_bucket, prefix=prefix, recursive=True,
+                        ))
+                    except Exception as exc:
+                        logger.warning(
+                            "MinIO list_objects(%s) failed: %s", prefix, exc,
+                        )
+                        objs = []
+                    for obj in objs:
+                        try:
+                            _msp.client.remove_object(
+                                bucket_name=_bucket, object_name=obj.object_name,
+                            )
+                        except Exception as exc:
+                            logger.warning(
+                                "MinIO remove_object %s failed: %s",
+                                obj.object_name, exc,
+                            )
+                if orphan_study_variant_ids:
+                    with db_engine.get_session() as variant_session:
+                        still_ref = set(variant_session.execute(
+                            select(GenotypingStudyVariantModel.variant_id).where(
+                                GenotypingStudyVariantModel.variant_id.in_(
+                                    orphan_study_variant_ids
+                                )
+                            ).distinct()
+                        ).scalars().all())
+                        orphan_variants = [
+                            v for v in orphan_study_variant_ids
+                            if v not in still_ref
+                        ]
+                        if orphan_variants:
+                            variant_session.execute(
+                                VariantModel.__table__.delete().where(
+                                    VariantModel.id.in_(orphan_variants)
+                                )
+                            )
+                            variant_session.commit()
+                            logger.info(
+                                "Deleted %d orphan variant(s) after dropping "
+                                "%d genotyping_studies for %s.",
+                                len(orphan_variants), len(orphan_study_ids),
+                                exp_name,
+                            )
+                t_phase = _phase(
+                    f"orphan genotyping_study post-commit cleanup "
+                    f"({len(orphan_study_ids)} studies)",
+                    t_phase,
+                )
+
+            # Cascade MinIO cleanup. Two stacked strategies:
+            #
+            #   1. Row-targeted sweep (Phase 9j): every chunked upload
+            #      under this experiment wrote a `experiment_files`
+            #      pointer; we captured those URIs above. Remove them
+            #      individually so we hit exactly the objects this
+            #      experiment owns. This is the new authoritative path.
+            #
+            #   2. Convention-based prefix backstop: worker-written
+            #      outputs (Processed/) and any pre-9j legacy uploads
+            #      that don't have rows still need cleanup. The Raw/
+            #      and Processed/ trees are laid out as
+            #      `{top}/{year}/{exp_name}/...`, so we enumerate the
+            #      year subdirectories and build per-year prefixes.
+            #      Other data prefixes (dataset_data/ etc.) use the
+            #      experiment name as the immediate child.
             from gemini.api.base import minio_storage_provider, sweep_minio_prefixes
+            bucket = minio_storage_provider.bucket_name
+
+            # 1. Row-targeted: remove each MinIO object whose pointer
+            #    we captured before the experiment row was deleted.
+            row_failed = 0
+            for tgt_bucket, tgt_object in experiment_file_targets:
+                try:
+                    minio_storage_provider.client.remove_object(
+                        bucket_name=tgt_bucket, object_name=tgt_object,
+                    )
+                except Exception as exc:
+                    row_failed += 1
+                    logger.warning(
+                        "experiment_files sweep: remove %s/%s failed: %s",
+                        tgt_bucket, tgt_object, exc,
+                    )
+            if experiment_file_targets:
+                t_phase = _phase(
+                    f"experiment_files sweep ({len(experiment_file_targets)} "
+                    f"objects, {row_failed} failed)",
+                    t_phase,
+                )
+
+            # 2. Prefix backstop. Skip Raw/ if every Raw object was
+            #    captured by experiment_files — but the cheap path is
+            #    just to enumerate anyway, which catches legacy uploads
+            #    that pre-date the table.
             prefixes = [
-                f"Raw/{exp_name}/",
                 f"dataset_data/{exp_name}/",
                 f"sensor_data/{exp_name}/",
                 f"procedure_data/{exp_name}/",
                 f"script_data/{exp_name}/",
                 f"model_data/{exp_name}/",
             ]
-            try:
-                year_entries = minio_storage_provider.client.list_objects(
-                    bucket_name=minio_storage_provider.bucket_name,
-                    prefix="Processed/",
-                    recursive=False,
-                )
-                for entry in year_entries:
-                    # list_objects returns "folders" as keys ending with "/"
-                    year_prefix = entry.object_name  # e.g. "Processed/2024/"
-                    if year_prefix.endswith("/"):
-                        prefixes.append(f"{year_prefix}{exp_name}/")
-            except Exception as e:
-                logger.warning(f"Could not enumerate Processed/ years for cascade: {e}")
-            t_phase = _phase(f"minio Processed/ enumerate ({len(prefixes)} prefixes)", t_phase)
+            for top in ("Raw/", "Processed/"):
+                try:
+                    year_entries = minio_storage_provider.client.list_objects(
+                        bucket_name=bucket,
+                        prefix=top,
+                        recursive=False,
+                    )
+                    for entry in year_entries:
+                        # list_objects returns "folders" as keys ending with "/"
+                        year_prefix = entry.object_name  # e.g. "Raw/2024/"
+                        if year_prefix.endswith("/"):
+                            prefixes.append(f"{year_prefix}{exp_name}/")
+                except Exception as e:
+                    logger.warning(
+                        f"Could not enumerate {top} years for cascade: {e}"
+                    )
+            t_phase = _phase(
+                f"minio prefix enumerate ({len(prefixes)} prefixes)",
+                t_phase,
+            )
 
             failed_prefixes = sweep_minio_prefixes(prefixes)
             _phase("minio prefix sweep", t_phase)

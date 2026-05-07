@@ -75,6 +75,12 @@ class GEMINISettings(BaseSettings):
     GEMINI_FIRST_SUPERUSER_PASSWORD : str = ""
     GEMINI_FIRST_SUPERUSER_FULL_NAME : str = "GEMINI Admin"
 
+    # Test-only: when "1", enables DELETE /api/e2e_cleanup so the
+    # Playwright afterEach hook can sweep entities a single test run
+    # created. Read directly from os.environ in the controller; left
+    # here so pydantic-settings doesn't reject the env var.
+    GEMINI_E2E_CLEANUP_ENABLED : str = "0"
+
     # Scheduler DB
     GEMINI_SCHEDULER_DB_CONTAINER_NAME : str = "geminibase-scheduler-db"
     GEMINI_SCHEDULER_DB_IMAGE_NAME : str = "geminibase/scheduler-db"

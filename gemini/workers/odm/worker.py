@@ -358,6 +358,41 @@ def _diagnose_odm_failure(log_lines: list[str]) -> str:
             "differences between frames."
         )
 
+    # OpenMVS rejected every image during dense reconstruction. Seen on the
+    # 'Lowest' quality preset (pc-quality=lowest + depthmap-resolution=320):
+    # SfM reconstructs fine, but the densifier's view-selection step picks
+    # 0 of N images and DensifyPointCloud then segfaults on the empty input.
+    # The user-facing log shows:
+    #   "Selecting images for dense reconstruction completed: 0 images"
+    #   "error: no valid point-cloud for the ROI estimation"
+    #   "Densifying point-cloud completed: 0 points"
+    if (
+        "Selecting images for dense reconstruction completed: 0 images" in tail
+        or "no valid point-cloud for the ROI estimation" in tail
+        or "Densifying point-cloud completed: 0 points" in tail
+    ):
+        return (
+            "OpenMVS rejected every image during dense reconstruction — "
+            "the quality preset is likely too aggressive for this dataset. "
+            "Retry with a higher Reconstruction quality (e.g. Low or Medium "
+            "instead of Lowest), or pass `--depthmap-resolution 640` and "
+            "`--pc-quality low` via custom options."
+        )
+
+    # SfM placed cameras outside any plausible ROI and ODM saw a flipped Z
+    # axis — usually an EXIF orientation / camera-model issue rather than a
+    # quality-preset problem. Both warnings together strongly imply bad
+    # metadata; the densification step then has no valid scene to fuse.
+    if (
+        "Negative GSD estimated" in tail
+        and "scene will be considered unbounded" in tail
+    ):
+        return (
+            "ODM couldn't establish a valid scene from the input EXIF "
+            "(negative GSD + unbounded scene). Verify image orientation and "
+            "GPS metadata, or strip and re-tag EXIF before re-uploading."
+        )
+
     # GPU/CUDA path failed — uncommon but possible.
     if "CUDA" in tail and ("error" in tail.lower() or "failed" in tail.lower()):
         return "CUDA/GPU path crashed. Retry with CPU-only options."
@@ -716,10 +751,22 @@ class OdmWorker(BaseWorker):
                 # "Cannot process dataset". The real cause lives in the task
                 # log — scan the tail for the common signatures so the user
                 # gets an actionable message instead of digging through MinIO.
+                # When no pattern matches, point the user at the saved log
+                # so they (or support) can read it without docker-exec'ing.
                 detail = _diagnose_odm_failure(log_buffer)
+                log_pointer = (
+                    f"Full ODM log: {STORAGE_BUCKET}/{output_prefix}odm_log.txt"
+                )
+                if detail:
+                    raise RuntimeError(
+                        f"ODM processing failed: {generic_msg} — "
+                        f"likely cause: {detail}\n{log_pointer}"
+                    )
                 raise RuntimeError(
-                    f"ODM processing failed: {generic_msg}"
-                    + (f" — likely cause: {detail}" if detail else "")
+                    f"ODM processing failed: {generic_msg}. The failure "
+                    f"signature isn't one we recognize automatically — "
+                    f"check the saved log for the underlying error.\n"
+                    f"{log_pointer}"
                 )
             elif status_code == STATUS_CANCELLED:
                 raise _CancelledError()

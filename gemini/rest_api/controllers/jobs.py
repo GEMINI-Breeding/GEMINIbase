@@ -237,10 +237,14 @@ class JobController(Controller):
                     content=RESTAPIError(error="Update failed", error_description="Failed to update job"),
                     status_code=500,
                 )
-            # Publish progress event for WebSocket subscribers
+            # Publish progress event for WebSocket subscribers. error_message
+            # rides along on terminal-FAILED frames so the UI can surface the
+            # actual worker exception (e.g. "S3 NoSuchKey ...") instead of just
+            # the last-seen stage label.
             _publish_job_event(job_id, data.status, {
                 "progress": data.progress,
                 "progress_detail": data.progress_detail,
+                "error_message": data.error_message,
             })
             return updated
         except Exception as e:
@@ -296,13 +300,17 @@ class JobController(Controller):
             channel = f"job:{job_id}:progress"
             pubsub.subscribe(channel)
 
-            # Send current status immediately
+            # Send current status immediately. Late subscribers (e.g. user
+            # opens a job page after a FAILED job already finished) need the
+            # error_message in this snapshot — the redis pub/sub will not
+            # replay past events.
             job = Job.get_by_id(id=job_id)
             if job is not None:
                 await socket.send_json({
                     "status": job.status,
                     "progress": job.progress,
                     "progress_detail": job.progress_detail,
+                    "error_message": job.error_message,
                 })
                 if job.status in ("COMPLETED", "FAILED", "CANCELLED"):
                     return

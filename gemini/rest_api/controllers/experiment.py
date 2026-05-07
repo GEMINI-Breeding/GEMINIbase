@@ -256,7 +256,23 @@ class ExperimentController(Controller):
                     error_description="No experiment was found with the given ID"
                 )
                 return Response(content=error, status_code=404)
-            experiment.delete()
+            # `Experiment.delete()` swallows its own exceptions and returns
+            # False on failure (e.g. a mid-cascade FK violation rolls the
+            # transaction back). Without this check the handler's implicit
+            # None return became a 204 No Content, lying to the UI that
+            # the delete succeeded — the user sees a "deleted" toast and
+            # then the experiment still in the list after refresh.
+            ok = experiment.delete()
+            if not ok:
+                error = RESTAPIError(
+                    error="Delete failed",
+                    error_description=(
+                        "Experiment delete did not complete; the cascade "
+                        "rolled back. See backend logs for the underlying "
+                        "error."
+                    ),
+                )
+                return Response(content=error, status_code=500)
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),

@@ -528,7 +528,18 @@ class DatasetRecord(APIBase, FileHandlerMixin):
             if not dataset_record:
                 logger.debug(f"DatasetRecord with id {current_id} not found.")
                 return False
+            record_file = getattr(dataset_record, "record_file", None)
             DatasetRecordModel.delete(dataset_record)
+            if record_file:
+                try:
+                    self.minio_storage_provider.client.remove_object(
+                        bucket_name=self.minio_storage_provider.bucket_name,
+                        object_name=record_file,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "MinIO remove_object %s failed: %s", record_file, exc
+                    )
             return True
         except Exception as e:
             logger.error(f"Error deleting DatasetRecord: {e}")

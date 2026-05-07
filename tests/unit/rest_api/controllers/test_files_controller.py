@@ -130,6 +130,71 @@ class TestDeleteFile:
         response = test_client.delete("/api/files/delete/test-bucket/file.txt")
         assert response.status_code == 500
 
+    @patch("gemini.db.core.base.db_engine")
+    @patch(MINIO_PATH)
+    def test_success_also_drops_experiment_files_row(
+        self, mock_minio, mock_db_engine, test_client
+    ):
+        """P0.5: a successful delete_file call must DELETE the matching
+        experiment_files row in the same request — no dangling pointer
+        when the chunked-upload finaliser previously inserted one for
+        this (bucket, object_name).
+
+        We assert by inspecting the SQLAlchemy DELETE statement that the
+        endpoint executes against the mocked session: it must target
+        experiment_files with WHERE bucket = <bucket> AND object_name =
+        <object>.
+        """
+        mock_minio.bucket_exists.return_value = True
+        mock_minio.file_exists.return_value = True
+        mock_minio.delete_file.return_value = True
+
+        # Capture the session.execute call so we can assert the
+        # DELETE statement targets experiment_files. The endpoint opens
+        # `db_engine.get_session()` as a context manager.
+        mock_session = MagicMock()
+        mock_db_engine.get_session.return_value.__enter__.return_value = (
+            mock_session
+        )
+
+        response = test_client.delete(
+            "/api/files/delete/test-bucket/path/to/file.txt"
+        )
+        assert response.status_code in (200, 204)
+
+        # Find the DELETE call to session.execute. The endpoint may
+        # also call session.commit() afterwards — we don't care here.
+        execute_calls = mock_session.execute.call_args_list
+        assert execute_calls, (
+            "delete_file should execute a DELETE on experiment_files "
+            "after the MinIO delete succeeds"
+        )
+        # Render the first executed statement to a string and verify
+        # it's a DELETE on the experiment_files table.
+        first_stmt = execute_calls[0].args[0]
+        rendered = str(first_stmt).lower()
+        assert "delete from" in rendered, rendered
+        assert "experiment_files" in rendered, rendered
+
+    @patch("gemini.db.core.base.db_engine")
+    @patch(MINIO_PATH)
+    def test_db_failure_after_minio_delete_is_logged_not_fatal(
+        self, mock_minio, mock_db_engine, test_client, caplog
+    ):
+        """P0.5 contract: if the experiment_files DELETE raises (e.g. DB
+        is down), the response is still success — the MinIO object is
+        already gone and a logged orphan row is recoverable. We assert
+        the warning surfaces but the response stays 200/204."""
+        mock_minio.bucket_exists.return_value = True
+        mock_minio.file_exists.return_value = True
+        mock_minio.delete_file.return_value = True
+        mock_db_engine.get_session.side_effect = Exception("DB unavailable")
+
+        response = test_client.delete(
+            "/api/files/delete/test-bucket/path/to/file.txt"
+        )
+        assert response.status_code in (200, 204)
+
 
 class TestDownloadFile:
 

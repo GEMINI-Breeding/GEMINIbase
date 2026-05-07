@@ -559,7 +559,18 @@ class ModelRecord(APIBase, FileHandlerMixin):
             if not model_record:
                 logger.info(f"No ModelRecord found with ID: {current_id}")
                 return False
+            record_file = getattr(model_record, "record_file", None)
             ModelRecordModel.delete(model_record)
+            if record_file:
+                try:
+                    self.minio_storage_provider.client.remove_object(
+                        bucket_name=self.minio_storage_provider.bucket_name,
+                        object_name=record_file,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "MinIO remove_object %s failed: %s", record_file, exc
+                    )
             return True
         except Exception as e:
             logger.error(f"Error deleting ModelRecord: {e}")

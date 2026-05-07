@@ -141,4 +141,12 @@ app = Litestar(
     before_request=infrastructure_gate,
     exception_handlers=infra_exception_handlers,
     on_startup=[_reap_orphaned_jobs_on_startup],
+    # Genomic ingest (Phase 9d') accepts whole xlsx/HapMap/VCF files
+    # in a single multipart upload. Litestar's default
+    # ``request_max_body_size`` is 10 MB; the user's tpj13827 supplement
+    # is 35 MB and a 1 M-variant × 5 k-sample WGS xlsx could be much
+    # larger. Cap at 2 GiB so we accept anything reasonable but still
+    # reject obviously-broken uploads. Match this on the reverse proxy
+    # in production.
+    request_max_body_size=2 * 1024 * 1024 * 1024,
 )

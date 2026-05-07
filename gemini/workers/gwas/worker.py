@@ -2,15 +2,12 @@
 GWAS worker.
 
 Consumes RUN_GWAS jobs from the REST API queue. Each job extracts genotype
-data (from the GenotypingStudy's GenotypeRecord rows) plus phenotype data
+data (from the GenotypingStudy's PGEN trio in MinIO) plus phenotype data
 (from TraitRecords resolved through the plot→accession view), runs the
 standard pipeline:
 
     raw geno → PLINK QC → PCA → GEMMA kinship → GEMMA LMM/mvLMM
     → Manhattan + QQ plots → MinIO upload → job.result
-
-See /Users/bnbailey/.claude/plans/sleepy-imagining-flamingo.md for the plan
-this worker implements.
 """
 from __future__ import annotations
 

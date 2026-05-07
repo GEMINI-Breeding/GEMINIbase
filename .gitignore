@@ -191,3 +191,7 @@ cython_debug/
 CLAUDE.md
 .claude/
 
+# Playwright auth state (contains real JWTs) and test artifacts
+playwright/.auth/
+test-results/
+

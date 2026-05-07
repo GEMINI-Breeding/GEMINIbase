@@ -369,6 +369,12 @@ class Sensor(APIBase):
             bool: True if the sensor was deleted, False otherwise.
         """
         try:
+            from sqlalchemy import select
+            from gemini.db.core.base import db_engine
+            from gemini.db.models.columnar.sensor_records import (
+                SensorRecordModel,
+            )
+
             current_id = self.id
             sensor = SensorModel.get(current_id)
             if not sensor:
@@ -383,10 +389,35 @@ class Sensor(APIBase):
                 if getattr(exp, "experiment_name", None)
             ]
 
+            # Capture auto-created dataset candidates BEFORE cascade. The
+            # populate_sensor_record_ids trigger silently inserts
+            # `gemini.datasets` + `sensor_datasets` rows on first record;
+            # CASCADE drops the join but not the dataset row — that's
+            # the orphan swept post-cascade.
+            with db_engine.get_session() as session:
+                candidate_dataset_ids = list(set(session.execute(
+                    select(SensorDatasetModel.dataset_id).where(
+                        SensorDatasetModel.sensor_id == current_id
+                    )
+                ).scalars().all()))
+
+            # Drop loose-coupled columnar sensor_records BEFORE the
+            # sensor row so a re-import of the same sensor name doesn't
+            # silently merge with leftover rows.
+            try:
+                SensorRecordModel.delete_by_sensor(self.sensor_name)
+            except Exception as exc:
+                logger.warning(
+                    "sensor_records sweep for %s failed: %s",
+                    self.sensor_name, exc,
+                )
+
             SensorModel.delete(sensor)
 
-            from gemini.api.base import sweep_minio_prefixes
+            from gemini.api.base import sweep_minio_prefixes, sweep_orphan_datasets
             sweep_minio_prefixes(prefixes)
+            if candidate_dataset_ids:
+                sweep_orphan_datasets(candidate_dataset_ids, owner=self.sensor_name)
             return True
         except Exception as e:
             logger.error(f"Error deleting sensor: {e}")

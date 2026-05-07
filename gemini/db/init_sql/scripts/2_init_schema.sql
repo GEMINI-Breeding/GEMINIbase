@@ -562,6 +562,61 @@ CREATE INDEX IF NOT EXISTS idx_genotyping_studies_info ON gemini.genotyping_stud
 ALTER TABLE gemini.genotyping_studies ADD CONSTRAINT genotyping_study_unique UNIQUE (study_name);
 
 -------------------------------------------------------------------------------
+-- Genotyping Study Files Table (Phase 9d')
+-- File pointers for the per-study PGEN/BCF/Parquet artefacts in MinIO.
+-- One row per (study, file_kind). The application validates `file_kind`
+-- against ALLOWED_FILE_KINDS in db/models/genotyping_study_files.py.
+CREATE TABLE IF NOT EXISTS gemini.genotyping_study_files (
+    study_id UUID NOT NULL REFERENCES gemini.genotyping_studies(id) ON DELETE CASCADE,
+    file_kind TEXT NOT NULL,
+    s3_uri TEXT NOT NULL,
+    bytes BIGINT,
+    sha256 TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (study_id, file_kind)
+);
+
+-------------------------------------------------------------------------------
+-- Genotyping Study Variants Table (Phase 9d')
+-- Variant catalog per study with its 0-based ordinal in the PGEN file.
+CREATE TABLE IF NOT EXISTS gemini.genotyping_study_variants (
+    study_id UUID NOT NULL REFERENCES gemini.genotyping_studies(id) ON DELETE CASCADE,
+    variant_id UUID NOT NULL REFERENCES gemini.variants(id) ON DELETE RESTRICT,
+    variant_index INTEGER NOT NULL,
+    PRIMARY KEY (study_id, variant_id)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_genotyping_study_variants_ordinal
+    ON gemini.genotyping_study_variants (study_id, variant_index);
+
+-------------------------------------------------------------------------------
+-- Genotyping Study Samples Table (Phase 9d')
+-- Sample catalog per study with its 0-based ordinal in the PSAM file.
+CREATE TABLE IF NOT EXISTS gemini.genotyping_study_samples (
+    study_id UUID NOT NULL REFERENCES gemini.genotyping_studies(id) ON DELETE CASCADE,
+    accession_id UUID NOT NULL REFERENCES gemini.accessions(id) ON DELETE RESTRICT,
+    sample_index INTEGER NOT NULL,
+    PRIMARY KEY (study_id, accession_id)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_genotyping_study_samples_ordinal
+    ON gemini.genotyping_study_samples (study_id, sample_index);
+
+-------------------------------------------------------------------------------
+-- Genotyping Study Variant Stats Table (Phase 9d')
+-- Pre-computed per-variant analytics (MAF, missing, HWE) so the variant
+-- browser doesn't need to crack the PGEN file at query time.
+CREATE TABLE IF NOT EXISTS gemini.genotyping_study_variant_stats (
+    study_id UUID NOT NULL REFERENCES gemini.genotyping_studies(id) ON DELETE CASCADE,
+    variant_id UUID NOT NULL REFERENCES gemini.variants(id) ON DELETE RESTRICT,
+    n_called INTEGER,
+    n_missing INTEGER,
+    maf FLOAT,
+    hwe_p FLOAT,
+    PRIMARY KEY (study_id, variant_id)
+);
+
+-------------------------------------------------------------------------------
 -- Jobs Table
 -- Tracks long-running processing tasks (ML training, stitching, ODM, etc.)
 CREATE TABLE IF NOT EXISTS gemini.jobs (
@@ -663,3 +718,30 @@ CREATE TABLE IF NOT EXISTS gemini.plot_geometry_versions (
 ALTER TABLE gemini.plot_geometry_versions ADD CONSTRAINT plot_geometry_version_unique UNIQUE (directory, version);
 CREATE INDEX IF NOT EXISTS idx_plot_geometry_versions_directory ON gemini.plot_geometry_versions (directory);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_plot_geometry_versions_active ON gemini.plot_geometry_versions (directory) WHERE is_active;
+
+-------------------------------------------------------------------------------
+-- Experiment Files Table (Phase 9j)
+-- Authoritative pointer from a Postgres-known experiment to a MinIO object
+-- written by the chunked-upload endpoint. Without this, the experiment-
+-- delete cascade had to guess the MinIO path layout from the experiment
+-- name alone, and got it wrong (the year sits between Raw/ and the
+-- experiment, but the cascade built `Raw/{exp_name}/`).
+--
+-- Worker-written outputs and record-level uploads (sensor/dataset/etc.
+-- record files, genotyping_study_files) are NOT tracked here — they have
+-- their own row-typed sources of truth or are sweepable by year-prefix.
+-- This table is scoped to "chunked-upload from the user" only.
+CREATE TABLE IF NOT EXISTS gemini.experiment_files (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    experiment_id UUID NOT NULL REFERENCES gemini.experiments(id) ON DELETE CASCADE,
+    bucket TEXT NOT NULL,
+    object_name TEXT NOT NULL,
+    size_bytes BIGINT,
+    sha256 TEXT,
+    uploaded_by UUID REFERENCES gemini.users(id) ON DELETE SET NULL,
+    uploaded_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT experiment_files_unique_object UNIQUE (bucket, object_name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_experiment_files_experiment_id
+    ON gemini.experiment_files (experiment_id);

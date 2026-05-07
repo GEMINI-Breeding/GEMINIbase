@@ -326,6 +326,12 @@ class Model(APIBase):
             bool: True if the model was deleted, False otherwise.
         """
         try:
+            from sqlalchemy import select
+            from gemini.db.core.base import db_engine
+            from gemini.db.models.columnar.model_records import (
+                ModelRecordModel,
+            )
+
             current_id = self.id
             model = ModelModel.get(current_id)
             if not model:
@@ -339,10 +345,27 @@ class Model(APIBase):
                 if getattr(exp, "experiment_name", None)
             ]
 
+            with db_engine.get_session() as session:
+                candidate_dataset_ids = list(set(session.execute(
+                    select(ModelDatasetModel.dataset_id).where(
+                        ModelDatasetModel.model_id == current_id
+                    )
+                ).scalars().all()))
+
+            try:
+                ModelRecordModel.delete_by_model(self.model_name)
+            except Exception as exc:
+                logger.warning(
+                    "model_records sweep for %s failed: %s",
+                    self.model_name, exc,
+                )
+
             ModelModel.delete(model)
 
-            from gemini.api.base import sweep_minio_prefixes
+            from gemini.api.base import sweep_minio_prefixes, sweep_orphan_datasets
             sweep_minio_prefixes(prefixes)
+            if candidate_dataset_ids:
+                sweep_orphan_datasets(candidate_dataset_ids, owner=self.model_name)
             return True
         except Exception as e:
             logger.error(f"Error deleting model: {e}")

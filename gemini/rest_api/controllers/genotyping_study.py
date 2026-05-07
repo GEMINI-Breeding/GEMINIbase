@@ -1,24 +1,27 @@
+import json
+import tempfile
+from pathlib import Path
+
 from litestar import Response
+from litestar.enums import RequestEncodingType
 from litestar.handlers import get, post, patch, delete
 from litestar.params import Body
 from litestar.controller import Controller
 
 from gemini.api.genotyping_study import GenotypingStudy
-from gemini.api.genotype_record import GenotypeRecord
+from gemini.api.genotyping_pgen_ingest import ingest_genotype_file
 from gemini.api.variant import Variant
 from gemini.api.accession import Accession
 from gemini.db.models.variants import VariantModel
 from gemini.db.models.accessions import AccessionModel
-from gemini.db.models.columnar.genotype_records import GenotypeRecordModel
 from gemini.db.core.base import db_engine
 from gemini.rest_api.models import (
     GenotypingStudyInput,
     GenotypingStudyOutput,
     GenotypingStudyUpdate,
-    GenotypeRecordBulkInput,
     GenotypeRecordOutput,
-    GenotypeMatrixBatchInput,
-    GenotypeMatrixBatchResult,
+    GenotypePgenIngestRequest,
+    GenotypePgenIngestResult,
     ExperimentOutput,
     RESTAPIError,
     str_to_dict,
@@ -73,6 +76,9 @@ class GenotypingStudyController(Controller):
             if study is None:
                 return Response(content=RESTAPIError(error="Creation failed", error_description=""), status_code=500)
             return study
+        except ValueError as e:
+            # Bad-request shape: e.g. a non-existent experiment_name.
+            return Response(content=RESTAPIError(error=str(e), error_description=""), status_code=400)
         except Exception as e:
             return Response(content=RESTAPIError(error=str(e), error_description=""), status_code=500)
 
@@ -107,43 +113,91 @@ class GenotypingStudyController(Controller):
             study = GenotypingStudy.get_by_id(id=study_id)
             if study is None:
                 return Response(content=RESTAPIError(error="Not found", error_description=""), status_code=404)
-            experiments = study.get_associated_experiments()
-            if not experiments:
-                return Response(content=RESTAPIError(error="No associated experiments", error_description=""), status_code=404)
-            return experiments
+            return study.get_associated_experiments() or []
         except Exception as e:
             return Response(content=RESTAPIError(error=str(e), error_description=""), status_code=500)
 
-    @post(path="/id/{study_id:str}/records", sync_to_thread=True)
-    def upload_records(self, study_id: str, data: Annotated[GenotypeRecordBulkInput, Body]) -> dict:
-        try:
-            study = GenotypingStudy.get_by_id(id=study_id)
-            if study is None:
-                return Response(content=RESTAPIError(error="Not found", error_description=""), status_code=404)
-            records = []
-            for r in data.records:
-                r.setdefault("study_id", str(study.id))
-                r.setdefault("study_name", study.study_name)
-                records.append(GenotypeRecord(**r))
-            success, ids = GenotypeRecord.insert(records)
-            if not success:
-                return Response(content=RESTAPIError(error="Upload failed", error_description=""), status_code=500)
-            return {"inserted_count": len(ids), "ids": [str(i) for i in ids]}
-        except Exception as e:
-            return Response(content=RESTAPIError(error=str(e), error_description=""), status_code=500)
-
-    @post(path="/id/{study_id:str}/ingest-matrix", sync_to_thread=True)
-    def ingest_matrix(
+    @post(
+        path="/id/{study_id:str}/ingest-pgen",
+        sync_to_thread=True,
+    )
+    def ingest_pgen(
         self,
         study_id: str,
-        data: Annotated[GenotypeMatrixBatchInput, Body],
-    ) -> GenotypeMatrixBatchResult:
+        data: Annotated[
+            GenotypePgenIngestRequest,
+            Body(media_type=RequestEncodingType.MULTI_PART),
+        ],
+    ) -> GenotypePgenIngestResult:
+        """Phase 9d' replacement for ``ingest-matrix``.
+
+        Accepts a single multipart file (xlsx/HapMap/VCF/CSV/TSV) plus
+        the wizard's resolution metadata. Server-side: transcodes to a
+        normalised VCF, runs ``plink2 --make-pgen`` to produce the
+        canonical PGEN trio + BCF + per-variant stats CSV, uploads
+        everything to MinIO under ``genotyping/{study_id}/``, and
+        records pointers + variant/sample catalogs in Postgres.
+        """
+        import logging, traceback
+
         try:
-            return _ingest_matrix_impl(study_id, data)
+            sample_canonical_map = (
+                json.loads(data.sample_canonical_map_json)
+                if data.sample_canonical_map_json
+                else {}
+            )
+            skipped_headers = (
+                json.loads(data.skipped_headers_json)
+                if data.skipped_headers_json
+                else []
+            )
+            created_accessions = (
+                json.loads(data.created_accessions_json)
+                if data.created_accessions_json
+                else []
+            )
+            # Save the upload to a temp file so plink2/bcftools can
+            # access it on disk. The TemporaryDirectory inside the
+            # ingest helper handles per-study scratch space; this one
+            # only has to survive the duration of this handler.
+            filename = data.file.filename or "upload.bin"
+            with tempfile.NamedTemporaryFile(
+                suffix="-" + filename,
+                delete=False,
+            ) as tmp:
+                # data.file is a Litestar UploadFile (an aiofiles
+                # SpooledTemporaryFile); read in 4 MiB chunks so big
+                # uploads don't materialise in memory.
+                while True:
+                    chunk = data.file.file.read(4 << 20)
+                    if not chunk:
+                        break
+                    tmp.write(chunk)
+                tmp_path = Path(tmp.name)
+            try:
+                result = ingest_genotype_file(
+                    study_id=study_id,
+                    upload_path=tmp_path,
+                    upload_filename=filename,
+                    sample_canonical_map=sample_canonical_map,
+                    skipped_headers=skipped_headers,
+                    created_accessions=created_accessions,
+                    experiment_name=data.experiment_name,
+                    population_name=data.population_name,
+                )
+            finally:
+                tmp_path.unlink(missing_ok=True)
+
+            return GenotypePgenIngestResult(
+                variants_inserted=result.variants_inserted,
+                records_inserted=result.records_inserted,
+                samples_inserted=result.samples_inserted,
+                files=result.files,
+                errors=result.errors,
+            )
         except Exception as e:
-            import logging, traceback
             logging.getLogger(__name__).error(
-                "ingest_matrix failed: %s\n%s", e, traceback.format_exc(),
+                "ingest_pgen failed: %s\n%s", e, traceback.format_exc(),
             )
             return Response(
                 content=RESTAPIError(error=str(e), error_description=""),
@@ -160,15 +214,31 @@ class GenotypingStudyController(Controller):
         limit: int = 100,
         offset: int = 0,
     ) -> List[GenotypeRecordOutput]:
+        """Paginated (variant × sample × call) listing.
+
+        Genotype calls live in PGEN files in MinIO; we crack the BCF
+        sibling on demand via ``bcftools query`` and synthesise the
+        per-call rows for this page. Millisecond per-call lookups are
+        not a requirement (only batched analytics + export), so this
+        endpoint deliberately runs ``bcftools`` per page rather than
+        maintaining a hot index. The variant browser (Phase 9f) reads
+        ``genotyping_study_variants`` directly for catalog views.
         """
-        Paginated genotype-record listing scoped to a single study. The
-        previous implementation routed through GenotypeRecord.search,
-        which materialized every matching row into Python before
-        slicing — a 32k-variant × 310-sample study (~10M rows) hangs
-        the browser and burns the server's memory. Here we push limit/
-        offset straight to the DB and ORDER BY the primary key so the
-        page output is stable across calls.
-        """
+        import shutil
+        import subprocess
+        import tempfile
+        from pathlib import Path
+
+        from gemini.api.base import minio_storage_provider
+        from gemini.db.models.genotyping_study_files import (
+            GenotypingStudyFileModel,
+        )
+        from gemini.db.models.genotyping_study_samples import (
+            GenotypingStudySampleModel,
+        )
+        from gemini.db.models.genotyping_study_variants import (
+            GenotypingStudyVariantModel,
+        )
         from sqlalchemy import select
 
         try:
@@ -182,22 +252,189 @@ class GenotypingStudyController(Controller):
             limit = max(1, min(limit, 500))
             offset = max(0, offset)
 
+            # 1. Resolve sample list (sample_index → accession_name) and
+            #    page over variants via the catalog. One variant_row →
+            #    n_samples records, so we figure out which variant_index
+            #    range covers (offset, offset+limit) calls.
             with db_engine.get_session() as session:
-                q = select(GenotypeRecordModel).where(
-                    GenotypeRecordModel.study_id == str(study.id)
+                files = {
+                    row.file_kind: row.s3_uri
+                    for row in session.execute(
+                        select(GenotypingStudyFileModel).where(
+                            GenotypingStudyFileModel.study_id == str(study.id)
+                        )
+                    ).scalars()
+                }
+                if "bcf" not in files:
+                    # Empty result set is the right answer for studies
+                    # that haven't been ingested yet (e.g. just-created).
+                    return []
+                sample_list = [
+                    (idx, name)
+                    for name, idx in session.execute(
+                        select(
+                            AccessionModel.accession_name,
+                            GenotypingStudySampleModel.sample_index,
+                        )
+                        .join(
+                            GenotypingStudySampleModel,
+                            GenotypingStudySampleModel.accession_id
+                            == AccessionModel.id,
+                        )
+                        .where(
+                            GenotypingStudySampleModel.study_id == str(study.id)
+                        )
+                        .order_by(GenotypingStudySampleModel.sample_index)
+                    ).all()
+                ]
+                if accession_name:
+                    sample_list = [
+                        (i, n) for i, n in sample_list if n == accession_name
+                    ]
+                if not sample_list:
+                    return []
+                n_samples = len(sample_list)
+
+                # Variant catalog (filter by name/chrom if requested).
+                vq = (
+                    select(
+                        VariantModel.id,
+                        VariantModel.variant_name,
+                        VariantModel.chromosome,
+                        VariantModel.position,
+                        VariantModel.alleles,
+                    )
+                    .join(
+                        GenotypingStudyVariantModel,
+                        GenotypingStudyVariantModel.variant_id == VariantModel.id,
+                    )
+                    .where(GenotypingStudyVariantModel.study_id == str(study.id))
+                    .order_by(GenotypingStudyVariantModel.variant_index)
                 )
                 if variant_name:
-                    q = q.where(GenotypeRecordModel.variant_name == variant_name)
-                if accession_name:
-                    q = q.where(GenotypeRecordModel.accession_name == accession_name)
+                    vq = vq.where(VariantModel.variant_name == variant_name)
                 if chromosome is not None:
-                    q = q.where(GenotypeRecordModel.chromosome == chromosome)
-                q = q.order_by(GenotypeRecordModel.id).offset(offset).limit(limit)
-                rows = session.execute(q).scalars().all()
+                    vq = vq.where(VariantModel.chromosome == chromosome)
+                variants = list(session.execute(vq).all())
+            if not variants:
+                return []
 
-            return [GenotypeRecordOutput.model_validate(r) for r in rows]
+            # 2. Map flat (offset, limit) into (variant_start, sample_start)
+            #    → variant_end (exclusive).
+            start = offset
+            end = offset + limit
+            # Total rows under filter = n_samples × len(variants).
+            # We crack only the variant slice that overlaps [start, end).
+            v_start = start // n_samples
+            v_end = min(len(variants), (end + n_samples - 1) // n_samples)
+            if v_start >= len(variants):
+                return []
+            slice_variants = variants[v_start:v_end]
+
+            # 3. Download the BCF + index from MinIO and run
+            #    ``bcftools query`` for the variant IDs we want.
+            with tempfile.TemporaryDirectory(
+                prefix=f"gemini-records-{study.id}-",
+            ) as tmp:
+                work = Path(tmp)
+                bcf_uri = files["bcf"]
+                bucket, _, object_name = bcf_uri.removeprefix("s3://").partition("/")
+                local_bcf = work / "geno.bcf"
+                minio_storage_provider.client.fget_object(
+                    bucket_name=bucket,
+                    object_name=object_name,
+                    file_path=str(local_bcf),
+                )
+                idx_uri = files.get("bcf_index")
+                if idx_uri:
+                    bucket_i, _, obj_i = idx_uri.removeprefix("s3://").partition("/")
+                    minio_storage_provider.client.fget_object(
+                        bucket_name=bucket_i,
+                        object_name=obj_i,
+                        file_path=str(local_bcf) + ".csi",
+                    )
+                else:
+                    # No CSI shipped — generate one in place. Cheap.
+                    subprocess.run(
+                        ["bcftools", "index", "--csi", str(local_bcf)],
+                        capture_output=True, text=True, check=True,
+                    )
+
+                # bcftools query --include 'ID=@names.txt' streams only the
+                # rows we want. Output: ID\tCHROM\tPOS\t[GT1,GT2,…]
+                names_file = work / "ids.txt"
+                with names_file.open("w") as fh:
+                    for _, vname, _, _, _ in slice_variants:
+                        fh.write(vname + "\n")
+                cmd = [
+                    "bcftools", "query",
+                    "-i", f"ID=@{names_file}",
+                    "-f", "%ID\\t%CHROM\\t%POS\\t%REF\\t%ALT\\t[%GT,]\\n",
+                    str(local_bcf),
+                ]
+                res = subprocess.run(cmd, capture_output=True, text=True)
+                if res.returncode != 0:
+                    raise RuntimeError(
+                        f"bcftools query failed: {res.stderr[:500]}"
+                    )
+
+            # 4. Parse query output and synthesise GenotypeRecordOutputs.
+            calls_by_variant: dict[str, dict[str, str]] = {}
+            for line in res.stdout.splitlines():
+                cols = line.rstrip("\n").split("\t")
+                if len(cols) < 6:
+                    continue
+                vid_name, chrom_s, pos_s, ref, alt, gt_blob = (
+                    cols[0], cols[1], cols[2], cols[3], cols[4], cols[5]
+                )
+                gts = [g for g in gt_blob.rstrip(",").split(",") if g]
+                # Translate VCF GT (e.g. "0/1") back to a 2-letter call.
+                per_sample: dict[str, str] = {}
+                for (sidx, sname), gt in zip(sample_list, gts):
+                    per_sample[sname] = _gt_to_call(gt, ref, alt)
+                calls_by_variant[vid_name] = per_sample
+
+            # 5. Project onto the flat (variant, sample, call) tuples,
+            #    skipping the leading sample-rows of the first variant
+            #    that fall before `start`.
+            out: list[GenotypeRecordOutput] = []
+            cursor = v_start * n_samples
+            for vid, vname, chrom, pos, alleles in slice_variants:
+                samples_for_v = calls_by_variant.get(vname, {})
+                for sidx, sname in sample_list:
+                    if cursor < start:
+                        cursor += 1
+                        continue
+                    if cursor >= end:
+                        break
+                    out.append(
+                        GenotypeRecordOutput(
+                            id=None,
+                            study_id=study.id,
+                            study_name=study.study_name,
+                            variant_id=vid,
+                            variant_name=vname,
+                            chromosome=chrom,
+                            position=pos,
+                            accession_id=None,
+                            accession_name=sname,
+                            call_value=samples_for_v.get(sname, "NN"),
+                            record_info={},
+                        )
+                    )
+                    cursor += 1
+                if cursor >= end:
+                    break
+            return out
         except Exception as e:
-            return Response(content=RESTAPIError(error=str(e), error_description=""), status_code=500)
+            import logging, traceback
+            logging.getLogger(__name__).error(
+                "get_records failed: %s\n%s", e, traceback.format_exc(),
+            )
+            return Response(
+                content=RESTAPIError(error=str(e), error_description=""),
+                status_code=500,
+            )
 
     @get(path="/id/{study_id:str}/export", sync_to_thread=True)
     def export_study(self, study_id: str, format: str = "hapmap", coding: str = "012") -> Response:
@@ -220,202 +457,16 @@ class GenotypingStudyController(Controller):
             return Response(content=RESTAPIError(error=str(e), error_description=""), status_code=500)
 
 
-def _ingest_matrix_impl(
-    study_id: str, data: GenotypeMatrixBatchInput,
-) -> GenotypeMatrixBatchResult:
-    """Body of POST /genotyping_studies/{id}/ingest-matrix, extracted so
-    tests can exercise it without Litestar routing overhead, and so the
-    endpoint handler stays a thin try/except that converts raw exceptions
-    to 500s with a logged traceback."""
-    from sqlalchemy import select
-
-    errors: list[str] = []
-    study = GenotypingStudy.get_by_id(id=study_id)
-    if study is None:
-        return Response(
-            content=RESTAPIError(error="Not found", error_description=""),
-            status_code=404,
-        )
-
-    sample_headers = data.sample_headers or []
-    variant_rows = data.variant_rows or []
-    if not sample_headers or not variant_rows:
-        return GenotypeMatrixBatchResult(
-            variants_inserted=0, records_inserted=0, errors=["Empty batch"]
-        )
-
-    # Resolve accession_name -> id for every sample header. Caller is
-    # responsible for upstream skip/create decisions; unknown names are
-    # reported as errors and their column is dropped from the batch.
-    with db_engine.get_session() as session:
-        acc_rows = session.execute(
-            select(AccessionModel.id, AccessionModel.accession_name).where(
-                AccessionModel.accession_name.in_(sample_headers)
-            )
-        ).all()
-    accession_id_by_name = {row.accession_name: row.id for row in acc_rows}
-    resolved_sample_indices: list[int] = []
-    for idx, name in enumerate(sample_headers):
-        if name in accession_id_by_name:
-            resolved_sample_indices.append(idx)
-        else:
-            errors.append(f"Unknown accession: {name}")
-
-    # Idempotent variant upsert. Rows missing required NOT NULL columns
-    # (chromosome/position/alleles) get defaulted so ingest doesn't die on
-    # a partial HapMap header.
-    variant_payload: list[dict] = []
-    for vr in variant_rows:
-        variant_payload.append({
-            "variant_name": vr.variant_name,
-            "chromosome": vr.chromosome if vr.chromosome is not None else 0,
-            "position": vr.position if vr.position is not None else 0.0,
-            "alleles": vr.alleles or "",
-            "design_sequence": vr.design_sequence or "",
-            "variant_info": {},
-        })
-    inserted_variant_ids = VariantModel.insert_bulk("variant_unique", variant_payload)
-    variants_inserted = len(inserted_variant_ids)
-
-    # insert_bulk returns only newly-inserted IDs; existing variants need a
-    # name lookup so we can build records that reference them.
-    with db_engine.get_session() as session:
-        v_rows = session.execute(
-            select(VariantModel.id, VariantModel.variant_name).where(
-                VariantModel.variant_name.in_([vr.variant_name for vr in variant_rows])
-            )
-        ).all()
-    variant_id_by_name = {row.variant_name: row.id for row in v_rows}
-
-    # Flatten matrix → one record per (variant, resolved_sample) with a
-    # non-null call.
-    record_info = data.record_info or {}
-    record_payload: list[dict] = []
-    for vr in variant_rows:
-        variant_id = variant_id_by_name.get(vr.variant_name)
-        if variant_id is None:
-            errors.append(f"Variant not resolved: {vr.variant_name}")
-            continue
-        calls = vr.calls or []
-        for sample_idx in resolved_sample_indices:
-            if sample_idx >= len(calls):
-                continue
-            call_value = calls[sample_idx]
-            if call_value is None:
-                continue
-            call_str = str(call_value).strip()
-            if not call_str:
-                continue
-            sample_name = sample_headers[sample_idx]
-            accession_id = accession_id_by_name[sample_name]
-            record_payload.append({
-                "study_id": str(study.id),
-                "study_name": study.study_name,
-                "variant_id": str(variant_id),
-                "variant_name": vr.variant_name,
-                "chromosome": vr.chromosome if vr.chromosome is not None else 0,
-                "position": vr.position if vr.position is not None else 0.0,
-                "accession_id": str(accession_id),
-                "accession_name": sample_name,
-                "call_value": call_str[:10],
-                "record_info": record_info,
-            })
-
-    records_inserted = 0
-    if record_payload:
-        records_inserted = _copy_insert_genotype_records(record_payload)
-
-    return GenotypeMatrixBatchResult(
-        variants_inserted=variants_inserted,
-        records_inserted=records_inserted,
-        errors=errors,
-    )
-
-
-def _copy_insert_genotype_records(record_payload: list[dict]) -> int:
-    """Bulk-insert genotype_records via COPY into a heap staging table,
-    then INSERT ... SELECT into the columnar destination with ON CONFLICT
-    DO NOTHING to preserve idempotency.
-
-    Why this exists: `genotype_records` is a Hydra columnar table and the
-    ingest wizard sends ~155k rows per batch. SQLAlchemy's multi-VALUES
-    INSERT path serializes every row's params client-side and then parses
-    them again in postgres; on columnar tables that's the dominant cost
-    for this workload. COPY parses server-side and skips SQLAlchemy's
-    per-row parameter binding entirely.
-
-    Returns the number of newly-inserted rows (conflicts count as 0).
-    """
-    import csv
-    import io
-    import json
-
-    with db_engine.get_session() as session:
-        raw_conn = session.connection().connection  # psycopg2 connection
-        cursor = raw_conn.cursor()
-
-        # Heap staging table — COPY is fastest into a plain table, and the
-        # destination columnar insert runs server-side from this temp.
-        cursor.execute(
-            """
-            CREATE TEMP TABLE tmp_gr (
-                study_id UUID NOT NULL,
-                study_name TEXT,
-                variant_id UUID NOT NULL,
-                variant_name TEXT,
-                chromosome INTEGER,
-                position DOUBLE PRECISION,
-                accession_id UUID NOT NULL,
-                accession_name TEXT,
-                call_value VARCHAR(10),
-                record_info JSONB NOT NULL DEFAULT '{}'
-            ) ON COMMIT DROP
-            """
-        )
-
-        buf = io.StringIO()
-        writer = csv.writer(
-            buf, delimiter="\t", lineterminator="\n", quoting=csv.QUOTE_MINIMAL
-        )
-        for r in record_payload:
-            info = r.get("record_info") or {}
-            writer.writerow([
-                r["study_id"],
-                r["study_name"],
-                r["variant_id"],
-                r["variant_name"],
-                r["chromosome"],
-                r["position"],
-                r["accession_id"],
-                r["accession_name"],
-                r["call_value"],
-                json.dumps(info),
-            ])
-        buf.seek(0)
-        cursor.copy_expert(
-            "COPY tmp_gr (study_id, study_name, variant_id, variant_name, "
-            "chromosome, position, accession_id, accession_name, call_value, "
-            "record_info) FROM STDIN WITH (FORMAT csv, DELIMITER E'\\t')",
-            buf,
-        )
-
-        cursor.execute(
-            """
-            WITH ins AS (
-                INSERT INTO gemini.genotype_records (
-                    study_id, study_name, variant_id, variant_name,
-                    chromosome, position, accession_id, accession_name,
-                    call_value, record_info
-                )
-                SELECT study_id, study_name, variant_id, variant_name,
-                       chromosome, position, accession_id, accession_name,
-                       call_value, record_info
-                FROM tmp_gr
-                ON CONFLICT ON CONSTRAINT genotype_records_unique DO NOTHING
-                RETURNING 1
-            )
-            SELECT count(*) FROM ins
-            """
-        )
-        row = cursor.fetchone()
-        return int(row[0]) if row else 0
+def _gt_to_call(gt: str, ref: str, alt: str) -> str:
+    """Translate a VCF GT field (``0/0``, ``0/1``, ``1/1``, ``./.``) to
+    a 2-letter call (``"AA"``, ``"AG"``, ``"GG"``, ``"NN"``). Used by the
+    PGEN-backed ``get_records`` endpoint."""
+    if not gt or gt in (".", "./.", ".|."):
+        return "NN"
+    sep = "|" if "|" in gt else "/"
+    parts = gt.split(sep)
+    if len(parts) != 2:
+        return "NN"
+    a = ref if parts[0] == "0" else alt if parts[0] == "1" else "N"
+    b = ref if parts[1] == "0" else alt if parts[1] == "1" else "N"
+    return f"{a[:1]}{b[:1]}"

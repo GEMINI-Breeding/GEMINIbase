@@ -114,6 +114,10 @@ services:
       - "GEMINI_STORAGE_BUCKET_NAME=${GEMINI_STORAGE_BUCKET_NAME}"
       - "GEMINI_STORAGE_PORT=${GEMINI_STORAGE_PORT}"
       - "GEMINI_STORAGE_API_PORT=${GEMINI_STORAGE_API_PORT}"
+      # Test-only: enables DELETE /api/e2e_cleanup so the Playwright
+      # afterEach can sweep entities created during a single test run.
+      # Production deployments leave this unset → endpoint 404s.
+      - "GEMINI_E2E_CLEANUP_ENABLED=${GEMINI_E2E_CLEANUP_ENABLED:-0}"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       # Live-reload dev mount: edits to gemini/* on the host take effect immediately.

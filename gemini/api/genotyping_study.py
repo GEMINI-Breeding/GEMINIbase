@@ -13,7 +13,6 @@ from gemini.api.base import APIBase
 from gemini.db.models.genotyping_studies import GenotypingStudyModel
 from gemini.db.models.associations import ExperimentGenotypingStudyModel
 from gemini.db.models.views.genotype_views import ExperimentGenotypingStudiesViewModel
-from gemini.db.models.columnar.genotype_records import GenotypeRecordModel
 
 from typing import TYPE_CHECKING
 
@@ -58,8 +57,19 @@ class GenotypingStudy(APIBase):
             )
             study = cls.model_validate(db_instance)
             if experiment_name:
-                study.associate_experiment(experiment_name)
+                associated = study.associate_experiment(experiment_name)
+                if associated is None:
+                    # Caller asked for an association but the named
+                    # experiment doesn't exist. Don't silently leave
+                    # the study orphaned — it's the bug that produced
+                    # the "No experiments associated" detail-page hint.
+                    raise ValueError(
+                        f"Experiment '{experiment_name}' does not exist; "
+                        f"create it before referencing it from a study."
+                    )
             return study
+        except ValueError:
+            raise
         except Exception as e:
             logger.error(f"Error creating genotyping study: {e}")
             return None
@@ -147,63 +157,173 @@ class GenotypingStudy(APIBase):
             return None
 
     def delete(self) -> bool:
+        """Delete the study row + sweep its MinIO artefacts.
+
+        The schema has ON DELETE CASCADE on every per-study metadata
+        table (``genotyping_study_files``, ``genotyping_study_variants``,
+        ``genotyping_study_samples``, ``genotyping_study_variant_stats``),
+        so removing the ``genotyping_studies`` row automatically reaps
+        the catalog. Variants are a shared catalog handled by the
+        orphan sweep below.
+
+        MinIO is swept by **prefix** (``genotyping/{study_id}/``)
+        rather than by file_pointer row, because re-ingest can leave
+        orphan objects under the prefix whose row got overwritten:
+        ``_upsert_files`` deletes-then-inserts the rows but doesn't
+        prune the old MinIO objects, so e.g. an older source file's
+        entry can be replaced while the object itself lingers. Sweep
+        before the DB delete so a failure can be retried without
+        losing the catalog.
+        """
         try:
-            from sqlalchemy import select
+            from gemini.api.base import minio_storage_provider
             from gemini.db.core.base import db_engine
-            from gemini.db.models.columnar.genotype_records import GenotypeRecordModel
+            from gemini.db.models.accessions import AccessionModel
+            from gemini.db.models.genotyping_study_samples import (
+                GenotypingStudySampleModel,
+            )
+            from gemini.db.models.plots import PlotModel
             from gemini.db.models.variants import VariantModel
+            from sqlalchemy import select
 
             db_instance = GenotypingStudyModel.get(self.id)
             if not db_instance:
                 return False
 
-            # genotype_records.study_id has no FK constraint (columnar),
-            # so we must clean it explicitly.
+            # 1. Sweep every object under this study's MinIO prefix.
+            #    Catches both currently-pointed-to artefacts and any
+            #    orphans left by re-ingest. Prefix is the canonical
+            #    layout written by `genotyping_pgen_ingest`.
+            bucket = minio_storage_provider.bucket_name
+            prefix = f"genotyping/{self.id}/"
+            try:
+                objs = list(minio_storage_provider.client.list_objects(
+                    bucket_name=bucket, prefix=prefix, recursive=True,
+                ))
+            except Exception as exc:
+                logger.warning(
+                    "MinIO list_objects(%s) failed: %s", prefix, exc
+                )
+                objs = []
+            for obj in objs:
+                try:
+                    minio_storage_provider.client.remove_object(
+                        bucket_name=bucket, object_name=obj.object_name,
+                    )
+                except Exception as exc:
+                    # A missing object isn't fatal for study deletion
+                    # (hard-delete path; orphan files are an acceptable
+                    # cost). Logged so an operator can pick them up.
+                    logger.warning(
+                        "MinIO remove_object %s failed: %s",
+                        obj.object_name, exc,
+                    )
+
+            # 2. Sweep variants that this study was the sole reference
+            #    for. The variants catalog is shared, so we only drop
+            #    variants whose only remaining link was via this study
+            #    (i.e. no remaining row in `genotyping_study_variants`).
             with db_engine.get_session() as session:
-                # Collect variant_ids referenced by this study BEFORE the
-                # records go away so we can sweep variants that no other
-                # study touches. Variants are a shared catalog (same SNP
-                # can live in multiple studies), so the cascade is
-                # conditional: only variants with zero remaining record
-                # references are deleted.
+                from gemini.db.models.genotyping_study_variants import (
+                    GenotypingStudyVariantModel,
+                )
+                # Variants in this study before we drop its catalog rows.
                 variant_candidates = list(set(session.execute(
-                    select(GenotypeRecordModel.variant_id).where(
-                        GenotypeRecordModel.study_id == self.id
+                    select(GenotypingStudyVariantModel.variant_id).where(
+                        GenotypingStudyVariantModel.study_id == self.id
                     )
                 ).scalars().all()))
 
-                deleted = session.execute(
-                    GenotypeRecordModel.__table__.delete().where(
-                        GenotypeRecordModel.study_id == self.id
+                # Accessions in this study before the cascade drops the
+                # `genotyping_study_samples` rows. We sweep orphans
+                # post-delete: an accession is "wizard-created and
+                # otherwise unused" iff after the cascade it has no
+                # remaining `genotyping_study_samples` row in any other
+                # study AND no `plots` row pointing at it. Without this
+                # sweep, the wizard's first import creates ~300
+                # accession rows; deleting the study leaves them in
+                # `gemini.accessions`; the next import's sample-resolve
+                # finds them by name and reports every sample as
+                # already-resolved (the user-visible bug).
+                accession_candidates = list(set(session.execute(
+                    select(GenotypingStudySampleModel.accession_id).where(
+                        GenotypingStudySampleModel.study_id == self.id
                     )
-                ).rowcount
-                if deleted:
-                    logger.info(
-                        f"Deleted {deleted} genotype_record(s) for "
-                        f"study {self.study_name}."
-                    )
+                ).scalars().all()))
 
-                if variant_candidates:
+            # 3. Delete the study. CASCADE removes file pointers,
+            #    study_variants, study_samples, study_variant_stats.
+            GenotypingStudyModel.delete(db_instance)
+
+            # 4. Now sweep orphan variants (those that no other study
+            #    references via study_variants).
+            if variant_candidates:
+                with db_engine.get_session() as session:
+                    from gemini.db.models.genotyping_study_variants import (
+                        GenotypingStudyVariantModel,
+                    )
                     still_ref = set(session.execute(
-                        select(GenotypeRecordModel.variant_id).where(
-                            GenotypeRecordModel.variant_id.in_(variant_candidates)
+                        select(GenotypingStudyVariantModel.variant_id).where(
+                            GenotypingStudyVariantModel.variant_id.in_(
+                                variant_candidates
+                            )
                         ).distinct()
                     ).scalars().all())
-                    orphan_variants = [
+                    orphan = [
                         v for v in variant_candidates if v not in still_ref
                     ]
-                    if orphan_variants:
+                    if orphan:
                         session.execute(
                             VariantModel.__table__.delete().where(
-                                VariantModel.id.in_(orphan_variants)
+                                VariantModel.id.in_(orphan)
                             )
                         )
+                        session.commit()
                         logger.info(
-                            f"Deleted {len(orphan_variants)} orphan variant(s) "
-                            f"after deleting study {self.study_name}."
+                            "Deleted %d orphan variant(s) after deleting "
+                            "study %s.", len(orphan), self.study_name,
                         )
 
-            GenotypingStudyModel.delete(db_instance)
+            # 5. Sweep orphan accessions: any accession this study
+            #    referenced that now has no remaining links from
+            #    `genotyping_study_samples` (other studies) or `plots`
+            #    (the trait wizard's plot rows). `accession_aliases`
+            #    rows CASCADE-delete with their parent accession, so
+            #    we don't need to check them. `population_accessions`
+            #    rows likewise CASCADE.
+            if accession_candidates:
+                with db_engine.get_session() as session:
+                    still_in_studies = set(session.execute(
+                        select(
+                            GenotypingStudySampleModel.accession_id
+                        ).where(
+                            GenotypingStudySampleModel.accession_id.in_(
+                                accession_candidates
+                            )
+                        ).distinct()
+                    ).scalars().all())
+                    still_in_plots = set(session.execute(
+                        select(PlotModel.accession_id).where(
+                            PlotModel.accession_id.in_(accession_candidates)
+                        ).distinct()
+                    ).scalars().all())
+                    orphan_accessions = [
+                        a for a in accession_candidates
+                        if a not in still_in_studies
+                        and a not in still_in_plots
+                    ]
+                    if orphan_accessions:
+                        session.execute(
+                            AccessionModel.__table__.delete().where(
+                                AccessionModel.id.in_(orphan_accessions)
+                            )
+                        )
+                        session.commit()
+                        logger.info(
+                            "Deleted %d orphan accession(s) after "
+                            "deleting study %s.",
+                            len(orphan_accessions), self.study_name,
+                        )
             return True
         except Exception as e:
             logger.error(f"Error deleting genotyping study: {e}")
@@ -312,43 +432,123 @@ class GenotypingStudy(APIBase):
             return False
 
     def export(self, format: str = "hapmap", coding: str = "012") -> str:
-        records = list(GenotypeRecordModel.filter_records(
-            study_names=[self.study_name]
-        ))
+        """Phase 9d': export the study via PLINK2 from its MinIO PGEN.
 
-        if not records:
-            logger.warning(f"No genotype records found for '{self.study_name}'.")
+        Replaces the legacy tall-table export, which materialised every
+        (variant, accession, call) row into Python and built per-format
+        text by hand. PLINK2's ``--export`` is the reference exporter
+        for HapMap, VCF, and PLINK; for "numeric" we map onto its
+        ``--export A-transpose`` (additive coding) which matches the
+        old 0/1/2 output.
+
+        Looks up the study's PGEN file pointer in
+        ``genotyping_study_files``, downloads it to a temp dir
+        alongside its .pvar / .psam sidecars, runs the right
+        ``plink2 --export``, returns the resulting text.
+        """
+        import shutil
+        import subprocess
+        import tempfile
+        from pathlib import Path
+
+        from gemini.api.base import minio_storage_provider
+        from gemini.db.core.base import db_engine
+        from gemini.db.models.genotyping_study_files import (
+            GenotypingStudyFileModel,
+        )
+        from sqlalchemy import select
+
+        with db_engine.get_session() as session:
+            files = {
+                row.file_kind: row.s3_uri
+                for row in session.execute(
+                    select(GenotypingStudyFileModel).where(
+                        GenotypingStudyFileModel.study_id == self.id
+                    )
+                ).scalars()
+            }
+        if "pgen" not in files:
+            logger.warning(
+                "No PGEN file pointer for study '%s'; nothing to export.",
+                self.study_name,
+            )
             return ""
 
-        variants = {}
-        samples = set()
-        matrix = {}
-
-        for r in records:
-            vname = r.variant_name
-            sname = r.accession_name
-            if vname not in variants:
-                variants[vname] = {
-                    "chromosome": r.chromosome,
-                    "position": r.position,
-                    "alleles": getattr(r, 'alleles', ''),
-                }
-            samples.add(sname)
-            matrix[(vname, sname)] = r.call_value
-
-        sample_list = sorted(samples)
-        variant_list = sorted(variants.keys(), key=lambda v: (variants[v]["chromosome"], variants[v]["position"]))
-
-        if format == "hapmap":
-            return self._export_hapmap(variant_list, variants, sample_list, matrix)
-        elif format == "vcf":
-            return self._export_vcf(variant_list, variants, sample_list, matrix)
-        elif format == "numeric":
-            return self._export_numeric(variant_list, variants, sample_list, matrix, coding)
-        elif format == "plink":
-            return self._export_plink(variant_list, variants, sample_list, matrix)
-        else:
+        # Map app-level format name → plink2 --export argument + ext.
+        # plink2 supports vcf, ped (PLINK1), tped, A (additive 0/1/2)
+        # natively in v2.0.0-a.6. HapMap isn't built in, so we ask for
+        # tped (transposed PED) which is the closest off-the-shelf
+        # variant-per-row format. Callers wanting strict HapMap can
+        # post-process the tped or use the new variant browser.
+        export_args = {
+            "vcf":    ["--export", "vcf"],
+            "plink":  ["--export", "ped"],
+            "numeric": ["--export", "A"],
+            # `hapmap` aliased to tped — same shape (rs#, alleles,
+            # chrom, pos, then per-sample columns); not bit-for-bit
+            # equivalent to TASSEL HapMap but downstream-compatible
+            # with most breeding tools.
+            "hapmap": ["--export", "tped"],
+        }
+        if format not in export_args:
             raise ValueError(f"Unsupported export format: {format}")
+
+        with tempfile.TemporaryDirectory(
+            prefix=f"gemini-export-{self.id}-",
+        ) as tmp:
+            work = Path(tmp)
+            # Download the trio. plink2 --pfile expects all three side
+            # by side under the same prefix.
+            for kind in ("pgen", "pvar", "psam"):
+                uri = files.get(kind)
+                if not uri:
+                    raise ValueError(
+                        f"Study {self.study_name} is missing its .{kind} "
+                        f"file pointer; can't export."
+                    )
+                bucket, _, object_name = uri.removeprefix("s3://").partition("/")
+                local = work / f"geno.{kind}"
+                minio_storage_provider.client.fget_object(
+                    bucket_name=bucket,
+                    object_name=object_name,
+                    file_path=str(local),
+                )
+            out_prefix = work / "out"
+            cmd = [
+                "plink2",
+                "--pfile", str(work / "geno"),
+                *export_args[format],
+                "--out", str(out_prefix),
+            ]
+            res = subprocess.run(cmd, capture_output=True, text=True)
+            if res.returncode != 0:
+                raise RuntimeError(
+                    f"plink2 --export {format} failed (exit "
+                    f"{res.returncode}): {res.stderr[:1000]}"
+                )
+
+            # Pick the produced file and return its bytes as text.
+            # plink2 writes a primary text file plus a sidecar (.map/.tfam/etc).
+            # Map name → primary ext.
+            out_ext = {
+                "vcf": ".vcf",
+                "plink": ".ped",
+                "numeric": ".raw",
+                "hapmap": ".tped",
+            }
+            primary = (work / "out").with_suffix(out_ext[format])
+            if not primary.exists():
+                candidates = sorted(
+                    p for p in work.glob("out.*") if p.suffix != ".log"
+                )
+                if not candidates:
+                    raise RuntimeError(
+                        f"plink2 --export {format} produced no output file "
+                        f"in {work} (saw: "
+                        f"{[p.name for p in work.iterdir()]})"
+                    )
+                primary = candidates[0]
+            return primary.read_text()
 
     def _export_hapmap(self, variant_list, variants, sample_list, matrix):
         lines = []

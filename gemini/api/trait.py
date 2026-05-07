@@ -346,13 +346,41 @@ class Trait(APIBase):
             bool: True if the trait was deleted, False otherwise.
         """
         try:
+            from sqlalchemy import select
+            from gemini.db.core.base import db_engine
+            from gemini.db.models.datasets import DatasetModel
+
             current_id = self.id
             trait = TraitModel.get(current_id)
             if not trait:
                 logger.warning(f"Trait with ID {current_id} does not exist.")
                 return False
+
+            # Capture auto-created dataset candidates BEFORE the cascade.
+            # The `populate_trait_record_ids` BEFORE-INSERT trigger
+            # (`6_init_functions.sql:check_trait_validity`) silently
+            # inserts a `gemini.datasets` row + `trait_datasets`
+            # association for any record referencing a previously-unseen
+            # dataset_name. CASCADE cleans the join row but not the
+            # dataset row — that's the orphan we sweep below.
+            with db_engine.get_session() as session:
+                candidate_dataset_ids = list(set(session.execute(
+                    select(TraitDatasetModel.dataset_id).where(
+                        TraitDatasetModel.trait_id == current_id
+                    )
+                ).scalars().all()))
+
             TraitRecordModel.delete_by_trait(self.trait_name)
             TraitModel.delete(trait)
+
+            # Sweep candidates that lost all inbound refs (any of the six
+            # *_datasets associations or experiment_datasets). Scoped to
+            # candidates so a concurrent unrelated orphaning doesn't get
+            # collateral'd here. Mirrors the pattern at
+            # `genotyping_study.py:230-285`.
+            if candidate_dataset_ids:
+                from gemini.api.base import sweep_orphan_datasets
+                sweep_orphan_datasets(candidate_dataset_ids, owner=self.trait_name)
             return True
         except Exception as e:
             logger.error(f"Error deleting trait: {e}")

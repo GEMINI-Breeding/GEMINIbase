@@ -617,7 +617,20 @@ class SensorRecord(APIBase, FileHandlerMixin):
             if not sensor_record:
                 logger.info(f"No sensor record found with ID: {current_id}")
                 return False
+            # Capture before delete; the row holds the only pointer to the
+            # MinIO object we uploaded in process_sensor_record (file_key).
+            record_file = getattr(sensor_record, "record_file", None)
             SensorRecordModel.delete(sensor_record)
+            if record_file:
+                try:
+                    self.minio_storage_provider.client.remove_object(
+                        bucket_name=self.minio_storage_provider.bucket_name,
+                        object_name=record_file,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "MinIO remove_object %s failed: %s", record_file, exc
+                    )
             return True
         except Exception as e:
             logger.error(f"Error deleting sensor record: {e}")

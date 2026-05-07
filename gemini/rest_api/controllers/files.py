@@ -46,6 +46,56 @@ from typing import Annotated, List
 # this needs to move to Redis.
 _chunk_uploads: dict[str, dict] = {}
 
+
+def _record_experiment_file(
+    experiment_id: str,
+    bucket: str,
+    object_name: str,
+) -> None:
+    """Insert (or no-op-update) the experiment_files row for a finalised
+    chunked upload. Idempotent on (bucket, object_name) so a retried
+    completion request can't 23505 the upload."""
+    import logging
+
+    from sqlalchemy import select
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    from gemini.db.core.base import db_engine
+    from gemini.db.models.experiment_files import ExperimentFileModel
+    from gemini.db.models.experiments import ExperimentModel
+
+    logger = logging.getLogger(__name__)
+    try:
+        with db_engine.get_session() as session:
+            # Validate the experiment exists. Without this, a typo'd /
+            # spoofed experiment_id silently produces an orphan row that
+            # the cascade can't reach. Better to log + skip than insert
+            # garbage.
+            exists = session.execute(
+                select(ExperimentModel.id).where(
+                    ExperimentModel.id == experiment_id
+                )
+            ).scalar_one_or_none()
+            if exists is None:
+                logger.warning(
+                    "experiment_files: refusing to record %s for unknown "
+                    "experiment_id %s", object_name, experiment_id,
+                )
+                return
+            stmt = pg_insert(ExperimentFileModel.__table__).values(
+                experiment_id=experiment_id,
+                bucket=bucket,
+                object_name=object_name,
+            ).on_conflict_do_nothing(
+                constraint="experiment_files_unique_object",
+            )
+            session.execute(stmt)
+    except Exception as exc:
+        logger.warning(
+            "experiment_files: failed to record (%s, %s): %s",
+            bucket, object_name, exc,
+        )
+
 manager = GEMINIManager()
 minio_storage_settings = manager.get_component_settings(GEMINIComponentType.STORAGE)
 minio_storage_config = MinioStorageConfig(
@@ -277,6 +327,33 @@ class FileController(Controller):
                     ),
                     status_code=500,
                 )
+            # After a successful MinIO delete, drop the matching
+            # experiment_files row so the DB doesn't keep a dangling
+            # pointer at the now-gone object. The chunked-upload finaliser
+            # at `_record_experiment_file` is the only writer of these
+            # rows; it keys on (bucket, object_name) which is also our
+            # unique constraint — so the DELETE is at-most-one-row.
+            try:
+                from gemini.db.core.base import db_engine
+                from gemini.db.models.experiment_files import ExperimentFileModel
+                with db_engine.get_session() as session:
+                    session.execute(
+                        ExperimentFileModel.__table__.delete().where(
+                            (ExperimentFileModel.bucket == bucket_name)
+                            & (ExperimentFileModel.object_name == object_name)
+                        )
+                    )
+                    session.commit()
+            except Exception as exc:
+                # Logged-warning, not fatal: the MinIO object is already
+                # gone, so a subsequent Experiment.delete() that tries to
+                # remove this object via the row-targeted sweep will
+                # see a missing-object warning rather than a zombie row.
+                import logging
+                logging.getLogger(__name__).warning(
+                    "experiment_files row sweep for %s/%s failed: %s",
+                    bucket_name, object_name, exc,
+                )
             return None
         except Exception as e:
             error_message = RESTAPIError(
@@ -341,6 +418,21 @@ class FileController(Controller):
                     parts=list(session["parts"].items()),
                     bucket_name=session["bucket_name"],
                 )
+                # Phase 9j: write the authoritative pointer row so the
+                # experiment-delete cascade can sweep this object by row
+                # rather than guessing the path layout. Idempotent on
+                # (bucket, object_name) so a retried-completion (e.g.
+                # network error on the very last chunk's response) is
+                # safe. Failure here is logged but not fatal — the
+                # MinIO write already succeeded and we'd rather have an
+                # untracked file than fail an upload the user already
+                # paid for.
+                if data.experiment_id:
+                    _record_experiment_file(
+                        experiment_id=data.experiment_id,
+                        bucket=session["bucket_name"],
+                        object_name=session["object_name"],
+                    )
                 del _chunk_uploads[file_id]
                 return ChunkStatusResponse(
                     file_identifier=file_id,
