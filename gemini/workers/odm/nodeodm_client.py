@@ -43,7 +43,12 @@ class NodeODMClient:
         resp.raise_for_status()
         return resp.json()
 
-    def create_task(self, image_paths: list[str], options: list[dict] = None) -> str:
+    def create_task(
+        self,
+        image_paths: list[str],
+        options: list[dict] = None,
+        extra_files: list[str] | None = None,
+    ) -> str:
         """
         Create a new processing task by uploading images.
 
@@ -62,6 +67,10 @@ class NodeODMClient:
         Args:
             image_paths: List of local file paths to upload.
             options: ODM processing options as list of {"name": ..., "value": ...} dicts.
+            extra_files: Optional list of non-image files (e.g. ``gcp_list.txt``,
+                ``geo.txt``) to include in the same NodeODM task. NodeODM
+                identifies them by filename, not multipart field, so they go
+                through the same ``/task/new/upload`` endpoint.
 
         Returns:
             Task UUID string.
@@ -98,6 +107,25 @@ class NodeODMClient:
             except requests.HTTPError as e:
                 raise NodeODMError(
                     f"Upload failed for {filename} (task {task_uuid}): "
+                    f"{up_resp.status_code} {up_resp.text[:200]}"
+                ) from e
+
+        # 2b. Upload GCP sidecars (if any). NodeODM keys on filename, so the
+        #     multipart field name stays "images" while the content type
+        #     reflects the sidecar's actual mime.
+        for path in extra_files or []:
+            filename = os.path.basename(path)
+            with open(path, "rb") as fh:
+                up_resp = requests.post(
+                    upload_url,
+                    files={"images": (filename, fh, "text/plain")},
+                    timeout=(self.timeout, 600),
+                )
+            try:
+                up_resp.raise_for_status()
+            except requests.HTTPError as e:
+                raise NodeODMError(
+                    f"Upload failed for sidecar {filename} (task {task_uuid}): "
                     f"{up_resp.status_code} {up_resp.text[:200]}"
                 ) from e
 

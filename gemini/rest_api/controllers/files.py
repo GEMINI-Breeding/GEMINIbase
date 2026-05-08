@@ -20,6 +20,8 @@ from gemini.rest_api.models import (
     ChunkStatusResponse,
     AbortUploadRequest,
     PresignedUrlResponse,
+    ImageGpsEntry,
+    ImageGpsResponse,
 )
 
 from gemini.manager import GEMINIManager, GEMINIComponentType
@@ -95,6 +97,122 @@ def _record_experiment_file(
             "experiment_files: failed to record (%s, %s): %s",
             bucket, object_name, exc,
         )
+
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".tif", ".tiff"}
+
+
+def _is_image_object(object_name: str) -> bool:
+    """True if the basename ends in a known image extension."""
+    name = object_name.lower()
+    return any(name.endswith(ext) for ext in IMAGE_EXTENSIONS)
+
+
+def _rational_to_float(v) -> float | None:
+    """Convert Pillow's IFDRational / tuple-of-rationals to a float.
+
+    EXIF GPS coordinates come back as either an IFDRational (which behaves
+    like a fraction) or a 3-tuple (degrees, minutes, seconds), each of
+    which is itself an IFDRational.
+    """
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _gps_dms_to_decimal(dms, ref) -> float | None:
+    """Convert EXIF GPS (degrees, minutes, seconds) + N/S/E/W ref to decimal."""
+    if not dms or len(dms) != 3:
+        return None
+    d = _rational_to_float(dms[0])
+    m = _rational_to_float(dms[1])
+    s = _rational_to_float(dms[2])
+    if d is None or m is None or s is None:
+        return None
+    decimal = d + m / 60.0 + s / 3600.0
+    if ref in ("S", "W", b"S", b"W"):
+        decimal = -decimal
+    return decimal
+
+
+def _extract_image_gps(blob: bytes) -> dict | None:
+    """Extract {lat, lon, alt} from an image's EXIF GPS tags.
+
+    Returns ``None`` when the image has no GPS tags or when EXIF can't be
+    parsed (corrupt file, unsupported format, etc.). Mirrors the
+    frontend `exifr.gps()` behavior including the GPSAltitudeRef sign
+    flip for below-sea-level altitudes.
+    """
+    try:
+        from PIL import Image as PILImage
+        from PIL.ExifTags import GPSTAGS
+        import io
+
+        with PILImage.open(io.BytesIO(blob)) as img:
+            exif = img.getexif()
+            # GPSInfo is tag 34853; .get_ifd() returns its sub-IFD as a
+            # dict keyed by GPS tag IDs (GPSLatitude=2, GPSLongitude=4,
+            # GPSAltitude=6, ...).
+            gps_ifd = exif.get_ifd(34853)
+        if not gps_ifd:
+            return None
+        gps = {GPSTAGS.get(k, k): v for k, v in gps_ifd.items()}
+        lat = _gps_dms_to_decimal(gps.get("GPSLatitude"), gps.get("GPSLatitudeRef"))
+        lon = _gps_dms_to_decimal(gps.get("GPSLongitude"), gps.get("GPSLongitudeRef"))
+        if lat is None or lon is None:
+            return None
+        alt = _rational_to_float(gps.get("GPSAltitude")) or 0.0
+        # GPSAltitudeRef: 0 = above sea level, 1 = below.
+        ref = gps.get("GPSAltitudeRef")
+        if ref in (1, b"\x01"):
+            alt = -alt
+        return {"lat": lat, "lon": lon, "alt": alt}
+    except Exception:
+        return None
+
+
+def _update_experiment_file_metadata(
+    bucket: str,
+    object_name: str,
+    patch: dict,
+) -> None:
+    """Merge ``patch`` into the metadata_json column of the matching row.
+
+    No-ops if the row doesn't exist (worker-written files, single-shot
+    uploads without an experiment_id, etc.). Uses ``||`` (JSONB merge)
+    so we don't clobber other keys some future feature might add.
+    """
+    import logging
+
+    from sqlalchemy import update
+    from sqlalchemy.dialects.postgresql import JSONB
+    from sqlalchemy import cast
+
+    from gemini.db.core.base import db_engine
+    from gemini.db.models.experiment_files import ExperimentFileModel
+
+    logger = logging.getLogger(__name__)
+    try:
+        with db_engine.get_session() as session:
+            stmt = (
+                update(ExperimentFileModel)
+                .where(
+                    ExperimentFileModel.bucket == bucket,
+                    ExperimentFileModel.object_name == object_name,
+                )
+                .values(
+                    metadata_json=ExperimentFileModel.metadata_json.op("||")(
+                        cast(patch, JSONB)
+                    )
+                )
+            )
+            session.execute(stmt)
+    except Exception as exc:
+        logger.warning(
+            "experiment_files: failed to merge metadata for (%s, %s): %s",
+            bucket, object_name, exc,
+        )
+
 
 manager = GEMINIManager()
 minio_storage_settings = manager.get_component_settings(GEMINIComponentType.STORAGE)
@@ -192,6 +310,114 @@ class FileController(Controller):
             )
             return Response(content=error, status_code=500)
         
+    @get(path="/image-gps/{file_path:path}", sync_to_thread=True)
+    def list_image_gps(self, file_path: str) -> ImageGpsResponse:
+        """Return per-image basename + GPS for every image at the given
+        ``{bucket}/{prefix}``.
+
+        Reads from the ``experiment_files.metadata_json`` cache when
+        present; otherwise streams the image from MinIO, extracts EXIF
+        GPS server-side, persists the result back to the cache, and
+        includes it in the response. The first call for a freshly-
+        uploaded scope can therefore be slow; subsequent calls are a
+        single DB query.
+        """
+        try:
+            from sqlalchemy import select
+
+            from gemini.db.core.base import db_engine
+            from gemini.db.models.experiment_files import ExperimentFileModel
+
+            # Path format matches list_files: leading slash makes parts[0]
+            # the empty string, so the bucket is at index 1 and the prefix
+            # is everything after.
+            parts = file_path.split('/')
+            if len(parts) < 2:
+                return Response(
+                    content=RESTAPIError(
+                        error="Bad path",
+                        error_description="Expected {bucket}/{prefix}",
+                    ),
+                    status_code=400,
+                )
+            bucket_name = parts[1] if not parts[0] else parts[0]
+            prefix = '/'.join(parts[2:] if not parts[0] else parts[1:])
+
+            if not minio_storage_provider.bucket_exists(bucket_name):
+                return Response(
+                    content=RESTAPIError(
+                        error="Bucket not found",
+                        error_description=f"Bucket {bucket_name} does not exist",
+                    ),
+                    status_code=404,
+                )
+
+            entries = minio_storage_provider.list_files_with_metadata(
+                bucket_name=bucket_name,
+                prefix=prefix,
+            )
+            image_entries = [
+                e for e in entries if _is_image_object(e["object_name"])
+            ]
+            if not image_entries:
+                return ImageGpsResponse(images=[])
+
+            # Pull cached metadata in one query.
+            object_names = [e["object_name"] for e in image_entries]
+            with db_engine.get_session() as session:
+                rows = session.execute(
+                    select(
+                        ExperimentFileModel.object_name,
+                        ExperimentFileModel.metadata_json,
+                    ).where(
+                        ExperimentFileModel.bucket == bucket_name,
+                        ExperimentFileModel.object_name.in_(object_names),
+                    )
+                ).all()
+            cached = {
+                r.object_name: (r.metadata_json or {}).get("gps")
+                for r in rows
+            }
+
+            out: list[ImageGpsEntry] = []
+            for entry in image_entries:
+                obj = entry["object_name"]
+                basename = obj.rsplit("/", 1)[-1]
+                gps = cached.get(obj)
+                if gps is None:
+                    # Lazy backfill — extract once, persist, return.
+                    try:
+                        stream = minio_storage_provider.download_file_stream(
+                            object_name=obj, bucket_name=bucket_name,
+                        )
+                        gps = _extract_image_gps(stream.read())
+                    except Exception:
+                        gps = None
+                    if gps is not None:
+                        _update_experiment_file_metadata(
+                            bucket=bucket_name,
+                            object_name=obj,
+                            patch={"gps": gps},
+                        )
+                if gps:
+                    out.append(ImageGpsEntry(
+                        name=basename,
+                        lat=gps.get("lat"),
+                        lon=gps.get("lon"),
+                        alt=gps.get("alt"),
+                    ))
+                else:
+                    out.append(ImageGpsEntry(name=basename))
+            return ImageGpsResponse(images=out)
+        except Exception as e:
+            return Response(
+                content=RESTAPIError(
+                    error=str(e),
+                    error_description="An error occurred while listing image GPS",
+                ),
+                status_code=500,
+            )
+
     @get(path="/download/{file_path:path}", sync_to_thread=True)
     def download_file(
         self,
@@ -433,6 +659,26 @@ class FileController(Controller):
                         bucket=session["bucket_name"],
                         object_name=session["object_name"],
                     )
+                    # Cache EXIF GPS for image uploads so the Image
+                    # Exclusion + GCP picker map views can render in one
+                    # DB hit instead of fanning out HTTP Range requests
+                    # to read EXIF in the browser. Lazy backfill in the
+                    # /image-gps endpoint covers any image we miss here.
+                    if _is_image_object(session["object_name"]):
+                        try:
+                            stream = minio_storage_provider.download_file_stream(
+                                object_name=session["object_name"],
+                                bucket_name=session["bucket_name"],
+                            )
+                            gps = _extract_image_gps(stream.read())
+                        except Exception:
+                            gps = None
+                        if gps is not None:
+                            _update_experiment_file_metadata(
+                                bucket=session["bucket_name"],
+                                object_name=session["object_name"],
+                                patch={"gps": gps},
+                            )
                 del _chunk_uploads[file_id]
                 return ChunkStatusResponse(
                     file_identifier=file_id,

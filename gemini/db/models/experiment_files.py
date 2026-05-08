@@ -23,10 +23,11 @@ backstop in the experiment cascade. This table is scoped to the
 "chunked-upload from the user" path only.
 """
 from datetime import datetime
+from typing import Any
 import uuid
 
 from sqlalchemy import BigInteger, ForeignKey, Index, TIMESTAMP, Text, UniqueConstraint
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from gemini.db.core.base import BaseModel
@@ -58,6 +59,14 @@ class ExperimentFileModel(BaseModel):
         TIMESTAMP(timezone=True),
         default=datetime.now,
         nullable=False,
+    )
+    # Per-object derived metadata (e.g., {"gps": {"lat", "lon", "alt"}}).
+    # Populated at upload time for image extensions and lazily backfilled
+    # by the image-gps endpoint for older rows. Named ``metadata_json``
+    # because plain ``metadata`` is a reserved attribute on SQLAlchemy
+    # declarative classes.
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default="{}"
     )
 
     __table_args__ = (

@@ -46,6 +46,15 @@ MAX_POLL_FAILURES = int(os.environ.get("GEMINI_ODM_MAX_POLL_FAILURES", "60"))
 # Image file extensions to include
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".tif", ".tiff"}
 
+# Sidecar files NodeODM auto-detects when present alongside the images.
+# The frontend's GCP picker writes both to the same MinIO prefix.
+GCP_SIDECAR_FILENAMES = ("gcp_list.txt", "geo.txt")
+
+# Optional sidecar written by the frontend's Image Review step. One image
+# basename per line, with `#` comments. Listed images are dropped from
+# both the staged image set and the geo.txt rows we forward to NodeODM.
+IMAGE_FILTER_FILENAME = "image_filter.txt"
+
 # Default ODM options for "Default" quality.
 # Matches the original Flask backend behavior:
 # - No --fast-orthophoto (full quality reconstruction)
@@ -476,16 +485,43 @@ class OdmWorker(BaseWorker):
                 ["Processing started..."], output_prefix, client
             )
 
+            # Pull the optional Image Review exclusion list before the image
+            # download so we never stage excluded frames locally.
+            excluded = self._load_image_filter(client, image_prefix)
+            if excluded:
+                logger.info(
+                    f"Excluding {len(excluded)} image(s) from job {job_id} per "
+                    f"{IMAGE_FILTER_FILENAME}"
+                )
+
             # Phase 1: Download images from MinIO (0-15%)
             self.report_progress(job_id, 2, {"stage": "downloading_images"})
             image_paths = self._download_images(
-                client, image_prefix, images_dir, job_id
+                client, image_prefix, images_dir, job_id, excluded=excluded
             )
             if not image_paths:
                 raise RuntimeError(
                     f"No images found in MinIO at {STORAGE_BUCKET}/{image_prefix}"
                 )
             logger.info(f"Downloaded {len(image_paths)} images for job {job_id}")
+
+            # Pull GCP sidecar files (gcp_list.txt, geo.txt) from the same
+            # prefix so NodeODM can use them. Absent files are skipped.
+            gcp_paths = self._download_gcp_files(client, image_prefix, images_dir)
+            if gcp_paths:
+                # Strip excluded images from geo.txt so NodeODM doesn't
+                # complain about GPS rows for files we never staged.
+                for p in gcp_paths:
+                    if os.path.basename(p) == "geo.txt":
+                        removed = self._filter_geo_txt(p, excluded)
+                        if removed:
+                            logger.info(
+                                f"Removed {removed} excluded image row(s) from geo.txt"
+                            )
+                logger.info(
+                    f"Forwarding GCP sidecars to NodeODM: "
+                    f"{[os.path.basename(p) for p in gcp_paths]}"
+                )
 
             if self.is_cancelled(job_id):
                 return {"status": "cancelled"}
@@ -496,7 +532,9 @@ class OdmWorker(BaseWorker):
                 "image_count": len(image_paths),
             })
             try:
-                task_id = self._nodeodm.create_task(image_paths, options)
+                task_id = self._nodeodm.create_task(
+                    image_paths, options, extra_files=gcp_paths
+                )
             except Exception as e:
                 raise RuntimeError(f"Failed to submit task to NodeODM: {e}") from e
             logger.info(f"NodeODM task created: {task_id}")
@@ -594,14 +632,27 @@ class OdmWorker(BaseWorker):
             return result
 
     def _download_images(
-        self, client, prefix: str, dest_dir: str, job_id: str
+        self,
+        client,
+        prefix: str,
+        dest_dir: str,
+        job_id: str,
+        excluded: Set[str] | None = None,
     ) -> list[str]:
-        """Download all image files from MinIO prefix to a local directory."""
+        """Download all image files from MinIO prefix to a local directory.
+
+        `excluded` is an optional set of basenames the user marked for
+        exclusion via the Image Review step (image_filter.txt). Listed
+        images are silently skipped here and removed from geo.txt by
+        the caller before NodeODM sees either.
+        """
+        excluded = excluded or set()
         objects = list(client.list_objects(STORAGE_BUCKET, prefix=prefix))
         image_objects = [
             obj
             for obj in objects
             if os.path.splitext(obj.object_name)[1].lower() in IMAGE_EXTENSIONS
+            and os.path.basename(obj.object_name) not in excluded
         ]
 
         if not image_objects:
@@ -613,6 +664,7 @@ class OdmWorker(BaseWorker):
                     obj
                     for obj in objects
                     if os.path.splitext(obj.object_name)[1].lower() in IMAGE_EXTENSIONS
+                    and os.path.basename(obj.object_name) not in excluded
                 ]
 
         paths = []
@@ -637,6 +689,84 @@ class OdmWorker(BaseWorker):
                 })
 
         return paths
+
+    def _download_gcp_files(
+        self, client, prefix: str, dest_dir: str
+    ) -> list[str]:
+        """
+        Download the GCP picker's sidecars (gcp_list.txt, geo.txt) from MinIO
+        if they exist at the same prefix as the images. NodeODM auto-detects
+        both filenames when they are present in the input set.
+        """
+        paths: list[str] = []
+        for filename in GCP_SIDECAR_FILENAMES:
+            object_name = f"{prefix.rstrip('/')}/{filename}"
+            local_path = os.path.join(dest_dir, filename)
+            try:
+                client.fget_object(STORAGE_BUCKET, object_name, local_path)
+            except Exception as exc:  # noqa: BLE001
+                # Missing files are expected when the user skipped GCP picking;
+                # other failures we just skip and log so the job still runs.
+                logger.debug(
+                    f"GCP sidecar {filename} not pulled from {object_name}: {exc}"
+                )
+                continue
+            paths.append(local_path)
+        return paths
+
+    def _load_image_filter(self, client, prefix: str) -> Set[str]:
+        """Read the optional image_filter.txt sidecar and return the set
+        of excluded basenames. Returns an empty set if the file is absent
+        or unreadable.
+
+        Format: one basename per line; lines starting with `#` are comments.
+        """
+        object_name = f"{prefix.rstrip('/')}/{IMAGE_FILTER_FILENAME}"
+        try:
+            response = client.get_object(STORAGE_BUCKET, object_name)
+            try:
+                text = response.read().decode("utf-8", errors="replace")
+            finally:
+                response.close()
+                response.release_conn()
+        except Exception as exc:  # noqa: BLE001
+            logger.debug(
+                f"image_filter.txt not pulled from {object_name}: {exc}"
+            )
+            return set()
+        excluded: Set[str] = set()
+        for raw in text.splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            excluded.add(line)
+        return excluded
+
+    def _filter_geo_txt(self, geo_txt_path: str, excluded: Set[str]) -> int:
+        """Rewrite a downloaded geo.txt in-place, dropping rows whose
+        first whitespace-separated token (the image filename) is in
+        `excluded`. Returns the number of rows removed.
+        """
+        if not excluded or not os.path.exists(geo_txt_path):
+            return 0
+        with open(geo_txt_path, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+        kept: list[str] = []
+        removed = 0
+        for line in lines:
+            stripped = line.strip()
+            # Preserve header/comment/blank lines untouched.
+            if not stripped or stripped.startswith("#") or stripped.startswith("EPSG"):
+                kept.append(line)
+                continue
+            first = stripped.split()[0]
+            if first in excluded:
+                removed += 1
+                continue
+            kept.append(line)
+        with open(geo_txt_path, "w", encoding="utf-8") as f:
+            f.writelines(kept)
+        return removed
 
     def _poll_nodeodm(
         self, job_id: str, task_id: str, tmpdir: str, output_prefix: str, client

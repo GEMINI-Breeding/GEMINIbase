@@ -32,6 +32,26 @@ CREATE TABLE IF NOT EXISTS gemini.experiments (
 CREATE INDEX IF NOT EXISTS idx_experiments_info ON gemini.experiments USING GIN (experiment_info);
 ALTER TABLE gemini.experiments ADD CONSTRAINT experiment_unique UNIQUE (experiment_name);
 
+-- Per-experiment MinIO file index. Mirrors the prod init at
+-- gemini/db/init_sql/scripts/2_init_schema.sql; kept here so the test
+-- DB can exercise upload-time + image-gps caching paths and the schema
+-- drift check at tests/integration/test_schema_drift.py runs against
+-- the same shape it asserts about.
+CREATE TABLE IF NOT EXISTS gemini.experiment_files (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    experiment_id UUID NOT NULL REFERENCES gemini.experiments(id) ON DELETE CASCADE,
+    bucket TEXT NOT NULL,
+    object_name TEXT NOT NULL,
+    size_bytes BIGINT,
+    sha256 TEXT,
+    uploaded_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    CONSTRAINT experiment_files_unique_object UNIQUE (bucket, object_name)
+);
+CREATE INDEX IF NOT EXISTS idx_experiment_files_experiment_id
+    ON gemini.experiment_files (experiment_id);
+
+
 CREATE TABLE IF NOT EXISTS gemini.seasons (
     id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
     experiment_id uuid REFERENCES gemini.experiments(id) ON DELETE CASCADE,

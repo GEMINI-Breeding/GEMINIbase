@@ -740,6 +740,7 @@ CREATE TABLE IF NOT EXISTS gemini.experiment_files (
     sha256 TEXT,
     uploaded_by UUID REFERENCES gemini.users(id) ON DELETE SET NULL,
     uploaded_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
     CONSTRAINT experiment_files_unique_object UNIQUE (bucket, object_name)
 );
 

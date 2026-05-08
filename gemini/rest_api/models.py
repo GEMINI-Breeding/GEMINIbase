@@ -123,6 +123,21 @@ class PaginatedFileList(RESTAPIBase):
     offset: int
 
 
+# Per-image GPS surfaced by /api/files/image-gps. `gps` is null when the
+# image has no EXIF GPS (or EXIF couldn't be parsed). The endpoint
+# extracts on-demand and persists into experiment_files.metadata_json
+# the first time a given image is queried.
+class ImageGpsEntry(RESTAPIBase):
+    name: str
+    lat: Optional[float] = None
+    lon: Optional[float] = None
+    alt: Optional[float] = None
+
+
+class ImageGpsResponse(RESTAPIBase):
+    images: List[ImageGpsEntry]
+
+
 # --------------------------------
 # Experiment Classes
 # --------------------------------
