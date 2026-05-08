@@ -44,6 +44,10 @@ def _create_cog(input_path: str, output_path: str):
 
     Reprojects to Web Mercator (EPSG:3857), creates internal tiles,
     and builds overview pyramids for efficient tile serving.
+
+    Uses bilinear resampling for the reprojection and average for overviews
+    (rio-cogeo / gdaladdo defaults for RGB). Nearest-neighbor produces
+    visibly blocky tiles at every zoom on RGB drone orthos.
     """
     import numpy as np
     import rasterio
@@ -82,14 +86,14 @@ def _create_cog(input_path: str, output_path: str):
                     src_crs=src.crs,
                     dst_transform=transform,
                     dst_crs=dst_crs,
-                    resampling=Resampling.nearest,
+                    resampling=Resampling.bilinear,
                 )
 
         # Build overviews
         overview_levels = [2, 4, 8, 16, 32, 64, 128, 256]
         with rasterio.open(tmp_path, "r+") as dst:
-            dst.build_overviews(overview_levels, Resampling.nearest)
-            dst.update_tags(ns="rio_overview", resampling="nearest")
+            dst.build_overviews(overview_levels, Resampling.average)
+            dst.update_tags(ns="rio_overview", resampling="average")
 
         # Copy to COG layout
         rio_copy(tmp_path, output_path, driver="GTiff", copy_src_overviews=True, tiled=True)
