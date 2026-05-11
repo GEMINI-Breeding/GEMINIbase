@@ -81,6 +81,8 @@ class TraitRecord(APIBase):
     plot_number: Optional[int] = None
     plot_row_number: Optional[int] = None
     plot_column_number: Optional[int] = None
+    accession_id: Optional[ID] = None
+    accession_name: Optional[str] = None
     record_info: Optional[dict] = None
 
     def __str__(self):
@@ -166,6 +168,7 @@ class TraitRecord(APIBase):
         plot_number: int = None,
         plot_row_number: int = None,
         plot_column_number: int = None,
+        accession_name: str = None,
         record_info: dict = None,
         insert_on_create: bool = True
     ) -> Optional["TraitRecord"]:
@@ -237,6 +240,11 @@ class TraitRecord(APIBase):
                 plot_number=plot_number,
                 plot_row_number=plot_row_number,
                 plot_column_number=plot_column_number,
+                # The trigger resolves accession_name → accession_id
+                # at INSERT time, so we don't need to look up an id
+                # client-side. NULL is the "orphan / no germplasm
+                # column mapped" case and remains legal.
+                accession_name=accession_name,
                 record_info=record_info
             )
             if insert_on_create:

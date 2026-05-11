@@ -20,7 +20,6 @@ from sqlalchemy import select
 from gemini.db.core.base import db_engine
 from gemini.db.models.accessions import AccessionModel
 from gemini.db.models.variants import VariantModel
-from gemini.db.models.views.plot_accession_view import PlotAccessionViewModel
 from gemini.db.models.views.trait_records_immv import TraitRecordsIMMVModel
 
 
@@ -230,18 +229,20 @@ def write_phenotype(
     # accession_name -> {trait_id -> [values...]}
     per_sample: dict[str, dict[str, list[float]]] = {name: {} for name in sample_order}
 
+    # Direct trait_record → accession link, populated by alembic 0006
+    # (column + trigger). No more JOIN-through-plot_id, which used to
+    # silently drop every "orphan" trait record (no plot mapped during
+    # import) AND every plot-less import (greenhouse, common garden,
+    # etc).
     with db_engine.get_session() as session:
         for trait_id in trait_ids:
             stmt = (
                 select(
-                    PlotAccessionViewModel.accession_name,
+                    TraitRecordsIMMVModel.accession_name,
                     TraitRecordsIMMVModel.trait_value,
                 )
-                .join(
-                    PlotAccessionViewModel,
-                    TraitRecordsIMMVModel.plot_id == PlotAccessionViewModel.plot_id,
-                )
                 .where(TraitRecordsIMMVModel.trait_id == trait_id)
+                .where(TraitRecordsIMMVModel.accession_name.is_not(None))
             )
             if dataset_id:
                 stmt = stmt.where(TraitRecordsIMMVModel.dataset_id == str(dataset_id))

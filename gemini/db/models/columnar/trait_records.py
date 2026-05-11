@@ -8,6 +8,7 @@ from sqlalchemy import (
     REAL,
     JSON,
     String,
+    Text,
     Integer,
     UniqueConstraint,
     Index,
@@ -71,6 +72,12 @@ class TraitRecordModel(ColumnarBaseModel):
     plot_number: Mapped[str] = mapped_column(String(255))
     plot_row_number: Mapped[str] = mapped_column(String(255))
     plot_column_number: Mapped[str] = mapped_column(String(255))
+    # Added in alembic 0006. NULL when the import had no germplasm
+    # column and no plot to derive accession from (orphan records).
+    # No FK constraint — Citus columnar tables don't support FKs;
+    # the populate_trait_record_ids trigger RAISEs on bad names.
+    accession_id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), nullable=True)
+    accession_name: Mapped[str] = mapped_column(Text, nullable=True)
     record_info: Mapped[dict] = mapped_column(JSONB)
 
     __table_args__ = (

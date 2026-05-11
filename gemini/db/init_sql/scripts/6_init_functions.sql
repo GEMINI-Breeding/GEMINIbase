@@ -612,7 +612,14 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Function to populate ID fields in trait_records table based on names
+-- Function to populate ID fields in trait_records table based on names.
+--
+-- Also resolves accession_name → accession_id and asserts plot/accession
+-- agreement when both are present. See alembic 0006 for the reasoning:
+-- GWAS and other accession-keyed analyses need a direct trait_record
+-- → accession FK; the previous "look it up via plot" path failed on
+-- orphan trait records (no plot mapped) and on plot-less imports
+-- (greenhouse, common garden, etc).
 CREATE OR REPLACE FUNCTION gemini.populate_trait_record_ids()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -622,15 +629,13 @@ DECLARE
     sea_id UUID;
     sit_id UUID;
     pl_id UUID;
+    acc_id UUID;
+    plot_acc_id UUID;
+    plot_acc_name TEXT;
 BEGIN
     -- Check if the trait, dataset, experiment, season, and site are valid
     IF NOT gemini.check_trait_validity(NEW.trait_name, NEW.dataset_name, NEW.experiment_name, NEW.season_name, NEW.site_name) THEN
         RAISE EXCEPTION 'Invalid trait, dataset, experiment, season, or site combination';
-    END IF;
-
-    -- Check if the combination of experiment, season, and site is valid for plots
-    IF NOT gemini.check_plot_validity(NEW.experiment_name, NEW.season_name, NEW.site_name, NEW.plot_number, NEW.plot_row_number, NEW.plot_column_number) THEN
-        RAISE EXCEPTION 'Invalid experiment, season, or site combination for plots';
     END IF;
 
     -- Get the IDs based on names
@@ -640,16 +645,66 @@ BEGIN
     SELECT id INTO sea_id FROM gemini.seasons WHERE season_name = NEW.season_name AND experiment_id = exp_id;
     SELECT id INTO sit_id FROM gemini.sites WHERE site_name = NEW.site_name;
 
-    -- Get the plot ID based on the experiment, season, and site
-    SELECT id INTO pl_id FROM gemini.plots 
-    WHERE experiment_id = exp_id 
-      AND season_id = sea_id 
-      AND site_id = sit_id 
-      AND plot_number = NEW.plot_number
-      AND plot_row_number = NEW.plot_row_number
-      AND plot_column_number = NEW.plot_column_number;
-    IF pl_id IS NULL THEN
-        RAISE EXCEPTION 'No matching plot found for the given parameters';
+    -- Plot fields are optional. When plot_number is NULL the record is
+    -- intentionally unlinked (e.g. trait values imported without plot
+    -- context); skip the lookup and leave plot_id NULL. When plot_number
+    -- is provided, the row must resolve to an existing plot in this
+    -- (experiment, season, site) — same behavior as before.
+    IF NEW.plot_number IS NOT NULL THEN
+        IF NOT gemini.check_plot_validity(NEW.experiment_name, NEW.season_name, NEW.site_name, NEW.plot_number, NEW.plot_row_number, NEW.plot_column_number) THEN
+            RAISE EXCEPTION 'Invalid experiment, season, or site combination for plots';
+        END IF;
+
+        SELECT id INTO pl_id FROM gemini.plots
+        WHERE experiment_id = exp_id
+          AND season_id = sea_id
+          AND site_id = sit_id
+          AND plot_number = NEW.plot_number
+          AND plot_row_number = NEW.plot_row_number
+          AND plot_column_number = NEW.plot_column_number;
+        IF pl_id IS NULL THEN
+            RAISE EXCEPTION 'No matching plot found for the given parameters';
+        END IF;
+        NEW.plot_id := pl_id;
+    END IF;
+
+    -- Resolve accession_name → accession_id. Same lookup approach as
+    -- the other *_name → *_id pairs above. NULL name means orphan
+    -- (no germplasm column mapped during import).
+    IF NEW.accession_name IS NOT NULL THEN
+        SELECT id INTO acc_id FROM gemini.accessions
+        WHERE accession_name = NEW.accession_name;
+        IF acc_id IS NULL THEN
+            RAISE EXCEPTION 'No accession found with name %', NEW.accession_name;
+        END IF;
+        NEW.accession_id := acc_id;
+    END IF;
+
+    -- If we resolved a plot, check / backfill from the plot's accession.
+    IF NEW.plot_id IS NOT NULL THEN
+        SELECT p.accession_id, a.accession_name
+          INTO plot_acc_id, plot_acc_name
+          FROM gemini.plots p
+          LEFT JOIN gemini.accessions a ON a.id = p.accession_id
+         WHERE p.id = NEW.plot_id;
+        -- Both set + disagree → fail loudly. Plot/germplasm mismatch
+        -- is a data-quality bug the user wants to see.
+        IF plot_acc_id IS NOT NULL
+           AND NEW.accession_id IS NOT NULL
+           AND plot_acc_id <> NEW.accession_id THEN
+            RAISE EXCEPTION
+                'Accession mismatch on trait_records: plot % is associated with accession % but record supplied accession %',
+                NEW.plot_id, plot_acc_name, NEW.accession_name;
+        END IF;
+        -- Plot has accession + record doesn't → backfill. Keeps the
+        -- GWAS path working for plot-only imports without forcing
+        -- every CSV to carry a line/accession column.
+        IF plot_acc_id IS NOT NULL AND NEW.accession_id IS NULL THEN
+            NEW.accession_id := plot_acc_id;
+            IF NEW.accession_name IS NULL THEN
+                NEW.accession_name := plot_acc_name;
+            END IF;
+        END IF;
     END IF;
 
     -- Update the record with the IDs
@@ -658,7 +713,6 @@ BEGIN
     NEW.experiment_id := exp_id;
     NEW.season_id := sea_id;
     NEW.site_id := sit_id;
-    NEW.plot_id := pl_id;
 
     RETURN NEW;
 END;

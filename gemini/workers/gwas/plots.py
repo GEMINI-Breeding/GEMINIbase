@@ -111,18 +111,35 @@ def manhattan_plot(
     d = d.sort_values(["chr_int", "ps"]).reset_index(drop=True)
     d["logp"] = -np.log10(d[p_col].astype(float))
 
-    # Cumulative x so chromosomes don't overlap.
+    # Cumulative x so chromosomes don't overlap. We compute the
+    # per-chromosome offset and per-chromosome min(ps) in one pass,
+    # then vectorise the x assignment via map+subtract. The previous
+    # row-wise df.apply implementation crashed with "Cannot set a
+    # DataFrame with multiple columns to the single column x" on
+    # certain GEMMA outputs (the lambda's inner `d[mask]["ps"]`
+    # silently returns a DataFrame when the source has any duplicate
+    # column name, propagating up through the subtraction). The
+    # vectorised form has no such failure mode and is ~100× faster
+    # on real-world variant counts.
     offsets: dict[int, int] = {}
+    chrom_min_ps: dict[int, int] = {}
     running = 0
     xticks = []
     xticklabels = []
     for chrom, grp in d.groupby("chr_int", sort=True):
         offsets[chrom] = running
-        span = int(grp["ps"].max() - grp["ps"].min() + 1)
+        min_ps = int(grp["ps"].min())
+        max_ps = int(grp["ps"].max())
+        span = max_ps - min_ps + 1
+        chrom_min_ps[chrom] = min_ps
         xticks.append(running + span // 2)
         xticklabels.append(str(chrom))
         running += span
-    d["x"] = d.apply(lambda r: offsets[r["chr_int"]] + (r["ps"] - d[d["chr_int"] == r["chr_int"]]["ps"].min()), axis=1)
+    d["x"] = (
+        d["chr_int"].map(offsets).astype(int)
+        + d["ps"].astype(int)
+        - d["chr_int"].map(chrom_min_ps).astype(int)
+    )
 
     fig, ax = plt.subplots(figsize=(12, 4.5))
     palette = ["#1f77b4", "#ff7f0e"]
@@ -141,6 +158,72 @@ def manhattan_plot(
     if title:
         ax.set_title(title)
     ax.legend(loc="upper right", fontsize=8)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150)
+    plt.close(fig)
+    return out_path
+
+
+def kinship_heatmap(
+    kin_path: Path,
+    out_path: Path,
+    title: Optional[str] = None,
+) -> Path:
+    """Render the GEMMA centered relatedness matrix as a clustered heatmap.
+
+    Samples are reordered by average-linkage hierarchical clustering on
+    `1 - kinship` (treating kinship as a similarity → distance), so
+    related individuals fall into visible blocks. Diagonal is the
+    sample's relatedness with itself; high off-diagonal values indicate
+    close relatedness.
+
+    The kinship file is a square N×N text matrix written by
+    ``gemma -gk 1``; sample order matches the .fam used to generate it.
+    We don't have the sample labels embedded in the file, so the axes
+    are unlabelled — labelling 300+ ticks is unreadable anyway.
+    """
+    from scipy.cluster.hierarchy import linkage, leaves_list
+    from scipy.spatial.distance import squareform
+
+    K = pd.read_csv(kin_path, sep=r"\s+", header=None, engine="python").to_numpy()
+    n = K.shape[0]
+    if n == 0 or K.shape[0] != K.shape[1]:
+        # Bail rather than crash: emit a 1×1 placeholder so the worker
+        # uploads *something* the UI can render.
+        fig, ax = plt.subplots(figsize=(4, 4))
+        ax.set_title("kinship matrix unavailable")
+        ax.axis("off")
+        fig.savefig(out_path, dpi=150)
+        plt.close(fig)
+        return out_path
+
+    # Cluster on 1 - K (force-symmetrize to dodge floating-point asymmetry
+    # in the lower triangle). squareform expects zero diagonal.
+    D = 1.0 - 0.5 * (K + K.T)
+    np.fill_diagonal(D, 0.0)
+    # Clamp tiny negatives that come out of the symmetrization round-trip.
+    D = np.clip(D, 0.0, None)
+    try:
+        Z = linkage(squareform(D, checks=False), method="average")
+        order = leaves_list(Z)
+    except Exception:
+        # Degenerate matrices (e.g. all-zero off-diagonals on a single-
+        # variant QC pass) can break linkage. Fall back to identity order.
+        order = np.arange(n)
+    K_ord = K[np.ix_(order, order)]
+
+    fig, ax = plt.subplots(figsize=(7, 6))
+    # Symmetric color scale around zero — kinship-to-self is high,
+    # unrelated pairs hover near zero, half-sibs are positive but smaller.
+    vmax = float(np.percentile(np.abs(K_ord), 99))
+    im = ax.imshow(K_ord, cmap="RdBu_r", vmin=-vmax, vmax=vmax, aspect="auto")
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_xlabel(f"{n} samples (clustered)")
+    ax.set_ylabel(f"{n} samples (clustered)")
+    if title:
+        ax.set_title(title)
+    fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04, label="kinship")
     fig.tight_layout()
     fig.savefig(out_path, dpi=150)
     plt.close(fig)

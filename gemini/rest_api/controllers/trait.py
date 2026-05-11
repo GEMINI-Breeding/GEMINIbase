@@ -320,6 +320,7 @@ class TraitController(Controller):
             plot_numbers = []
             plot_row_numbers = []
             plot_column_numbers = []
+            accession_names = []
             record_infos = []
 
             for row in data.records:
@@ -331,6 +332,14 @@ class TraitController(Controller):
                 plot_numbers.append(row.get('plot_number'))
                 plot_row_numbers.append(row.get('plot_row_number'))
                 plot_column_numbers.append(row.get('plot_column_number'))
+                # accession_name is the wizard's chosen germplasm
+                # column (line / accession / alias) resolved per row.
+                # The DB trigger resolves it to accession_id at
+                # INSERT time; passing None is legal (orphan record).
+                acc_raw = row.get('accession_name')
+                accession_names.append(
+                    acc_raw.strip() if isinstance(acc_raw, str) and acc_raw.strip() else None
+                )
                 record_infos.append(row.get('record_info', {}))
 
             success, record_ids = trait.insert_records(
@@ -344,6 +353,7 @@ class TraitController(Controller):
                 plot_numbers=plot_numbers if any(p is not None for p in plot_numbers) else None,
                 plot_row_numbers=plot_row_numbers if any(p is not None for p in plot_row_numbers) else None,
                 plot_column_numbers=plot_column_numbers if any(p is not None for p in plot_column_numbers) else None,
+                accession_names=accession_names if any(a is not None for a in accession_names) else None,
                 record_info=record_infos,
             )
 

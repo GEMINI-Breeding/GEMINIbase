@@ -14,6 +14,7 @@ from __future__ import annotations
 import io
 import json
 import logging
+import math
 import os
 import tempfile
 from pathlib import Path
@@ -22,6 +23,29 @@ from typing import Any, Set
 from gemini.workers.base import BaseWorker
 from gemini.workers.gwas import extract, gemma_runner, plink_runner, plots
 from gemini.workers.types import JobType
+
+
+def _json_safe(value: Any) -> Any:
+    """Recursively replace NaN / +-Inf with None inside a JSON-ish tree.
+
+    GWAS summary stats (genomic-inflation λ, Bonferroni threshold) can
+    legitimately come back as NaN — e.g. when GEMMA returns zero rows
+    after QC, or every p-value is exactly 0 (chi^2 -> +Inf). The job
+    completion POST goes through stdlib json which emits literal
+    ``NaN`` / ``Infinity`` tokens. Litestar's server-side validator
+    rejects those ("Out of range float values are not JSON compliant"),
+    leaving the job stuck in RUNNING. Coerce here at the result
+    boundary so a quirky dataset can't strand the worker.
+    """
+    if isinstance(value, float):
+        if math.isnan(value) or math.isinf(value):
+            return None
+        return value
+    if isinstance(value, dict):
+        return {k: _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    return value
 
 logger = logging.getLogger(__name__)
 
@@ -212,8 +236,30 @@ class GwasWorker(BaseWorker):
                 )
                 plots.qq_plot(df, p_col, qq_path, title=f"QQ — {study.study_name}")
 
+                # Kinship heatmap: read the same file we hand to GEMMA,
+                # cluster samples hierarchically, render. Failure here
+                # should NOT take down the whole job — kinship viz is
+                # diagnostic, not a hard dependency of the GWAS result.
+                kinship_heatmap_path = work / "kinship_heatmap.png"
+                try:
+                    plots.kinship_heatmap(
+                        kin_path, kinship_heatmap_path,
+                        title=f"Kinship — {study.study_name}",
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        "Kinship heatmap render failed; continuing without: %s",
+                        exc,
+                    )
+                    kinship_heatmap_path = None
+
                 artifacts["manhattan"] = _upload(client, manhattan_path, f"{prefix}/manhattan.png", "image/png")
                 artifacts["qq"] = _upload(client, qq_path, f"{prefix}/qq.png", "image/png")
+                if kinship_heatmap_path and kinship_heatmap_path.exists():
+                    artifacts["kinship_heatmap"] = _upload(
+                        client, kinship_heatmap_path,
+                        f"{prefix}/kinship_heatmap.png", "image/png",
+                    )
                 summary_payload = {
                     "p_column": assoc_summary.p_column,
                     "genomic_inflation_lambda": assoc_summary.genomic_inflation_lambda,
@@ -242,7 +288,7 @@ class GwasWorker(BaseWorker):
                 if p.exists():
                     artifacts[f"qc_{suffix}"] = _upload(client, p, f"{prefix}/qc.{suffix}")
 
-            result = {
+            result = _json_safe({
                 "artifacts": artifacts,
                 "study_id": str(study.id),
                 "study_name": study.study_name,
@@ -256,7 +302,7 @@ class GwasWorker(BaseWorker):
                 "n_samples_passed_qc": qc_result.n_samples_after,
                 "n_samples_with_phenotype": n_covered,
                 **summary_payload,
-            }
+            })
 
             # 10. Drop a JSON copy of the full result into MinIO for easy retrieval.
             result_buf = io.BytesIO(json.dumps(result, indent=2, default=str).encode())

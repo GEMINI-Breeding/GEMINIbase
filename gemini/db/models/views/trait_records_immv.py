@@ -1,5 +1,5 @@
 from sqlalchemy.orm import mapped_column, Mapped
-from sqlalchemy import UUID, String, Integer, REAL
+from sqlalchemy import UUID, String, Text, Integer, REAL
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy import TIMESTAMP, DATE
 from gemini.db.core.base import BaseModel
@@ -28,6 +28,9 @@ class TraitRecordsIMMVModel(BaseModel):
     plot_number : Mapped[int] = mapped_column(Integer)
     plot_row_number : Mapped[int] = mapped_column(Integer)
     plot_column_number : Mapped[int] = mapped_column(Integer)
+    # Added in alembic 0006 — direct trait_record → accession link
+    # for GWAS and other germplasm-keyed analyses. Mirrors the columnar
+    # base table; pg_ivm's IMMV refresh keeps the values in sync.
+    accession_id : Mapped[UUID] = mapped_column(UUID(as_uuid=True), nullable=True)
+    accession_name : Mapped[str] = mapped_column(Text, nullable=True)
     record_info : Mapped[dict] = mapped_column(JSONB)
-
-    

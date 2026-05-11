@@ -817,6 +817,7 @@ class Trait(APIBase):
         plot_numbers: List[int] = None,
         plot_row_numbers: List[int] = None,
         plot_column_numbers: List[int] = None,
+        accession_names: List[str] = None,
         record_info: List[dict] = None
     ) -> tuple[bool, List[str]]:
         """
@@ -882,6 +883,7 @@ class Trait(APIBase):
                     plot_number=plot_numbers[i] if plot_numbers else None,
                     plot_row_number=plot_row_numbers[i] if plot_row_numbers else None,
                     plot_column_number=plot_column_numbers[i] if plot_column_numbers else None,
+                    accession_name=accession_names[i] if accession_names else None,
                     record_info=record_info[i] if record_info else {},
                     insert_on_create=False
                 )

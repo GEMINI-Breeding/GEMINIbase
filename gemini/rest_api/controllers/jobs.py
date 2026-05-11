@@ -25,6 +25,69 @@ from gemini.rest_api.models import (
 
 logger = logging.getLogger(__name__)
 
+
+def _sweep_gwas_artifacts(job_id: str) -> int:
+    """Remove every MinIO object under ``gwas/{job_id}/``.
+
+    Called by delete_job for RUN_GWAS rows. Resolves the storage
+    endpoint through `GEMINIManager.get_component_settings(STORAGE)`
+    — the same path the files controller uses — so the right
+    hostname (`geminibase-storage`) is picked up from the active
+    deployment's settings even when the env var isn't propagated
+    into this container. Returns the number of objects removed; logs
+    and swallows per-object errors so a single permissions hiccup
+    doesn't strand the rest of the sweep (the delete-the-row half of
+    the operation is the user's primary intent — they can chase
+    stragglers from MinIO admin if needed).
+    """
+    try:
+        from minio import Minio
+        from gemini.manager import GEMINIManager, GEMINIComponentType
+    except ImportError as exc:
+        logger.warning(
+            "GWAS artifact sweep dependencies unavailable: %s", exc,
+        )
+        return 0
+
+    try:
+        settings = GEMINIManager().get_component_settings(
+            GEMINIComponentType.STORAGE,
+        )
+        host = settings["GEMINI_STORAGE_HOSTNAME"]
+        port = settings["GEMINI_STORAGE_PORT"]
+        access_key = settings["GEMINI_STORAGE_ACCESS_KEY"]
+        secret_key = settings["GEMINI_STORAGE_SECRET_KEY"]
+        bucket = settings["GEMINI_STORAGE_BUCKET_NAME"]
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "Could not load storage settings for GWAS sweep: %s", exc,
+        )
+        return 0
+
+    prefix = f"gwas/{job_id}/"
+    try:
+        client = Minio(
+            f"{host}:{port}",
+            access_key=access_key,
+            secret_key=secret_key,
+            secure=False,
+        )
+        objects = client.list_objects(bucket, prefix=prefix, recursive=True)
+        removed = 0
+        for obj in objects:
+            try:
+                client.remove_object(bucket, obj.object_name)
+                removed += 1
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Failed to remove %s/%s during GWAS cleanup: %s",
+                    bucket, obj.object_name, exc,
+                )
+        return removed
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("GWAS artifact sweep failed for %s: %s", job_id, exc)
+        return 0
+
 # Valid job types that workers can process
 VALID_JOB_TYPES = {
     "TRAIN_MODEL",
@@ -255,7 +318,19 @@ class JobController(Controller):
 
     @delete(path="/{job_id:str}", sync_to_thread=True, status_code=200)
     def delete_job(self, job_id: str) -> dict:
-        """Delete a job record."""
+        """Delete a job record and any side-effect artifacts.
+
+        For RUN_GWAS specifically the worker writes ~12 files into
+        MinIO under ``gwas/{job_id}/`` (manhattan/qq/kinship PNGs,
+        run.assoc.txt, kin.cXX.txt, qc.{bed,bim,fam,log},
+        pca.eigenvec, covar.txt, result.json, etc). Without sweeping
+        those, deleting the job row would leave dangling objects the
+        user can't see or recover. We list-and-remove the whole
+        prefix; failures here are logged but don't block the row
+        delete — better to leak a few files than refuse the user's
+        cleanup. Other job types don't currently park anything in
+        MinIO under a deterministic prefix, so they need no sweep.
+        """
         try:
             job = Job.get_by_id(id=job_id)
             if job is None:
@@ -263,8 +338,17 @@ class JobController(Controller):
                     content=RESTAPIError(error="Not found", error_description=f"Job {job_id} not found"),
                     status_code=404,
                 )
+
+            objects_removed = 0
+            if str(job.job_type) == "RUN_GWAS":
+                objects_removed = _sweep_gwas_artifacts(job_id)
+
             job.delete()
-            return {"status": "deleted", "id": job_id}
+            return {
+                "status": "deleted",
+                "id": job_id,
+                "minio_objects_removed": objects_removed,
+            }
         except Exception as e:
             return Response(
                 content=RESTAPIError(error=str(e), error_description="Failed to delete job"),
