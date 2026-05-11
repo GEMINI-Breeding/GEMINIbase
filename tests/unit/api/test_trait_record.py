@@ -18,6 +18,11 @@ def _make_db(**overrides):
         "experiment_name": "Exp1", "season_id": uuid4(), "season_name": "Summer",
         "site_id": uuid4(), "site_name": "Site1", "plot_id": uuid4(),
         "plot_number": 1, "plot_row_number": 1, "plot_column_number": 1,
+        # accession_{id,name} added in alembic 0006. Without explicit
+        # values here the attribute access on the MagicMock returns
+        # another MagicMock, which Pydantic's string validator on the
+        # new TraitRecord.accession_name field rejects.
+        "accession_id": uuid4(), "accession_name": "ACC-001",
         "record_info": {"note": "test"},
     }
     defaults.update(overrides)
