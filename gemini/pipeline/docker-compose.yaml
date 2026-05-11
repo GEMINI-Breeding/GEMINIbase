@@ -293,12 +293,12 @@ services:
     networks:
       - geminibase_network
   #
-  geminibase-worker-flir:
-    container_name: geminibase-worker-flir
+  geminibase-worker-amiga:
+    container_name: geminibase-worker-amiga
     restart: always
     build:
       context: ../../
-      dockerfile: ./gemini/workers/flir/Dockerfile
+      dockerfile: ./gemini/workers/amiga/Dockerfile
     environment:
       - "GEMINI_REST_API_URL=http://${GEMINI_REST_API_HOSTNAME}:7777"
       - "GEMINI_LOGGER_HOSTNAME=${GEMINI_LOGGER_HOSTNAME}"

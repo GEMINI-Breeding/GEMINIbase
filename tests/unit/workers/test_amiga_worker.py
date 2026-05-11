@@ -1,4 +1,4 @@
-"""Unit tests for the FLIR binary extraction worker."""
+"""Unit tests for the farm-ng Amiga binary extraction worker."""
 from unittest.mock import MagicMock, patch, call
 
 import pytest
@@ -6,76 +6,76 @@ import pytest
 from gemini.workers.types import JobType
 
 
-class TestFlirWorkerInit:
-    """Test FlirWorker initialization."""
+class TestAmigaWorkerInit:
+    """Test AmigaWorker initialization."""
 
     def test_supported_job_types(self):
-        from gemini.workers.flir.worker import FlirWorker
+        from gemini.workers.amiga.worker import AmigaWorker
 
-        worker = FlirWorker(worker_id="test-flir")
+        worker = AmigaWorker(worker_id="test-amiga")
         assert worker.supported_job_types == {JobType.EXTRACT_BINARY}
 
     def test_worker_id_default(self):
-        from gemini.workers.flir.worker import FlirWorker
+        from gemini.workers.amiga.worker import AmigaWorker
 
-        worker = FlirWorker()
-        assert "FlirWorker" in worker.worker_id
+        worker = AmigaWorker()
+        assert "AmigaWorker" in worker.worker_id
 
     def test_worker_id_custom(self):
-        from gemini.workers.flir.worker import FlirWorker
+        from gemini.workers.amiga.worker import AmigaWorker
 
-        worker = FlirWorker(worker_id="my-flir-worker")
-        assert worker.worker_id == "my-flir-worker"
+        worker = AmigaWorker(worker_id="my-amiga-worker")
+        assert worker.worker_id == "my-amiga-worker"
 
 
-class TestFlirWorkerJobRouting:
+class TestAmigaWorkerJobRouting:
     """Test that process() routes correctly."""
 
     def test_routes_extract_binary(self):
-        from gemini.workers.flir.worker import FlirWorker
+        from gemini.workers.amiga.worker import AmigaWorker
 
-        worker = FlirWorker(worker_id="test")
+        worker = AmigaWorker(worker_id="test")
         worker._extract_binary_job = MagicMock(return_value={"status": "completed"})
         result = worker.process("job-1", "EXTRACT_BINARY", {"files": ["a.bin"], "localDirPath": "/path"})
         worker._extract_binary_job.assert_called_once_with("job-1", {"files": ["a.bin"], "localDirPath": "/path"})
 
     def test_unsupported_job_type_raises(self):
-        from gemini.workers.flir.worker import FlirWorker
+        from gemini.workers.amiga.worker import AmigaWorker
 
-        worker = FlirWorker(worker_id="test")
+        worker = AmigaWorker(worker_id="test")
         with pytest.raises(ValueError, match="Unsupported job type"):
             worker.process("job-1", "UNKNOWN", {})
 
 
-class TestFlirWorkerValidation:
+class TestAmigaWorkerValidation:
     """Test parameter validation."""
 
     def test_missing_files_raises(self):
-        from gemini.workers.flir.worker import FlirWorker
+        from gemini.workers.amiga.worker import AmigaWorker
 
-        worker = FlirWorker(worker_id="test")
+        worker = AmigaWorker(worker_id="test")
         with pytest.raises(ValueError, match="Missing required parameters"):
             worker._extract_binary_job("job-1", {"localDirPath": "/path"})
 
     def test_missing_dir_path_raises(self):
-        from gemini.workers.flir.worker import FlirWorker
+        from gemini.workers.amiga.worker import AmigaWorker
 
-        worker = FlirWorker(worker_id="test")
+        worker = AmigaWorker(worker_id="test")
         with pytest.raises(ValueError, match="Missing required parameters"):
             worker._extract_binary_job("job-1", {"files": ["a.bin"]})
 
     def test_empty_files_raises(self):
-        from gemini.workers.flir.worker import FlirWorker
+        from gemini.workers.amiga.worker import AmigaWorker
 
-        worker = FlirWorker(worker_id="test")
+        worker = AmigaWorker(worker_id="test")
         with pytest.raises(ValueError, match="Missing required parameters"):
             worker._extract_binary_job("job-1", {"files": [], "localDirPath": "/path"})
 
     def test_no_bin_files_returns_skipped(self):
-        from gemini.workers.flir.worker import FlirWorker
+        from gemini.workers.amiga.worker import AmigaWorker
 
-        worker = FlirWorker(worker_id="test")
-        with patch("gemini.workers.flir.worker._get_minio_client"):
+        worker = AmigaWorker(worker_id="test")
+        with patch("gemini.workers.amiga.worker._get_minio_client"):
             result = worker._extract_binary_job("job-1", {
                 "files": ["readme.txt", "photo.jpg"],
                 "localDirPath": "/path",
@@ -83,17 +83,17 @@ class TestFlirWorkerValidation:
         assert result["status"] == "skipped"
 
 
-class TestFlirWorkerTimestampSorting:
+class TestAmigaWorkerTimestampSorting:
     """Test .bin file sorting by timestamp."""
 
     def test_extract_timestamp(self):
-        from gemini.workers.flir.worker import _extract_timestamp
+        from gemini.workers.amiga.worker import _extract_timestamp
 
         assert _extract_timestamp("2024_01_15_12_30_45_001.bin") == "2024_01_15_12_30_45_001"
         assert _extract_timestamp("no_match.bin") == "no_match.bin"
 
     def test_bin_files_sorted_by_timestamp(self):
-        from gemini.workers.flir.worker import FlirWorker, _extract_timestamp
+        from gemini.workers.amiga.worker import AmigaWorker, _extract_timestamp
 
         files = [
             "2024_01_15_12_30_45_003.bin",
@@ -112,7 +112,7 @@ class TestFlirWorkerTimestampSorting:
         ]
 
 
-class TestFlirWorkerExtractionFlow:
+class TestAmigaWorkerExtractionFlow:
     """Test the extraction job flow with mocked MinIO and extraction."""
 
     @pytest.fixture(autouse=True)
@@ -121,24 +121,24 @@ class TestFlirWorkerExtractionFlow:
         import sys
         import types
 
-        self.mock_bin_module = types.ModuleType("gemini.workers.flir.bin_to_images")
+        self.mock_bin_module = types.ModuleType("gemini.workers.amiga.bin_to_images")
         self.mock_bin_module.extract_binary = MagicMock()
-        sys.modules["gemini.workers.flir.bin_to_images"] = self.mock_bin_module
+        sys.modules["gemini.workers.amiga.bin_to_images"] = self.mock_bin_module
         yield
-        sys.modules.pop("gemini.workers.flir.bin_to_images", None)
+        sys.modules.pop("gemini.workers.amiga.bin_to_images", None)
 
-    @patch("gemini.workers.flir.worker._get_minio_client")
-    @patch("gemini.workers.flir.worker.FlirWorker.report_progress")
-    @patch("gemini.workers.flir.worker.FlirWorker.is_cancelled", return_value=False)
+    @patch("gemini.workers.amiga.worker._get_minio_client")
+    @patch("gemini.workers.amiga.worker.AmigaWorker.report_progress")
+    @patch("gemini.workers.amiga.worker.AmigaWorker.is_cancelled", return_value=False)
     def test_full_flow_downloads_extracts_uploads(self, mock_cancelled, mock_progress, mock_minio):
         import os
         import tempfile
-        from gemini.workers.flir.worker import FlirWorker
+        from gemini.workers.amiga.worker import AmigaWorker
 
         mock_client = MagicMock()
         mock_minio.return_value = mock_client
 
-        worker = FlirWorker(worker_id="test")
+        worker = AmigaWorker(worker_id="test")
 
         with tempfile.TemporaryDirectory() as real_tmpdir:
             # Create simulated extraction output structure
@@ -187,17 +187,17 @@ class TestFlirWorkerExtractionFlow:
         assert result["bin_files_processed"] == 1
         assert result["extracted_files"] == 4
 
-    @patch("gemini.workers.flir.worker._get_minio_client")
-    @patch("gemini.workers.flir.worker.FlirWorker.report_progress")
-    @patch("gemini.workers.flir.worker.FlirWorker.is_cancelled")
+    @patch("gemini.workers.amiga.worker._get_minio_client")
+    @patch("gemini.workers.amiga.worker.AmigaWorker.report_progress")
+    @patch("gemini.workers.amiga.worker.AmigaWorker.is_cancelled")
     def test_cancellation_during_download(self, mock_cancelled, mock_progress, mock_minio):
-        from gemini.workers.flir.worker import FlirWorker
+        from gemini.workers.amiga.worker import AmigaWorker
 
         # Cancel after first progress report
         mock_cancelled.side_effect = [True]
         mock_minio.return_value = MagicMock()
 
-        worker = FlirWorker(worker_id="test")
+        worker = AmigaWorker(worker_id="test")
         result = worker._extract_binary_job("job-1", {
             "files": ["2024_01_15_001.bin"],
             "localDirPath": "path/to/dir",
@@ -205,7 +205,7 @@ class TestFlirWorkerExtractionFlow:
         assert result["status"] == "cancelled"
 
 
-class TestFlirWorkerOutputPaths:
+class TestAmigaWorkerOutputPaths:
     """Test that output files are placed correctly relative to input dir."""
 
     def test_output_placed_in_parent_of_amiga_dir(self):

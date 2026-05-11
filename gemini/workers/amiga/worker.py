@@ -1,17 +1,16 @@
 """
-FLIR binary extraction worker.
+farm-ng Amiga OAK binary extraction worker.
 
 Handles EXTRACT_BINARY jobs: downloads Amiga .bin event files from MinIO,
 runs the farm_ng-based extraction pipeline (RGB images, disparity maps,
 GPS metadata), and uploads results back to MinIO.
-
-The extraction logic is reused from the Flask backend's bin_to_images module,
-which is mounted into the Docker image at /app/bin_to_images/.
 """
 import logging
 import os
 import re
 import tempfile
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Set
 
@@ -25,6 +24,11 @@ STORAGE_PORT = os.environ.get("GEMINI_STORAGE_PORT", "9000")
 STORAGE_ACCESS_KEY = os.environ.get("GEMINI_STORAGE_ACCESS_KEY", "")
 STORAGE_SECRET_KEY = os.environ.get("GEMINI_STORAGE_SECRET_KEY", "")
 STORAGE_BUCKET = os.environ.get("GEMINI_STORAGE_BUCKET_NAME", "gemini")
+
+# MinIO PUTs for the output tree are I/O-bound and the dominant cost of
+# the job — a typical .bin decodes to hundreds of small JPEGs + NPYs.
+UPLOAD_POOL_SIZE = 8
+CLEANUP_POOL_SIZE = 4
 
 
 def _get_minio_client():
@@ -44,8 +48,8 @@ def _extract_timestamp(filename: str) -> str:
     return match.group(1) if match else filename
 
 
-class FlirWorker(BaseWorker):
-    """Worker for FLIR/Amiga binary extraction."""
+class AmigaWorker(BaseWorker):
+    """Worker for farm-ng Amiga OAK binary extraction."""
 
     @property
     def supported_job_types(self) -> Set[JobType]:
@@ -115,7 +119,7 @@ class FlirWorker(BaseWorker):
             # Step 2: Run extraction
             self.report_progress(job_id, 30, {"stage": "extracting"})
             try:
-                from gemini.workers.flir.bin_to_images import extract_binary
+                from gemini.workers.amiga.bin_to_images import extract_binary
                 extract_binary(local_bin_paths, output_dir)
             except Exception as e:
                 raise RuntimeError(f"Binary extraction failed: {e}") from e
@@ -123,7 +127,8 @@ class FlirWorker(BaseWorker):
             if self.is_cancelled(job_id):
                 return {"status": "cancelled"}
 
-            # Step 3: Upload results back to MinIO
+            # Step 3: Upload results back to MinIO (parallel — this is the
+            # dominant cost of the job, hundreds of small files per .bin).
             self.report_progress(job_id, 70, {"stage": "uploading"})
 
             # The output directory has structure:
@@ -132,43 +137,63 @@ class FlirWorker(BaseWorker):
             #     Images/{camera}/ (JPEGs)
             #   Disparity/{camera}/ (NPY)
             #   progress.txt, report.txt
-            uploaded_count = 0
             files_to_upload = []
             for root, _dirs, filenames in os.walk(str(output_dir)):
                 for fname in filenames:
                     if fname == "progress.txt":
                         continue  # Skip progress file — not needed in storage
                     local_file = os.path.join(root, fname)
-                    # Build the MinIO object path relative to the upload dir_path
                     relative = os.path.relpath(local_file, str(output_dir))
-                    # Place output alongside the input files' parent directory
-                    # dir_path is e.g. "2024/Exp1/.../Amiga" — output goes as sibling dirs
                     parent_dir = str(Path(dir_path).parent)
                     object_name = f"{parent_dir}/{relative}"
                     files_to_upload.append((local_file, object_name))
 
-            for i, (local_file, object_name) in enumerate(files_to_upload):
-                if self.is_cancelled(job_id):
-                    return {"status": "cancelled"}
+            total = len(files_to_upload)
+            counter_lock = threading.Lock()
+            counter = {"n": 0}
 
+            def _upload_one(item):
+                local_file, object_name = item
                 client.fput_object(STORAGE_BUCKET, object_name, local_file)
-                uploaded_count += 1
-
-                upload_progress = 70 + (25 * (i + 1) / max(len(files_to_upload), 1))
+                with counter_lock:
+                    counter["n"] += 1
+                    done = counter["n"]
+                upload_progress = 70 + (25 * done / max(total, 1))
                 self.report_progress(job_id, upload_progress, {
                     "stage": "uploading",
-                    "uploaded": uploaded_count,
-                    "total_files": len(files_to_upload),
+                    "uploaded": done,
+                    "total_files": total,
                 })
 
-            # Step 4: Clean up — delete original .bin files from MinIO
+            with ThreadPoolExecutor(max_workers=UPLOAD_POOL_SIZE) as pool:
+                futures = [pool.submit(_upload_one, item) for item in files_to_upload]
+                try:
+                    for fut in as_completed(futures):
+                        if self.is_cancelled(job_id):
+                            for pending in futures:
+                                pending.cancel()
+                            return {"status": "cancelled"}
+                        fut.result()  # re-raise any per-task exception
+                except Exception:
+                    for pending in futures:
+                        pending.cancel()
+                    raise
+
+            uploaded_count = counter["n"]
+
+            # Step 4: Clean up — delete original .bin files from MinIO.
             self.report_progress(job_id, 95, {"stage": "cleanup"})
-            for filename in bin_files:
+
+            def _remove_one(filename):
                 object_name = f"{dir_path}/{filename}"
                 try:
                     client.remove_object(STORAGE_BUCKET, object_name)
                 except Exception as e:
                     logger.warning(f"Failed to delete {object_name}: {e}")
+
+            with ThreadPoolExecutor(max_workers=CLEANUP_POOL_SIZE) as pool:
+                for _ in pool.map(_remove_one, bin_files):
+                    pass
 
         return {
             "status": "completed",
@@ -179,5 +204,5 @@ class FlirWorker(BaseWorker):
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    worker = FlirWorker()
+    worker = AmigaWorker()
     worker.run()

@@ -9,11 +9,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Install Python dependencies
-COPY gemini/workers/flir/requirements.txt /app/requirements.txt
+COPY gemini/workers/amiga/requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
 # Copy worker code (includes bin_to_images.py extraction module)
 COPY gemini/workers/ /app/gemini/workers/
 COPY gemini/__init__.py /app/gemini/__init__.py
 
-CMD ["python", "-m", "gemini.workers.flir.worker"]
+CMD ["python", "-m", "gemini.workers.amiga.worker"]

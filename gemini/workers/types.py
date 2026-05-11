@@ -41,6 +41,6 @@ JOB_TYPE_WORKER_MAP = {
     JobType.PROCESS_DRONE_TIFF: "geminibase-worker-geo",
     JobType.TIF_TO_PNG: "geminibase-worker-geo",
     JobType.CREATE_COG: "geminibase-worker-geo",
-    JobType.EXTRACT_BINARY: "geminibase-worker-flir",
+    JobType.EXTRACT_BINARY: "geminibase-worker-amiga",
     JobType.RUN_GWAS: "geminibase-worker-gwas",
 }
