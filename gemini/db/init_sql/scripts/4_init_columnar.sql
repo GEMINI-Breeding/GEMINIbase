@@ -109,6 +109,15 @@ CREATE TABLE IF NOT EXISTS gemini.trait_records (
     plot_number INTEGER,
     plot_row_number INTEGER,
     plot_column_number INTEGER,
+    -- Direct trait_record -> accession link, populated by the
+    -- populate_trait_record_ids trigger (resolves accession_name ->
+    -- accession_id and asserts plot/accession agreement). See
+    -- alembic/versions/0006_trait_records_accession.py for the
+    -- equivalent migration that adds these columns to existing
+    -- deployments. No FK constraint: Citus columnar tables don't
+    -- support them — the trigger RAISEs on bad names instead.
+    accession_id UUID,
+    accession_name TEXT,
     record_info JSONB NOT NULL DEFAULT '{}'
 ) USING columnar;
 
