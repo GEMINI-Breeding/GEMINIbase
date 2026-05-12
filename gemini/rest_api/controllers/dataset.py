@@ -236,6 +236,36 @@ class DatasetController(Controller):
             )
             return Response(content=error, status_code=500)
         
+    # Count of `experiment_files` rows tied to this dataset.
+    # Used by the Manage Data UI to show a "(N files)" hint next to
+    # each dataset row without paying the cost of fetching the full
+    # listing. Trait/sensor/etc. record files that live in the
+    # columnar `*_records` tables are not counted here — those use
+    # the legacy `dataset_data/` prefix and aren't tracked in
+    # experiment_files.
+    @get(path="/id/{dataset_id:str}/file_count", sync_to_thread=True)
+    def get_dataset_file_count(
+        self, dataset_id: str
+    ) -> dict:
+        try:
+            from gemini.db.core.base import db_engine
+            from gemini.db.models.experiment_files import ExperimentFileModel
+            from sqlalchemy import func, select
+
+            with db_engine.get_session() as session:
+                count = session.execute(
+                    select(func.count())
+                    .select_from(ExperimentFileModel)
+                    .where(ExperimentFileModel.dataset_id == dataset_id)
+                ).scalar_one()
+            return {"dataset_id": dataset_id, "file_count": int(count or 0)}
+        except Exception as e:
+            error = RESTAPIError(
+                error=str(e),
+                error_description="An error occurred while counting dataset files"
+            )
+            return Response(content=error, status_code=500)
+
     # Add a Dataset Record
     @post(path="/id/{dataset_id:str}/records")
     async def add_dataset_record(

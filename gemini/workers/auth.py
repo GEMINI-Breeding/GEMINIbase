@@ -90,6 +90,16 @@ class WorkerSession:
         self._session = requests.Session()
         self._token: str | None = None
         self._lock = threading.Lock()
+        # `requests.Session` is documented as not thread-safe for
+        # write operations — its underlying urllib3 PoolManager is
+        # safe, but the Session's cookie jar / adapter state is not.
+        # The amiga worker's upload pool calls report_progress from
+        # 16 threads at once; without this lock we'd seen connection
+        # pool churn and silent 2-minute gaps in the progress
+        # stream. Held only across the actual `Session.request()`
+        # call — not across retry backoff — so the lock window is
+        # one HTTP round trip, ~50ms typical.
+        self._send_lock = threading.Lock()
 
     # ------------------------------------------------------------------
     # Auth
@@ -97,11 +107,15 @@ class WorkerSession:
 
     def _login(self) -> str:
         url = f"{self._api_base_url}/api/users/login/access-token"
-        resp = self._session.post(
-            url,
-            json={"email": self._email, "password": self._password},
-            timeout=self._timeout,
-        )
+        # `_login` runs under `self._lock` (the token lock); take
+        # `_send_lock` too so we don't issue the login POST while
+        # another thread is mid-request on the same Session.
+        with self._send_lock:
+            resp = self._session.post(
+                url,
+                json={"email": self._email, "password": self._password},
+                timeout=self._timeout,
+            )
         if resp.status_code >= 400:
             # The REST API returns RESTAPIError {error, error_description}
             # on failure. Pull the structured description rather than
@@ -223,7 +237,13 @@ class WorkerSession:
         last_exc: BaseException | None = None
         for attempt in range(len(_TRANSPORT_RETRY_BACKOFFS) + 1):
             try:
-                return self._session.request(method, url, headers=headers, **kwargs)
+                # See WorkerSession.__init__ — the underlying
+                # requests.Session is not safe for concurrent
+                # `.request()` calls. Hold the lock only across the
+                # actual send (NOT across the backoff sleep below),
+                # so retry waits don't block other threads.
+                with self._send_lock:
+                    return self._session.request(method, url, headers=headers, **kwargs)
             except _TRANSPORT_RETRY_EXCEPTIONS as exc:
                 last_exc = exc
                 if attempt >= len(_TRANSPORT_RETRY_BACKOFFS) or not retryable_body:

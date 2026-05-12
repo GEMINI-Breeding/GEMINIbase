@@ -49,6 +49,62 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+
+def _collect_dataset_file_targets(dataset_id) -> list[tuple]:
+    """Return ``[(row_id, bucket, object_name), ...]`` for every
+    ``experiment_files`` row pointing at this dataset. Called from
+    ``Dataset.delete()`` BEFORE the dataset row is removed so the FK's
+    ``ON DELETE SET NULL`` doesn't strip ``dataset_id`` out from under
+    us mid-sweep.
+    """
+    from gemini.db.core.base import db_engine
+    from gemini.db.models.experiment_files import ExperimentFileModel
+
+    try:
+        with db_engine.get_session() as session:
+            rows = (
+                session.query(
+                    ExperimentFileModel.id,
+                    ExperimentFileModel.bucket,
+                    ExperimentFileModel.object_name,
+                )
+                .filter(ExperimentFileModel.dataset_id == dataset_id)
+                .all()
+            )
+            # Detach from session so the tuples survive the connection close.
+            return [(r[0], r[1], r[2]) for r in rows]
+    except Exception as exc:
+        logger.warning(
+            "experiment_files target capture for dataset %s failed: %s",
+            dataset_id, exc,
+        )
+        return []
+
+
+def _delete_experiment_file_rows(row_ids: list) -> None:
+    """Bulk-delete the ``experiment_files`` rows captured by
+    ``_collect_dataset_file_targets``. The FK on the dataset is
+    ``ON DELETE SET NULL`` so these rows survive a dataset delete with
+    ``dataset_id = NULL`` — we drop them explicitly here so they don't
+    accumulate as bucket pointers to objects we just removed.
+    """
+    if not row_ids:
+        return
+    from gemini.db.core.base import db_engine
+    from gemini.db.models.experiment_files import ExperimentFileModel
+
+    try:
+        with db_engine.get_session() as session:
+            session.query(ExperimentFileModel).filter(
+                ExperimentFileModel.id.in_(row_ids)
+            ).delete(synchronize_session=False)
+    except Exception as exc:
+        logger.warning(
+            "bulk-delete of %d experiment_files rows failed: %s",
+            len(row_ids), exc,
+        )
+
+
 class Dataset(APIBase):
     """
     Represents a dataset entity, including its metadata, type, and associations to experiments and records.
@@ -341,6 +397,17 @@ class Dataset(APIBase):
 
         Returns:
             bool: True if the dataset was deleted successfully, False otherwise.
+
+        Cascade strategy (mirrors ``Experiment.delete()``'s belt + suspenders):
+
+        1. Row-targeted MinIO sweep driven by ``experiment_files.dataset_id``
+           — every chunk-upload and worker-registered output that claimed
+           this dataset gets removed by exact key. New post-migration-0007
+           authoritative path.
+        2. Columnar record tables swept by ``dataset_name`` (legacy path
+           kept verbatim).
+        3. Prefix backstop ``dataset_data/{exp}/{dataset_name}/`` for
+           record-file uploads that never went through ``experiment_files``.
         """
         try:
             current_id = self.id
@@ -349,8 +416,8 @@ class Dataset(APIBase):
                 logger.warning(f"Dataset with ID {current_id} does not exist.")
                 return False
 
-            # Collect the MinIO prefixes this dataset owns BEFORE deleting
-            # the DB rows (the association lookup needs them intact).
+            # Collect MinIO targets BEFORE any DB delete so we still
+            # have the experiment names + file pointers we need.
             experiments = self.get_associated_experiments() or []
             prefixes = [
                 f"dataset_data/{exp.experiment_name}/{self.dataset_name}/"
@@ -358,10 +425,17 @@ class Dataset(APIBase):
                 if getattr(exp, "experiment_name", None)
             ]
 
-            # Sweep all six columnar record tables by dataset_name. Each
-            # helper opens its own transaction (Dataset.delete doesn't
-            # use an outer-session pattern), so wrap each individually:
-            # a partial failure in one helper must not stop the others.
+            # 1. Capture experiment_files rows pointing at this dataset.
+            #    We capture (id, bucket, object_name) so we can sweep
+            #    MinIO by key and then drop the rows after — the FK is
+            #    ON DELETE SET NULL, so dropping the dataset row would
+            #    null these out before we could remove the objects.
+            file_targets = _collect_dataset_file_targets(current_id)
+
+            # 2. Sweep all six columnar record tables by dataset_name. Each
+            #    helper opens its own transaction (Dataset.delete doesn't
+            #    use an outer-session pattern), so wrap each individually:
+            #    a partial failure in one helper must not stop the others.
             from gemini.db.models.columnar.sensor_records import (
                 SensorRecordModel,
             )
@@ -394,9 +468,39 @@ class Dataset(APIBase):
                         label, self.dataset_name, exc,
                     )
 
+            # 3. Remove the dataset row. The FK on experiment_files is
+            #    ON DELETE SET NULL so the file rows survive temporarily
+            #    with dataset_id=NULL — we drop them by id list next.
             DatasetModel.delete(dataset)
 
-            from gemini.api.base import sweep_minio_prefixes
+            # 4. Row-targeted MinIO sweep + cleanup of the orphaned
+            #    experiment_files rows.
+            from gemini.api.base import minio_storage_provider, sweep_minio_prefixes
+            row_failed = 0
+            for _row_id, tgt_bucket, tgt_object in file_targets:
+                try:
+                    minio_storage_provider.client.remove_object(
+                        bucket_name=tgt_bucket,
+                        object_name=tgt_object,
+                    )
+                except Exception as exc:
+                    row_failed += 1
+                    logger.warning(
+                        "dataset_files sweep: remove %s/%s failed: %s",
+                        tgt_bucket, tgt_object, exc,
+                    )
+            if file_targets:
+                _delete_experiment_file_rows([row[0] for row in file_targets])
+                logger.info(
+                    "dataset %s: row-targeted sweep removed %d MinIO objects "
+                    "(%d failed) + %d experiment_files rows",
+                    self.dataset_name, len(file_targets) - row_failed,
+                    row_failed, len(file_targets),
+                )
+
+            # 5. Prefix backstop for record-file uploads that never
+            #    went through experiment_files (sensor/dataset record
+            #    files etc. land at dataset_data/...).
             sweep_minio_prefixes(prefixes)
             return True
         except Exception as e:

@@ -1,5 +1,6 @@
 import io
 import hashlib
+import threading
 
 from litestar import Response
 from litestar.handlers import get, post, patch, delete
@@ -19,6 +20,9 @@ from gemini.rest_api.models import (
     ChunkUploadRequest,
     ChunkStatusResponse,
     AbortUploadRequest,
+    FileRegisterRequest,
+    FileRegisterBatchRequest,
+    FileUnregisterRequest,
     PresignedUrlResponse,
     ImageGpsEntry,
     ImageGpsResponse,
@@ -48,15 +52,49 @@ from typing import Annotated, List
 # this needs to move to Redis.
 _chunk_uploads: dict[str, dict] = {}
 
+# Guard for the create_multipart_upload + session-dict write that
+# happens on the FIRST chunk for a given file_identifier. Without
+# this, parallel chunks (the frontend fires up to 4 simultaneously
+# from `uploadFileChunked`) each find the dict empty, each call
+# `create_multipart_upload` separately, and each overwrite the
+# session entry — leaving N orphaned multipart uploads and a session
+# whose `upload_id` only matches one batch of parts. The finalize
+# check `len(parts) == total` then never trips, the multipart never
+# completes, and the user sees `NoSuchKey` when the downstream job
+# tries to read the assembled object. Per-file lock (one-shot
+# initialization is the only contention point) is cheap; we do NOT
+# hold the lock across the actual `upload_part` MinIO call.
+_chunk_uploads_lock = threading.Lock()
+_chunk_uploads_per_id_locks: dict[str, threading.Lock] = {}
+
+
+def _lock_for_file(file_id: str) -> threading.Lock:
+    """Get-or-create the per-file_identifier lock. Acquiring the
+    outer `_chunk_uploads_lock` only happens during init; once the
+    per-file lock exists it's reused for every chunk of that file."""
+    with _chunk_uploads_lock:
+        lock = _chunk_uploads_per_id_locks.get(file_id)
+        if lock is None:
+            lock = threading.Lock()
+            _chunk_uploads_per_id_locks[file_id] = lock
+        return lock
+
 
 def _record_experiment_file(
     experiment_id: str,
     bucket: str,
     object_name: str,
+    dataset_id: str | None = None,
 ) -> None:
     """Insert (or no-op-update) the experiment_files row for a finalised
     chunked upload. Idempotent on (bucket, object_name) so a retried
-    completion request can't 23505 the upload."""
+    completion request can't 23505 the upload.
+
+    ``dataset_id`` is the optional per-upload-batch grouping. When set,
+    ``Dataset.delete()`` sweeps just these rows + their MinIO objects;
+    when NULL, the row is "experiment-owned, dataset-orphaned" and
+    only the experiment cascade reaches it.
+    """
     import logging
 
     from sqlalchemy import select
@@ -84,11 +122,14 @@ def _record_experiment_file(
                     "experiment_id %s", object_name, experiment_id,
                 )
                 return
-            stmt = pg_insert(ExperimentFileModel.__table__).values(
-                experiment_id=experiment_id,
-                bucket=bucket,
-                object_name=object_name,
-            ).on_conflict_do_nothing(
+            values: dict = {
+                "experiment_id": experiment_id,
+                "bucket": bucket,
+                "object_name": object_name,
+            }
+            if dataset_id:
+                values["dataset_id"] = dataset_id
+            stmt = pg_insert(ExperimentFileModel.__table__).values(**values).on_conflict_do_nothing(
                 constraint="experiment_files_unique_object",
             )
             session.execute(stmt)
@@ -97,6 +138,100 @@ def _record_experiment_file(
             "experiment_files: failed to record (%s, %s): %s",
             bucket, object_name, exc,
         )
+
+
+def _record_experiment_files_batch(
+    experiment_id: str,
+    dataset_id: str | None,
+    entries: list[tuple[str, str]],
+) -> int:
+    """Bulk-insert ``experiment_files`` rows for a worker's batch
+    of newly-written MinIO objects. One DB round trip; conflicts on
+    ``(bucket, object_name)`` are silently ignored (same idempotency
+    contract as the single-row path).
+
+    Returns the number of rows actually inserted (helpful for the
+    worker's debug logging).
+    """
+    import logging
+
+    from sqlalchemy import select
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    from gemini.db.core.base import db_engine
+    from gemini.db.models.experiment_files import ExperimentFileModel
+    from gemini.db.models.experiments import ExperimentModel
+
+    logger = logging.getLogger(__name__)
+    if not entries:
+        return 0
+    try:
+        with db_engine.get_session() as session:
+            # One existence check for the experiment instead of N.
+            exists = session.execute(
+                select(ExperimentModel.id).where(
+                    ExperimentModel.id == experiment_id
+                )
+            ).scalar_one_or_none()
+            if exists is None:
+                logger.warning(
+                    "experiment_files: refusing batch of %d for unknown "
+                    "experiment_id %s", len(entries), experiment_id,
+                )
+                return 0
+            values_list: list[dict] = []
+            for bucket, object_name in entries:
+                row: dict = {
+                    "experiment_id": experiment_id,
+                    "bucket": bucket,
+                    "object_name": object_name,
+                }
+                if dataset_id:
+                    row["dataset_id"] = dataset_id
+                values_list.append(row)
+            stmt = pg_insert(ExperimentFileModel.__table__).values(values_list).on_conflict_do_nothing(
+                constraint="experiment_files_unique_object",
+            )
+            result = session.execute(stmt)
+            # SQLAlchemy returns the count of attempted rows from
+            # ``rowcount`` on Postgres; on-conflict rows do not bump it.
+            return result.rowcount or 0
+    except Exception as exc:
+        logger.warning(
+            "experiment_files: failed batch (%d rows) for experiment %s: %s",
+            len(entries), experiment_id, exc,
+        )
+        return 0
+
+
+def _unregister_experiment_file(bucket: str, object_name: str) -> bool:
+    """Drop the experiment_files row for an externally-removed MinIO
+    object (currently used by the amiga worker's .bin cleanup step).
+    Returns True if a row was deleted, False if there was no match.
+    """
+    import logging
+
+    from gemini.db.core.base import db_engine
+    from gemini.db.models.experiment_files import ExperimentFileModel
+
+    logger = logging.getLogger(__name__)
+    try:
+        with db_engine.get_session() as session:
+            result = (
+                session.query(ExperimentFileModel)
+                .filter(
+                    ExperimentFileModel.bucket == bucket,
+                    ExperimentFileModel.object_name == object_name,
+                )
+                .delete(synchronize_session=False)
+            )
+            return bool(result)
+    except Exception as exc:
+        logger.warning(
+            "experiment_files: failed to unregister (%s, %s): %s",
+            bucket, object_name, exc,
+        )
+        return False
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".tif", ".tiff"}
 
@@ -607,20 +742,28 @@ class FileController(Controller):
             part_number = chunk_idx + 1  # S3 parts are 1-indexed
             bucket_name = data.bucket_name or minio_storage_config.bucket_name
 
-            session = _chunk_uploads.get(file_id)
-            if session is None:
-                upload_id = minio_storage_provider.create_multipart_upload(
-                    object_name=data.object_name,
-                    bucket_name=bucket_name,
-                )
-                session = {
-                    "upload_id": upload_id,
-                    "bucket_name": bucket_name,
-                    "object_name": data.object_name,
-                    "parts": {},
-                    "total": total,
-                }
-                _chunk_uploads[file_id] = session
+            # Per-file_identifier lock prevents two parallel "first
+            # chunk" requests from each creating a fresh multipart
+            # upload + clobbering each other's session dict. Held only
+            # for the cheap dict-init path; released before the
+            # expensive `upload_part` MinIO write so chunks of the
+            # same file can still upload in parallel.
+            file_lock = _lock_for_file(file_id)
+            with file_lock:
+                session = _chunk_uploads.get(file_id)
+                if session is None:
+                    upload_id = minio_storage_provider.create_multipart_upload(
+                        object_name=data.object_name,
+                        bucket_name=bucket_name,
+                    )
+                    session = {
+                        "upload_id": upload_id,
+                        "bucket_name": bucket_name,
+                        "object_name": data.object_name,
+                        "parts": {},
+                        "total": total,
+                    }
+                    _chunk_uploads[file_id] = session
 
             # Idempotent re-send of an already-uploaded part: skip the upload but
             # still report current progress.
@@ -633,11 +776,27 @@ class FileController(Controller):
                     data=chunk_bytes,
                     bucket_name=session["bucket_name"],
                 )
-                session["parts"][part_number] = etag
+                # Mutating `session["parts"]` (a dict) from N threads
+                # at once is technically a race — Python's GIL makes
+                # individual dict-item writes atomic, but the
+                # subsequent `len(...)` check can transiently see a
+                # stale view. Re-take the per-file lock for the
+                # write + the completeness check so the "did this
+                # chunk complete the upload?" decision is consistent.
+                with file_lock:
+                    session["parts"][part_number] = etag
 
-            uploaded_part_numbers = sorted(session["parts"].keys())
+            with file_lock:
+                uploaded_part_numbers = sorted(session["parts"].keys())
+                should_finalize = len(uploaded_part_numbers) == total
+                if should_finalize:
+                    # Pop the session BEFORE actually calling
+                    # complete_multipart_upload so a concurrent
+                    # idempotent re-send of an already-finalised
+                    # chunk doesn't try to finalize a second time.
+                    _chunk_uploads.pop(file_id, None)
 
-            if len(uploaded_part_numbers) == total:
+            if should_finalize:
                 minio_storage_provider.complete_multipart_upload(
                     object_name=session["object_name"],
                     upload_id=session["upload_id"],
@@ -658,6 +817,7 @@ class FileController(Controller):
                         experiment_id=data.experiment_id,
                         bucket=session["bucket_name"],
                         object_name=session["object_name"],
+                        dataset_id=data.dataset_id,
                     )
                     # Cache EXIF GPS for image uploads so the Image
                     # Exclusion + GCP picker map views can render in one
@@ -679,7 +839,11 @@ class FileController(Controller):
                                 object_name=session["object_name"],
                                 patch={"gps": gps},
                             )
-                del _chunk_uploads[file_id]
+                # Session was popped under the lock at the
+                # finalize-decision point above; drop the per-file
+                # lock too so the dict doesn't grow unbounded.
+                with _chunk_uploads_lock:
+                    _chunk_uploads_per_id_locks.pop(file_id, None)
                 return ChunkStatusResponse(
                     file_identifier=file_id,
                     uploaded_part_numbers=uploaded_part_numbers,
@@ -696,6 +860,8 @@ class FileController(Controller):
         except Exception as e:
             # Best-effort abort so we don't leak an in-progress multipart upload.
             session = _chunk_uploads.pop(file_id, None)
+            with _chunk_uploads_lock:
+                _chunk_uploads_per_id_locks.pop(file_id, None)
             if session is not None:
                 try:
                     minio_storage_provider.abort_multipart_upload(
@@ -732,6 +898,76 @@ class FileController(Controller):
             complete=False,
         )
 
+    @post(path="/register", sync_to_thread=True)
+    def register_file(
+        self,
+        data: FileRegisterRequest,
+    ) -> dict:
+        """Register an externally-written MinIO object as an
+        ``experiment_files`` row (e.g. the amiga worker's extraction
+        outputs).
+
+        Idempotent on ``(bucket, object_name)``. Returns the same
+        ``status: "ok"`` on first write or re-register, plus whether
+        the call actually inserted a row.
+        """
+        # Same defensive behaviour as the chunked-upload finalize:
+        # invalid experiment_id is logged and skipped rather than
+        # surfacing a 400, because the caller is a worker mid-job
+        # and we don't want a typo to fail the whole extraction.
+        _record_experiment_file(
+            experiment_id=data.experiment_id,
+            bucket=data.bucket,
+            object_name=data.object_name,
+            dataset_id=data.dataset_id,
+        )
+        return {
+            "status": "ok",
+            "bucket": data.bucket,
+            "object_name": data.object_name,
+        }
+
+    @post(path="/register_batch", sync_to_thread=True)
+    def register_files_batch(
+        self,
+        data: FileRegisterBatchRequest,
+    ) -> dict:
+        """Bulk-register many MinIO objects against one (experiment,
+        dataset) tuple. The amiga worker calls this once at the end
+        of its upload phase instead of fanning out hundreds of
+        per-file register POSTs — that fan-out was eating 30s+ per
+        extraction on top of the actual MinIO writes."""
+        inserted = _record_experiment_files_batch(
+            experiment_id=data.experiment_id,
+            dataset_id=data.dataset_id,
+            entries=[(e.bucket, e.object_name) for e in data.files],
+        )
+        return {
+            "status": "ok",
+            "submitted": len(data.files),
+            "inserted": inserted,
+        }
+
+    @post(path="/unregister", sync_to_thread=True)
+    def unregister_file(
+        self,
+        data: FileUnregisterRequest,
+    ) -> dict:
+        """Drop the ``experiment_files`` row for a MinIO object that
+        was removed externally. Logs and continues on miss — the caller
+        already deleted the MinIO object, so the row's existence is the
+        only state left to clean up."""
+        deleted = _unregister_experiment_file(
+            bucket=data.bucket,
+            object_name=data.object_name,
+        )
+        return {
+            "status": "ok",
+            "bucket": data.bucket,
+            "object_name": data.object_name,
+            "row_deleted": deleted,
+        }
+
     @post(path="/abort_upload", sync_to_thread=True)
     def abort_upload(
         self,
@@ -739,6 +975,8 @@ class FileController(Controller):
     ) -> dict:
         """Cancel an in-progress multipart upload and free its session state."""
         session = _chunk_uploads.pop(data.file_identifier, None)
+        with _chunk_uploads_lock:
+            _chunk_uploads_per_id_locks.pop(data.file_identifier, None)
         if session is not None:
             try:
                 minio_storage_provider.abort_multipart_upload(
@@ -758,6 +996,8 @@ class FileController(Controller):
         """Backwards-compatible alias for /abort_upload."""
         file_id = data.get("file_identifier", "")
         session = _chunk_uploads.pop(file_id, None)
+        with _chunk_uploads_lock:
+            _chunk_uploads_per_id_locks.pop(file_id, None)
         if session is not None:
             try:
                 minio_storage_provider.abort_multipart_upload(

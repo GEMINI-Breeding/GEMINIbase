@@ -99,6 +99,12 @@ class ChunkUploadRequest(RESTAPIBase):
     # compatibility with any legacy caller; uploads with no
     # experiment_id won't be reachable from the experiment cascade.
     experiment_id: Optional[str] = None
+    # Per-upload-batch grouping. When the wizard creates a dataset up
+    # front (every upload type does so post-migration-0007), this id
+    # links the resulting experiment_files row to its dataset so
+    # Dataset.delete() can sweep just this batch instead of forcing the
+    # user to nuke the whole experiment.
+    dataset_id: Optional[str] = None
 
 class ChunkStatusResponse(RESTAPIBase):
     file_identifier: str
@@ -111,6 +117,44 @@ class ChunkStatusResponse(RESTAPIBase):
 
 class AbortUploadRequest(RESTAPIBase):
     file_identifier: str
+
+class FileRegisterRequest(RESTAPIBase):
+    """Server-side register of an existing MinIO object as an
+    ``experiment_files`` row. Used by workers (currently only the
+    amiga binary-extraction worker) so their outputs are sweepable
+    via ``Dataset.delete()`` instead of relying on the experiment
+    cascade's prefix backstop.
+
+    Idempotent — re-registering the same ``(bucket, object_name)``
+    is a no-op (the unique constraint suppresses duplicates).
+    """
+    experiment_id: str
+    bucket: str
+    object_name: str
+    dataset_id: Optional[str] = None
+
+class FileRegisterBatchEntry(RESTAPIBase):
+    """One file in a batch-register call."""
+    bucket: str
+    object_name: str
+
+class FileRegisterBatchRequest(RESTAPIBase):
+    """Bulk-register a list of MinIO objects against one
+    (experiment_id, dataset_id) tuple. Used by the amiga worker at
+    the end of the upload phase to write hundreds of
+    ``experiment_files`` rows in a single DB transaction instead of
+    fanning out N HTTP+DB round trips. Idempotent on
+    ``(bucket, object_name)``."""
+    experiment_id: str
+    dataset_id: Optional[str] = None
+    files: List[FileRegisterBatchEntry]
+
+class FileUnregisterRequest(RESTAPIBase):
+    """Drop the ``experiment_files`` row for a MinIO object that has
+    been removed externally (e.g. the amiga worker's cleanup step
+    deletes the original ``.bin`` after extraction)."""
+    bucket: str
+    object_name: str
 
 class PresignedUrlResponse(RESTAPIBase):
     url: str

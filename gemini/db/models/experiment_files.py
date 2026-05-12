@@ -46,6 +46,17 @@ class ExperimentFileModel(BaseModel):
         ForeignKey("gemini.experiments.id", ondelete="CASCADE"),
         nullable=False,
     )
+    # Sub-grouping inside an experiment: the "upload batch". Optional —
+    # legacy rows pre-dating migration 0007 stay NULL and are only
+    # cleanable via the experiment cascade. ON DELETE SET NULL so
+    # Dataset.delete() can drop the dataset row without orphaning the
+    # file rows mid-sweep (it reads them first, then nulls, then
+    # deletes the rows by id after MinIO removal).
+    dataset_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("gemini.datasets.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     bucket: Mapped[str] = mapped_column(Text, nullable=False)
     object_name: Mapped[str] = mapped_column(Text, nullable=False)
     size_bytes: Mapped[int | None] = mapped_column(BigInteger)
@@ -76,4 +87,5 @@ class ExperimentFileModel(BaseModel):
         # chunk).
         UniqueConstraint("bucket", "object_name", name="experiment_files_unique_object"),
         Index("idx_experiment_files_experiment_id", "experiment_id"),
+        Index("idx_experiment_files_dataset_id", "dataset_id"),
     )
