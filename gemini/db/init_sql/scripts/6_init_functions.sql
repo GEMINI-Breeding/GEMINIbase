@@ -1063,6 +1063,8 @@ RETURNS TABLE (
     "plot_number" INTEGER,
     "plot_row_number" INTEGER,
     "plot_column_number" INTEGER,
+    "accession_id" UUID,
+    "accession_name" TEXT,
     "record_info" JSONB
 )
 LANGUAGE plpgsql
@@ -1088,6 +1090,8 @@ BEGIN
         tr.plot_number,
         tr.plot_row_number,
         tr.plot_column_number,
+        tr.accession_id,
+        tr.accession_name,
         tr.record_info
     FROM
         gemini.trait_records tr
