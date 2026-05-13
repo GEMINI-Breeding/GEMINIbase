@@ -734,6 +734,12 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_plot_geometry_versions_active ON gemini.pl
 CREATE TABLE IF NOT EXISTS gemini.experiment_files (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     experiment_id UUID NOT NULL REFERENCES gemini.experiments(id) ON DELETE CASCADE,
+    -- Nullable dataset FK (alembic 0007). ON DELETE SET NULL so a
+    -- dataset row can disappear without cascading the file rows out
+    -- from under any concurrent listing; the file rows then revert to
+    -- legacy "experiment-only" status and are swept by the experiment
+    -- cascade as before. Legacy rows (pre-0007) stay valid with NULL.
+    dataset_id UUID REFERENCES gemini.datasets(id) ON DELETE SET NULL,
     bucket TEXT NOT NULL,
     object_name TEXT NOT NULL,
     size_bytes BIGINT,
@@ -746,3 +752,5 @@ CREATE TABLE IF NOT EXISTS gemini.experiment_files (
 
 CREATE INDEX IF NOT EXISTS idx_experiment_files_experiment_id
     ON gemini.experiment_files (experiment_id);
+CREATE INDEX IF NOT EXISTS idx_experiment_files_dataset_id
+    ON gemini.experiment_files (dataset_id);
