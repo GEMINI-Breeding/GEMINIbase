@@ -136,6 +136,14 @@ class TestAmigaWorkerExtractionFlow:
         from gemini.workers.amiga.worker import AmigaWorker
 
         mock_client = MagicMock()
+        # stat_object().size is summed into total_bytes inside the worker —
+        # must be a real int, otherwise comparisons with `int` raise TypeError.
+        mock_client.stat_object.return_value = MagicMock(size=1024)
+        # The worker now streams the download via get_object().stream(...)
+        # rather than calling fget_object — mock the response iterator.
+        download_resp = MagicMock()
+        download_resp.stream.return_value = iter([b"x" * 256])
+        mock_client.get_object.return_value = download_resp
         mock_minio.return_value = mock_client
 
         worker = AmigaWorker(worker_id="test")
@@ -169,9 +177,11 @@ class TestAmigaWorkerExtractionFlow:
                 "localDirPath": "2024/Exp1/Field1/Pop1/2024-01-15/Amiga/OAK/Amiga",
             })
 
-        # Verify MinIO download was called for the .bin file
-        mock_client.fget_object.assert_called_once()
-        download_call = mock_client.fget_object.call_args
+        # Verify MinIO download was streamed for the .bin file.
+        # The worker uses get_object(...).stream(...) so it can report
+        # download progress on big files.
+        mock_client.get_object.assert_called_once()
+        download_call = mock_client.get_object.call_args
         assert download_call[0][1] == "2024/Exp1/Field1/Pop1/2024-01-15/Amiga/OAK/Amiga/2024_01_15_001.bin"
 
         # Verify extract_binary was called
@@ -195,7 +205,9 @@ class TestAmigaWorkerExtractionFlow:
 
         # Cancel after first progress report
         mock_cancelled.side_effect = [True]
-        mock_minio.return_value = MagicMock()
+        mock_client = MagicMock()
+        mock_client.stat_object.return_value = MagicMock(size=1024)
+        mock_minio.return_value = mock_client
 
         worker = AmigaWorker(worker_id="test")
         result = worker._extract_binary_job("job-1", {

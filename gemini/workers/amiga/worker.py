@@ -238,6 +238,11 @@ class AmigaWorker(BaseWorker):
         """
         file_list = parameters.get("files", [])
         dir_path = parameters.get("localDirPath", "")
+        if not file_list or not dir_path:
+            raise ValueError(
+                "Missing required parameters: 'files' (non-empty list) "
+                "and 'localDirPath' (non-empty string)."
+            )
         # Post-migration-0007 the frontend creates a dataset before
         # submitting EXTRACT_BINARY and forwards its id here so this
         # worker's outputs can be registered as `experiment_files`

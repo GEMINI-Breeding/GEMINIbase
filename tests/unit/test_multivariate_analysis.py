@@ -538,6 +538,39 @@ class TestHeritability:
         assert p.h2 is None
         assert p.blups == []
 
+    def test_h2_falls_back_when_reml_singular(self):
+        """REML hits the σ²_g≈0 boundary on noise-dominated data and throws
+        LinAlgError — verify we report a finite H² ≈ 0 instead of failing.
+        """
+        from gemini.rest_api.controllers.multivariate_analysis import (
+            _build_heritability_panels,
+        )
+        rng = np.random.default_rng(13)
+        rows = []
+        # 50 accessions × 2 reps, no genotype effect — pure noise.
+        for i in range(50):
+            acc = f"A{i:02d}"
+            for r in range(2):
+                rows.append({
+                    "plot_id": f"p{i}{r}", "plot_number": None,
+                    "plot_row_number": None, "plot_column_number": None,
+                    "experiment_name": "E1", "season_name": "S1", "site_name": "X",
+                    "accession_name": acc, "population": None,
+                    "trait_a": 50 + rng.normal(0, 10),
+                })
+        wide = pd.DataFrame(rows)
+        panels = _build_heritability_panels(wide, ["trait_a"])
+        assert len(panels) == 1
+        p = panels[0]
+        # Expect either ok (REML converged to small var_g) or warning
+        # (REML failed, moment fallback kicked in) — never failed.
+        assert p.convergence_status in ("ok", "warning")
+        assert p.h2 is not None
+        # var_g ≪ var_e → H² near 0
+        assert p.h2 < 0.5
+        # BLUPs still produced
+        assert len(p.blups) == 50
+
     def test_h2_insufficient_data(self):
         from gemini.rest_api.controllers.multivariate_analysis import (
             _build_heritability_panels,
@@ -741,3 +774,116 @@ class TestGGE:
         # D is dropped from the matrix (incomplete across envs).
         names = {p.name for p in resp.accession_scores}
         assert "D" not in names
+
+
+class TestManova:
+    def _wide_replicated(self, seed: int = 0):
+        """3 accessions × 4 reps with strong multivariate separation.
+
+        Three traits whose accession means are well-separated; small noise.
+        Both univariate ANOVAs and the MANOVA test should be significant.
+        """
+        rng = np.random.default_rng(seed)
+        rows = []
+        for acc, m1, m2, m3 in [
+            ("A", 10.0, 5.0, 1.0),
+            ("B", 14.0, 7.0, 3.0),
+            ("C", 18.0, 9.0, 5.0),
+        ]:
+            for r in range(4):
+                rows.append({
+                    "plot_id": f"p_{acc}{r}", "plot_number": None,
+                    "plot_row_number": None, "plot_column_number": None,
+                    "experiment_name": "E1", "season_name": "S1",
+                    "site_name": "X", "accession_name": acc,
+                    "population": None,
+                    "trait_a": m1 + rng.normal(0, 0.2),
+                    "trait_b": m2 + rng.normal(0, 0.2),
+                    "trait_c": m3 + rng.normal(0, 0.2),
+                })
+        return pd.DataFrame(rows)
+
+    def test_one_way_significant(self):
+        from gemini.rest_api.controllers.multivariate_analysis import (
+            _build_manova_panels,
+        )
+        wide = self._wide_replicated(seed=7)
+        panels = _build_manova_panels(wide, ["trait_a", "trait_b", "trait_c"])
+        assert len(panels) == 1
+        p = panels[0]
+        assert p.kind == "one_way"
+        assert p.replication_status == "replicated"
+        # The accession term must be present
+        assert any("accession_name" in k for k in p.terms)
+        accession_key = next(k for k in p.terms if "accession_name" in k)
+        # All 4 standard test stats should be present
+        stat_names = {s.name for s in p.terms[accession_key]}
+        assert "Wilks' lambda" in stat_names
+        assert "Pillai's trace" in stat_names
+        # With clearly-separated accession means, Wilks p must be tiny
+        wilks = next(
+            s for s in p.terms[accession_key] if s.name == "Wilks' lambda"
+        )
+        assert wilks.p is not None and wilks.p < 0.001
+
+    def test_unreplicated_flagged(self):
+        from gemini.rest_api.controllers.multivariate_analysis import (
+            _build_manova_panels,
+        )
+        # 3 accessions, 1 plot each — replication_status should flag.
+        rows = []
+        for i, (acc, v) in enumerate(
+            [("A", 10.0), ("B", 14.0), ("C", 18.0)], start=1
+        ):
+            rows.append({
+                "plot_id": f"p{i}", "plot_number": i,
+                "plot_row_number": None, "plot_column_number": None,
+                "experiment_name": "E1", "season_name": "S1",
+                "site_name": "X", "accession_name": acc, "population": None,
+                "trait_a": v, "trait_b": v * 0.5, "trait_c": v * 0.2,
+            })
+        wide = pd.DataFrame(rows)
+        panels = _build_manova_panels(wide, ["trait_a", "trait_b", "trait_c"])
+        assert len(panels) == 1
+        # 3 obs, 3 traits → n_obs < n_traits + 2 = 5 → insufficient_data
+        assert panels[0].replication_status == "insufficient_data"
+
+    def test_two_way_when_multi_env(self):
+        from gemini.rest_api.controllers.multivariate_analysis import (
+            _build_manova_panels,
+        )
+        rng = np.random.default_rng(3)
+        rows = []
+        plot_id = 0
+        for site in ["X", "Y"]:
+            for acc, base in [("A", 10), ("B", 14), ("C", 18)]:
+                for r in range(3):
+                    plot_id += 1
+                    bump = 4.0 if site == "Y" else 0.0
+                    rows.append({
+                        "plot_id": f"p{plot_id}", "plot_number": plot_id,
+                        "plot_row_number": None, "plot_column_number": None,
+                        "experiment_name": "E1", "season_name": "S1",
+                        "site_name": site, "accession_name": acc,
+                        "population": None,
+                        "trait_a": base + bump + rng.normal(0, 0.2),
+                        "trait_b": base * 0.5 + bump + rng.normal(0, 0.2),
+                    })
+        wide = pd.DataFrame(rows)
+        panels = _build_manova_panels(wide, ["trait_a", "trait_b"])
+        kinds = [p.kind for p in panels]
+        assert kinds.count("one_way") == 2
+        assert kinds.count("two_way") == 1
+        two = next(p for p in panels if p.kind == "two_way")
+        # Both accession and env terms should be present
+        assert any("accession_name" in k for k in two.terms)
+        assert any("_env" in k for k in two.terms)
+
+    def test_validates_min_traits(self):
+        from gemini.rest_api.controllers.multivariate_analysis import (
+            _build_manova_panels,
+        )
+        wide = self._wide_replicated(seed=2)
+        # Only 1 trait → no panels (we filter for ≥2 available traits).
+        panels = _build_manova_panels(wide, ["trait_a"])
+        assert panels == []

@@ -235,6 +235,36 @@ class GGEResponse(RESTAPIBase):
     message: Optional[str] = None
 
 
+class ManovaStat(RESTAPIBase):
+    name: str  # "Wilks' lambda", "Pillai's trace", ...
+    value: float
+    df_num: float
+    df_denom: float
+    F: Optional[float] = None
+    p: Optional[float] = None
+
+
+class ManovaPanel(RESTAPIBase):
+    env_label: str
+    kind: Literal["one_way", "two_way"]
+    n_obs: int
+    n_groups: int
+    n_traits: int
+    replication_status: Literal["replicated", "unreplicated", "insufficient_data"]
+    # Terms (e.g., "accession_name", "_env", "accession_name:_env"). Each
+    # term carries the 4 standard MANOVA test statistics.
+    terms: dict[str, List[ManovaStat]] = {}
+    message: Optional[str] = None
+
+
+class ManovaResponse(RESTAPIBase):
+    status: Literal["ok", "too_large", "insufficient_data"]
+    n_records_fetched: int
+    trait_names: List[str]
+    panels: List[ManovaPanel]
+    message: Optional[str] = None
+
+
 # ---------------------------------------------------------------------------
 # Shared data-fetch + aggregation helpers
 # ---------------------------------------------------------------------------
@@ -663,6 +693,69 @@ def _two_way_panel(trait_name: str, wide: pd.DataFrame) -> Optional[AnovaPanel]:
     )
 
 
+def _h2_moment_estimator(
+    work: pd.DataFrame, trait_name: str
+) -> tuple[float, float, float, dict[str, float]]:
+    """ANOVA / method-of-moments variance components.
+
+    Used as a closed-form fallback when REML hits the σ²_g ≈ 0 boundary
+    (statsmodels' optimizer then divides by a singular covariance — see
+    https://github.com/statsmodels/statsmodels/issues/9018). For balanced
+    one-way random-effects designs this estimator is unbiased and standard.
+    For unbalanced it's slightly biased but close enough for the H² reading,
+    which is qualitative anyway.
+
+    Returns (σ²_g, σ²_e, mean_reps, BLUP-per-accession) where σ²_g is
+    floored at zero.
+    """
+    y_col = "_y"
+    df = work.rename(columns={trait_name: y_col}).copy()
+    groups = df.groupby("accession_name")[y_col]
+    n_i = groups.size()
+    mean_i = groups.mean()
+    grand_mean = float(df[y_col].mean())
+    n_groups = len(n_i)
+    n_total = int(n_i.sum())
+
+    # SS_between (Type-I) and SS_within from a one-way decomposition.
+    ss_between = float(((mean_i - grand_mean) ** 2 * n_i).sum())
+    within_dev = df.apply(
+        lambda row: row[y_col] - mean_i[row["accession_name"]], axis=1
+    )
+    ss_within = float((within_dev**2).sum())
+
+    df_between = max(n_groups - 1, 1)
+    df_within = max(n_total - n_groups, 1)
+
+    ms_between = ss_between / df_between
+    ms_within = ss_within / df_within
+
+    # Effective per-group sample size for unbalanced designs (Searle 1971).
+    n_bar = (
+        float(n_total - (n_i**2).sum() / n_total) / (n_groups - 1)
+        if n_groups > 1
+        else float(n_i.mean())
+    )
+
+    var_e = ms_within
+    var_g_raw = (ms_between - ms_within) / max(n_bar, 1e-12)
+    var_g = max(0.0, var_g_raw)
+
+    # James-Stein–style BLUP: shrink each accession mean toward the grand
+    # mean by the genotype's information weight. When var_g = 0, every
+    # accession shrinks all the way to the grand mean.
+    blup_map: dict[str, float] = {}
+    if var_g == 0:
+        for acc in mean_i.index:
+            blup_map[str(acc)] = grand_mean
+    else:
+        for acc, ni in n_i.items():
+            weight = (ni * var_g) / (ni * var_g + var_e) if (ni * var_g + var_e) > 0 else 0
+            blup_map[str(acc)] = grand_mean + weight * (mean_i[acc] - grand_mean)
+
+    return var_g, var_e, float(n_i.mean()), blup_map
+
+
 def _h2_panel(trait_name: str, env_label: str, sub: pd.DataFrame) -> HeritabilityPanel:
     """Per-env broad-sense H² via MixedLM REML.
 
@@ -673,6 +766,12 @@ def _h2_panel(trait_name: str, env_label: str, sub: pd.DataFrame) -> Heritabilit
 
     The mean_reps weighting yields the "operational" H² appropriate for
     the actual replication in this env (Holland 2003). Unbalanced is OK.
+
+    When REML hits the σ²_g ≈ 0 boundary it can throw `LinAlgError:
+    Singular matrix` from `np.linalg.inv` inside the gradient — this is a
+    statsmodels quirk, not a real failure of the analysis. We fall back to
+    method-of-moments (closed-form ANOVA estimator) so we report H² = 0
+    cleanly rather than "fit failed".
     """
     import warnings
 
@@ -707,9 +806,18 @@ def _h2_panel(trait_name: str, env_label: str, sub: pd.DataFrame) -> Heritabilit
 
     df = work.rename(columns={trait_name: "_y"})
 
-    convergence_status: Literal["ok", "warning", "failed"] = "ok"
+    convergence_status: Literal["ok", "warning", "failed", "unreplicated", "insufficient_data"] = "ok"
+    fallback_note: Optional[str] = None
     var_g = var_e = None
     blups: list[BLUP] = []
+
+    # Note partial replication so users can interpret the result.
+    n_singletons = int((rep_counts == 1).sum())
+    if n_singletons > 0:
+        fallback_note = (
+            f"{n_singletons} of {n_groups} accessions are singletons "
+            "(1 plot only); they contribute no within-accession info."
+        )
 
     try:
         with warnings.catch_warnings(record=True) as caught:
@@ -748,19 +856,45 @@ def _h2_panel(trait_name: str, env_label: str, sub: pd.DataFrame) -> Heritabilit
                 dev = float(dev_series[0])
             blups.append(BLUP(accession_name=str(acc), blup=intercept + dev))
         blups.sort(key=lambda b: b.accession_name)
-    except Exception as e:
-        return HeritabilityPanel(
-            trait_name=trait_name,
-            env_label=env_label,
-            n_obs=n_obs,
-            n_groups=n_groups,
-            mean_reps=mean_reps,
-            convergence_status="failed",
-            message=f"REML fit failed: {e}",
-        )
+    except (np.linalg.LinAlgError, ValueError, Exception) as e:
+        # REML failed — typically the σ²_g ≈ 0 boundary case. Fall back to
+        # method-of-moments so we report H² = 0 cleanly instead of failed.
+        try:
+            var_g, var_e, _mean_reps, blup_map = _h2_moment_estimator(
+                work, trait_name
+            )
+            blups = [
+                BLUP(accession_name=str(a), blup=v)
+                for a, v in sorted(blup_map.items())
+            ]
+            convergence_status = "warning"
+            if var_g == 0:
+                fallback_reason = (
+                    f"REML failed ({type(e).__name__}); used method-of-moments fallback. "
+                    "Estimated σ²_g hit the zero boundary — genotype variance is not "
+                    "distinguishable from residual variance in this env."
+                )
+            else:
+                fallback_reason = (
+                    f"REML failed ({type(e).__name__}); used method-of-moments fallback. "
+                    "H² estimate is approximate."
+                )
+            fallback_note = (
+                f"{fallback_reason}\n{fallback_note}" if fallback_note else fallback_reason
+            )
+        except Exception as fallback_err:
+            return HeritabilityPanel(
+                trait_name=trait_name,
+                env_label=env_label,
+                n_obs=n_obs,
+                n_groups=n_groups,
+                mean_reps=mean_reps,
+                convergence_status="failed",
+                message=f"REML fit failed: {e}; fallback failed: {fallback_err}",
+            )
 
     denom = (var_g or 0.0) + ((var_e or 0.0) / mean_reps if mean_reps > 0 else 0.0)
-    h2 = float(var_g / denom) if denom > 0 else None
+    h2 = float(var_g / denom) if denom > 0 else 0.0
 
     return HeritabilityPanel(
         trait_name=trait_name,
@@ -773,6 +907,7 @@ def _h2_panel(trait_name: str, env_label: str, sub: pd.DataFrame) -> Heritabilit
         h2=h2,
         convergence_status=convergence_status,
         blups=blups,
+        message=fallback_note,
     )
 
 
@@ -1058,6 +1193,189 @@ def _run_gge(
         env_scores=env_scores,
         polygon=polygon,
     )
+
+
+def _manova_terms_from_results(
+    results, skip_terms: List[str] = None
+) -> dict[str, List[ManovaStat]]:
+    """Turn statsmodels MultivariateTestResults into our wire shape.
+
+    `results.results` is a dict keyed by term (e.g. 'Intercept', 'g') with
+    each value carrying a 'stat' DataFrame of the 4 test statistics. We
+    skip the Intercept (uninteresting for our use case).
+    """
+    skip = set(skip_terms or []) | {"Intercept"}
+    out: dict[str, List[ManovaStat]] = {}
+    for term, payload in results.results.items():
+        if term in skip:
+            continue
+        stat_df: pd.DataFrame = payload["stat"]
+        rows: list[ManovaStat] = []
+        for stat_name, row in stat_df.iterrows():
+            try:
+                value = float(row["Value"])
+            except (TypeError, ValueError):
+                continue
+            df_num = float(row["Num DF"])
+            df_denom = float(row["Den DF"])
+            F_raw = row["F Value"]
+            p_raw = row["Pr > F"]
+            F_val = None if pd.isna(F_raw) else float(F_raw)
+            p_val = None if pd.isna(p_raw) else float(p_raw)
+            rows.append(ManovaStat(
+                name=str(stat_name),
+                value=value,
+                df_num=df_num,
+                df_denom=df_denom,
+                F=F_val,
+                p=p_val,
+            ))
+        if rows:
+            out[term] = rows
+    return out
+
+
+def _one_way_manova_panel(
+    env_label: str,
+    sub: pd.DataFrame,
+    trait_names: List[str],
+) -> ManovaPanel:
+    """Per-env MANOVA on (trait_1, ..., trait_k) ~ C(accession_name)."""
+    from statsmodels.multivariate.manova import MANOVA
+
+    work = sub[["accession_name", *trait_names]].dropna()
+    work = work[work["accession_name"].notna()]
+    n_obs = int(len(work))
+    n_groups = int(work["accession_name"].nunique())
+    n_traits = len(trait_names)
+
+    if n_obs < n_traits + 2 or n_groups < 2:
+        return ManovaPanel(
+            env_label=env_label,
+            kind="one_way",
+            n_obs=n_obs,
+            n_groups=n_groups,
+            n_traits=n_traits,
+            replication_status="insufficient_data",
+            message=(
+                f"Need at least {n_traits + 2} observations and 2 accessions "
+                "to run MANOVA."
+            ),
+        )
+
+    rep_counts = work.groupby("accession_name").size()
+    if (rep_counts > 1).sum() == 0:
+        return ManovaPanel(
+            env_label=env_label,
+            kind="one_way",
+            n_obs=n_obs,
+            n_groups=n_groups,
+            n_traits=n_traits,
+            replication_status="unreplicated",
+            message="No accession has more than one plot — MANOVA is undefined.",
+        )
+
+    # Rename trait columns to syntactically safe placeholders for the formula.
+    rename = {t: f"_y{i}" for i, t in enumerate(trait_names)}
+    df = work.rename(columns=rename)
+    lhs = " + ".join(rename.values())
+    try:
+        model = MANOVA.from_formula(f"{lhs} ~ C(accession_name)", data=df)
+        results = model.mv_test()
+        terms = _manova_terms_from_results(results)
+    except Exception as e:
+        return ManovaPanel(
+            env_label=env_label,
+            kind="one_way",
+            n_obs=n_obs,
+            n_groups=n_groups,
+            n_traits=n_traits,
+            replication_status="insufficient_data",
+            message=f"MANOVA fit failed: {e}",
+        )
+
+    return ManovaPanel(
+        env_label=env_label,
+        kind="one_way",
+        n_obs=n_obs,
+        n_groups=n_groups,
+        n_traits=n_traits,
+        replication_status="replicated",
+        terms=terms,
+    )
+
+
+def _two_way_manova_panel(
+    wide: pd.DataFrame,
+    trait_names: List[str],
+) -> Optional[ManovaPanel]:
+    """(trait_1, ..., trait_k) ~ C(accession_name) + C(_env) + interaction.
+
+    Returns None if there's only a single env after dropping NaN.
+    """
+    from statsmodels.multivariate.manova import MANOVA
+
+    work = wide[["accession_name", *trait_names]].copy()
+    work["_env"] = wide.apply(_env_label, axis=1)
+    work = work.dropna(subset=["accession_name", *trait_names])
+    if work.empty or work["_env"].nunique() < 2:
+        return None
+
+    rename = {t: f"_y{i}" for i, t in enumerate(trait_names)}
+    df = work.rename(columns=rename)
+    lhs = " + ".join(rename.values())
+
+    # Try interaction model; fall back to additive when no cell has >1 obs.
+    cell_counts = df.groupby(["accession_name", "_env"]).size()
+    has_replicated_cell = (cell_counts > 1).any()
+    if has_replicated_cell:
+        formula = (
+            f"{lhs} ~ C(accession_name) + C(_env) + C(accession_name):C(_env)"
+        )
+    else:
+        formula = f"{lhs} ~ C(accession_name) + C(_env)"
+    try:
+        model = MANOVA.from_formula(formula, data=df)
+        results = model.mv_test()
+        terms = _manova_terms_from_results(results)
+    except Exception:
+        return None
+
+    return ManovaPanel(
+        env_label="two-way",
+        kind="two_way",
+        n_obs=int(len(df)),
+        n_groups=int(df["accession_name"].nunique()),
+        n_traits=len(trait_names),
+        replication_status="replicated" if has_replicated_cell else "unreplicated",
+        terms=terms,
+        message=None if has_replicated_cell else (
+            "No (accession × env) cell has more than one plot — "
+            "interaction term dropped; main effects only."
+        ),
+    )
+
+
+def _build_manova_panels(
+    wide: pd.DataFrame,
+    trait_names: List[str],
+) -> List[ManovaPanel]:
+    panels: list[ManovaPanel] = []
+    if wide.empty:
+        return panels
+    # Keep only traits that survived aggregation.
+    available = [t for t in trait_names if t in wide.columns]
+    if len(available) < 2:
+        return panels
+
+    work = wide.copy()
+    work["_env"] = work.apply(_env_label, axis=1)
+    for env_lbl, sub in work.groupby("_env", dropna=False):
+        panels.append(_one_way_manova_panel(env_lbl, sub, available))
+    two_way = _two_way_manova_panel(work, available)
+    if two_way is not None:
+        panels.append(two_way)
+    return panels
 
 
 def _pearson_with_n(values: pd.DataFrame, trait_names: List[str]) -> CorrelationMatrix:
@@ -1535,6 +1853,75 @@ class MultiVariateAnalysisController(Controller):
                 content=RESTAPIError(
                     error=str(e),
                     error_description="Failed to compute GGE biplot.",
+                ),
+                status_code=500,
+            )
+
+    @post(path="/manova", sync_to_thread=True)
+    def manova(self, data: MultivariateRequest) -> Response:
+        if len(data.trait_names) < 2:
+            return Response(
+                content=RESTAPIError(
+                    error="invalid_request",
+                    error_description="MANOVA needs at least 2 trait_names.",
+                ),
+                status_code=400,
+            )
+        # MANOVA measures within-genotype multivariate variance; force-disable
+        # replicate collapse regardless of caller's flag.
+        data = data.model_copy(update={"collapse_replicates": False})
+        try:
+            df, n_fetched = _fetch_long(data)
+            if n_fetched > ROW_LIMIT:
+                return Response(
+                    content=ManovaResponse(
+                        status="too_large",
+                        n_records_fetched=n_fetched,
+                        trait_names=data.trait_names,
+                        panels=[],
+                        message=(
+                            f"Fetched > {ROW_LIMIT:,} records before aggregation. "
+                            "Narrow filters and retry."
+                        ),
+                    ),
+                    status_code=200,
+                )
+
+            wide = _aggregate_per_plot(df, data)
+            panels = _build_manova_panels(wide, data.trait_names)
+            if not panels:
+                return Response(
+                    content=ManovaResponse(
+                        status="insufficient_data",
+                        n_records_fetched=n_fetched,
+                        trait_names=data.trait_names,
+                        panels=[],
+                        message="Not enough data to run MANOVA.",
+                    ),
+                    status_code=200,
+                )
+            return Response(
+                content=ManovaResponse(
+                    status="ok",
+                    n_records_fetched=n_fetched,
+                    trait_names=data.trait_names,
+                    panels=panels,
+                ),
+                status_code=200,
+            )
+        except ValueError as ve:
+            return Response(
+                content=RESTAPIError(
+                    error="invalid_request",
+                    error_description=str(ve),
+                ),
+                status_code=400,
+            )
+        except Exception as e:
+            return Response(
+                content=RESTAPIError(
+                    error=str(e),
+                    error_description="Failed to compute MANOVA.",
                 ),
                 status_code=500,
             )
