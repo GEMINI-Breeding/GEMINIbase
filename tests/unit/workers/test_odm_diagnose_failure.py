@@ -55,6 +55,34 @@ OOM_KILLED_LOG = [
 ]
 
 
+# Real log tail captured from the 2026-05-15 Cowpea MAGIC run on a Mac with
+# Docker Desktop at its default ~8 GiB memory / 1 GiB swap. SfM completed
+# fully (192-image reconstruction succeeded), but OpenMVS reported only
+# 1024 MB of virtual memory, produced 0 depthmaps, and the next stage
+# segfaulted (exit 139) on the empty input. NodeODM marked the task FAILED
+# with the generic 'Cannot process dataset', and the existing diagnostic
+# mis-attributed it to a too-aggressive quality preset.
+OPENMVS_LOW_VMEM_LOG = [
+    "[INFO]    Running openmvs stage",
+    "[INFO]    Depthmap resolution set to: 684px",
+    "[INFO]    Running dense reconstruction. This might take a while.",
+    "16:12:13 [App     ] OpenMVS x32 v2.2.0",
+    "16:12:13 [App     ] CPU:  (12 cores)",
+    "16:12:13 [App     ] RAM: 7.65GB Physical Memory 1024.00MB Virtual Memory",
+    "16:12:13 [App     ] OS: Linux 6.10.14-linuxkit (aarch64)",
+    "16:12:13 [App     ] Found a camera not pointing towards the scene "
+    "center; the scene will be considered unbounded (no ROI)",
+    "16:12:13 [App     ] Preparing images for dense reconstruction "
+    "completed: 192 images (185ms)",
+    "16:12:13 [App     ] Selecting images for dense reconstruction "
+    "completed: 0 images (56ms)",
+    "Fused depth-maps 0 (100%, 0ms)",
+    "16:12:13 [App     ] Densifying point-cloud completed: 0 points (245ms)",
+    "16:12:13 [App     ] error: no valid point-cloud for the ROI estimation",
+    "Segmentation fault",
+]
+
+
 def test_openmvs_rejects_all_images_pattern():
     """The exact 'Selecting images ... completed: 0 images' line must
     surface a quality-preset hint, not the generic 'unknown' fallback.
@@ -140,3 +168,51 @@ def test_empty_log_returns_empty():
     falls back to NodeODM's generic message + the saved-log pointer.
     """
     assert _diagnose_odm_failure([]) == ""
+
+
+def test_low_vmem_routes_to_docker_memory_hint():
+    """When OpenMVS's own banner shows ~1 GiB virtual memory and the run
+    ends in an empty dense cloud, the diagnosis must point at Docker
+    Desktop's memory cap, not at the user's quality preset. This is the
+    regression: the previous heuristic only inspected the empty-cloud
+    symptom and blamed the preset on any Mac with a default Docker
+    install, even at the Medium preset.
+    """
+    detail = _diagnose_odm_failure(OPENMVS_LOW_VMEM_LOG)
+    assert detail
+    assert "memory" in detail.lower()
+    assert "Docker" in detail
+    # Must NOT misdirect the user to change quality presets as the
+    # primary fix — that was the original wrong message.
+    assert "OpenMVS rejected every image" not in detail
+
+
+def test_high_vmem_with_empty_cloud_still_blames_preset():
+    """If memory is clearly not the constraint (large virtual-memory
+    figure on the OpenMVS banner) and the dense cloud is still empty,
+    the preset-too-aggressive diagnosis is still the right one.
+    """
+    log = [
+        "[INFO]    Running openmvs stage",
+        "16:12:13 [App     ] RAM: 64.00GB Physical Memory 32.00GB Virtual Memory",
+        "16:12:13 [App     ] Selecting images for dense reconstruction "
+        "completed: 0 images (56ms)",
+        "16:12:13 [App     ] Densifying point-cloud completed: 0 points",
+        "Segmentation fault",
+    ]
+    detail = _diagnose_odm_failure(log)
+    assert "OpenMVS rejected every image" in detail
+    assert "quality preset" in detail or "Reconstruction quality" in detail
+
+
+def test_oom_killer_still_wins_over_low_vmem_branch():
+    """The explicit OOM-killer signature ('Killed' + depth-fusion context)
+    is more specific than the low-vmem heuristic; it must keep firing
+    first so its tailored hint isn't shadowed by the new branch.
+    """
+    log = OOM_KILLED_LOG + [
+        "16:12:13 [App     ] RAM: 7.65GB Physical Memory 1024.00MB Virtual Memory",
+        "Densifying point-cloud completed: 0 points",
+    ]
+    detail = _diagnose_odm_failure(log)
+    assert "out-of-memory" in detail.lower()

@@ -785,6 +785,9 @@ class Experiment(APIBase):
                     ReferenceDatasetModel,
                 )
                 from gemini.db.models.jobs import JobModel
+                from gemini.db.models.plot_geometry_versions import (
+                    PlotGeometryVersionModel,
+                )
                 rd_count = session.execute(
                     sa_delete(ReferenceDatasetModel).where(
                         ReferenceDatasetModel.experiment == exp_name
@@ -795,6 +798,18 @@ class Experiment(APIBase):
                         "Deleted %d reference_datasets row(s) for %s.",
                         rd_count, exp_name,
                     )
+                # Capture GWAS job IDs BEFORE the row delete so we can
+                # sweep `gwas/{job_id}/` MinIO prefixes post-commit
+                # (mirrors the per-job DELETE behavior in
+                # rest_api/controllers/jobs.py:_sweep_gwas_artifacts).
+                orphan_gwas_job_ids: list = list(session.execute(
+                    select(JobModel.id).where(
+                        and_(
+                            JobModel.experiment_id == current_id,
+                            JobModel.job_type == "RUN_GWAS",
+                        )
+                    )
+                ).scalars().all())
                 job_count = session.execute(
                     sa_delete(JobModel).where(
                         JobModel.experiment_id == current_id
@@ -804,6 +819,31 @@ class Experiment(APIBase):
                     logger.info(
                         "Deleted %d jobs row(s) for %s.",
                         job_count, exp_name,
+                    )
+
+                # plot_geometry_versions has no FK back to experiment;
+                # its `directory` field holds the Raw/Processed-style
+                # path under which plot-marking happened, and the
+                # convention is `{Raw|Processed}/{year}/{exp_name}/...`.
+                # Without this, deleting the experiment leaves an
+                # is_active row whose directory points into now-empty
+                # MinIO storage (caught by the orphan audit).
+                pgv_count = session.execute(
+                    sa_delete(PlotGeometryVersionModel).where(
+                        or_(
+                            PlotGeometryVersionModel.directory.like(
+                                f"Raw/%/{exp_name}/%"
+                            ),
+                            PlotGeometryVersionModel.directory.like(
+                                f"Processed/%/{exp_name}/%"
+                            ),
+                        )
+                    )
+                ).rowcount or 0
+                if pgv_count:
+                    logger.info(
+                        "Deleted %d plot_geometry_versions row(s) for %s.",
+                        pgv_count, exp_name,
                     )
 
                 # Finally, the experiment row itself. Doing this inline
@@ -880,6 +920,43 @@ class Experiment(APIBase):
                 t_phase = _phase(
                     f"orphan genotyping_study post-commit cleanup "
                     f"({len(orphan_study_ids)} studies)",
+                    t_phase,
+                )
+
+            # GWAS artifacts: each RUN_GWAS job parks ~12 files under
+            # `gwas/{job_id}/` (manhattan/qq/kinship PNGs, run.assoc.txt,
+            # qc.bed/bim/fam, result.json, etc — see
+            # workers/gwas/worker.py:245). The job rows are gone now,
+            # so we sweep the prefixes using the IDs captured above.
+            if orphan_gwas_job_ids:
+                from gemini.api.base import minio_storage_provider as _gwas_msp
+                _gwas_bucket = _gwas_msp.bucket_name
+                _gwas_removed = 0
+                for jid in orphan_gwas_job_ids:
+                    prefix = f"gwas/{jid}/"
+                    try:
+                        objs = list(_gwas_msp.client.list_objects(
+                            bucket_name=_gwas_bucket, prefix=prefix, recursive=True,
+                        ))
+                    except Exception as exc:
+                        logger.warning(
+                            "MinIO list_objects(%s) failed: %s", prefix, exc,
+                        )
+                        objs = []
+                    for obj in objs:
+                        try:
+                            _gwas_msp.client.remove_object(
+                                bucket_name=_gwas_bucket, object_name=obj.object_name,
+                            )
+                            _gwas_removed += 1
+                        except Exception as exc:
+                            logger.warning(
+                                "MinIO remove_object %s failed: %s",
+                                obj.object_name, exc,
+                            )
+                t_phase = _phase(
+                    f"gwas artifact sweep ({len(orphan_gwas_job_ids)} jobs, "
+                    f"{_gwas_removed} objects)",
                     t_phase,
                 )
 

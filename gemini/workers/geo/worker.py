@@ -40,64 +40,63 @@ def _get_minio_client():
 
 def _create_cog(input_path: str, output_path: str):
     """
-    Convert a GeoTIFF to Cloud Optimized GeoTIFF with pyramid overviews.
+    Convert a GeoTIFF to Cloud Optimized GeoTIFF using rio-cogeo.
 
-    Reprojects to Web Mercator (EPSG:3857), creates internal tiles,
-    and builds overview pyramids for efficient tile serving.
+    Why rio-cogeo (not a hand-rolled reproject + build_overviews):
 
-    Uses bilinear resampling for the reprojection and average for overviews
-    (rio-cogeo / gdaladdo defaults for RGB). Nearest-neighbor produces
-    visibly blocky tiles at every zoom on RGB drone orthos.
+    The previous implementation reprojected to EPSG:3857 with bilinear
+    resampling and built overviews with `average` over the full RGBA
+    stack, with hardcoded levels `[2, 4, 8, 16, 32, 64, 128, 256]`. For
+    a 1100×1400 source the deepest level was a 5×6-pixel thumbnail, and
+    `average` on RGBA blurred the alpha band into a fractional blob. At
+    zoomed-out map views TiTiler picks the deepest pyramid level whose
+    pixel size beats the tile request — it would stretch the 5×6 alpha-
+    smeared thumbnail to a 256×256 tile, producing both the "swirled"
+    appearance and a visibly *different ortho footprint* (the alpha
+    averaging dissolved the real outline) at low zooms. Zoom-in fixed
+    the render because TiTiler then served finer pyramid levels.
+
+    rio-cogeo (GDAL COG driver under the hood) fixes this for free:
+      - `web_optimized=True` warps to Web Mercator and aligns the COG's
+        blocks to the Google/Mercator XYZ tile pyramid, so TiTiler can
+        read tiles without re-tiling.
+      - Overview level is auto-derived from the source size so the
+        deepest level is ~256 px on its smaller dimension — no more
+        sub-tile thumbnails.
+      - The COG driver builds alpha-aware overviews: the alpha mask is
+        respected during downsampling instead of being averaged into
+        the data, so the rendered outline stays sharp at every zoom.
     """
-    import numpy as np
-    import rasterio
-    from rasterio.enums import Resampling
-    from rasterio.shutil import copy as rio_copy
-    from rasterio.warp import calculate_default_transform, reproject
+    from rio_cogeo.cogeo import cog_translate
+    from rio_cogeo.profiles import cog_profiles
 
-    with rasterio.open(input_path) as src:
-        dst_crs = "EPSG:3857"
-        transform, width, height = calculate_default_transform(
-            src.crs, dst_crs, src.width, src.height, *src.bounds
-        )
-        profile = src.profile.copy()
-        profile.update(
-            crs=dst_crs,
-            transform=transform,
-            width=width,
-            height=height,
-            driver="GTiff",
-            tiled=True,
+    output_profile = cog_profiles.get("deflate")
+    output_profile.update(
+        dict(
+            BIGTIFF="IF_SAFER",
             blockxsize=512,
             blockysize=512,
-            compress="deflate",
-            predictor=2 if src.dtypes[0] in ("uint8", "uint16", "int16") else 3,
-            bigtiff="YES",
         )
-
-        # Write reprojected data to a temp file, then create COG overviews
-        tmp_path = output_path + ".tmp.tif"
-        with rasterio.open(tmp_path, "w", **profile) as dst:
-            for i in range(1, src.count + 1):
-                reproject(
-                    source=rasterio.band(src, i),
-                    destination=rasterio.band(dst, i),
-                    src_transform=src.transform,
-                    src_crs=src.crs,
-                    dst_transform=transform,
-                    dst_crs=dst_crs,
-                    resampling=Resampling.bilinear,
-                )
-
-        # Build overviews
-        overview_levels = [2, 4, 8, 16, 32, 64, 128, 256]
-        with rasterio.open(tmp_path, "r+") as dst:
-            dst.build_overviews(overview_levels, Resampling.average)
-            dst.update_tags(ns="rio_overview", resampling="average")
-
-        # Copy to COG layout
-        rio_copy(tmp_path, output_path, driver="GTiff", copy_src_overviews=True, tiled=True)
-        os.remove(tmp_path)
+    )
+    # GDAL_TIFF_INTERNAL_MASK=YES tells the COG driver to honor the
+    # source's alpha band (colorinterp[-1] == 'alpha') as the mask when
+    # downsampling for overviews, instead of averaging alpha into the
+    # data bands.
+    config = dict(
+        GDAL_NUM_THREADS="ALL_CPUS",
+        GDAL_TIFF_INTERNAL_MASK=True,
+        GDAL_TIFF_OVR_BLOCKSIZE="512",
+    )
+    cog_translate(
+        input_path,
+        output_path,
+        output_profile,
+        config=config,
+        web_optimized=True,
+        overview_resampling="average",
+        in_memory=False,
+        quiet=True,
+    )
 
 
 class GeoWorker(BaseWorker):
@@ -277,13 +276,33 @@ class GeoWorker(BaseWorker):
 
         self.report_progress(job_id, 5, {"stage": "discovering_orthomosaics"})
 
-        # Find orthomosaic files by listing objects under the date prefix
-        orthomosaics = []
+        # Find orthomosaic files by listing objects under the date prefix.
+        # RUN_ODM writes `odm_orthophoto-{job_id}.tif` per run, so each
+        # (platform, sensor) folder may contain several historical versions
+        # plus matching `-Pyramid.tif` COGs. Pick the newest source TIF per
+        # folder and skip pyramids — splitting always operates on the
+        # latest ortho.
+        orthomosaics: list[str] = []
         try:
+            candidates_by_folder: dict[str, tuple[str, object]] = {}
             objects = client.list_objects(STORAGE_BUCKET, prefix=base_prefix, recursive=True)
             for obj in objects:
-                if obj.object_name.endswith("odm_orthophoto.tif"):
-                    orthomosaics.append(obj.object_name)
+                name = obj.object_name
+                basename = name.rsplit("/", 1)[-1]
+                if not basename.startswith("odm_orthophoto"):
+                    continue
+                if not (basename.endswith(".tif") or basename.endswith(".tiff")):
+                    continue
+                if "-Pyramid." in basename:
+                    continue
+                folder = name.rsplit("/", 1)[0]
+                lm = getattr(obj, "last_modified", None)
+                existing = candidates_by_folder.get(folder)
+                if existing is None:
+                    candidates_by_folder[folder] = (name, lm)
+                elif lm is not None and (existing[1] is None or lm > existing[1]):
+                    candidates_by_folder[folder] = (name, lm)
+            orthomosaics = [path for path, _ in candidates_by_folder.values()]
         except Exception as e:
             logger.error(f"Error listing objects: {e}")
             return {"plots_processed": 0, "error": str(e)}

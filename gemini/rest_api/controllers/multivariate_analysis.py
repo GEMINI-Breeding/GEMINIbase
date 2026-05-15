@@ -175,6 +175,10 @@ class HeritabilityPanel(RESTAPIBase):
     var_g: Optional[float] = None
     var_e: Optional[float] = None
     h2: Optional[float] = None
+    # Model intercept (REML) or arithmetic mean (moment fallback). BLUPs
+    # are computed as ``grand_mean + accession_deviation`` so this is the
+    # natural reference for "how far above/below average is this accession".
+    grand_mean: Optional[float] = None
     convergence_status: Literal["ok", "warning", "failed", "unreplicated", "insufficient_data"]
     blups: List[BLUP] = []
     message: Optional[str] = None
@@ -809,6 +813,7 @@ def _h2_panel(trait_name: str, env_label: str, sub: pd.DataFrame) -> Heritabilit
     convergence_status: Literal["ok", "warning", "failed", "unreplicated", "insufficient_data"] = "ok"
     fallback_note: Optional[str] = None
     var_g = var_e = None
+    grand_mean: Optional[float] = None
     blups: list[BLUP] = []
 
     # Note partial replication so users can interpret the result.
@@ -849,6 +854,7 @@ def _h2_panel(trait_name: str, env_label: str, sub: pd.DataFrame) -> Heritabilit
         # BLUPs: posterior accession means.
         re_dict = result.random_effects  # {accession: pd.Series([deviation])}
         intercept = float(result.fe_params.iloc[0])
+        grand_mean = intercept
         for acc, dev_series in re_dict.items():
             try:
                 dev = float(dev_series.iloc[0])
@@ -863,6 +869,9 @@ def _h2_panel(trait_name: str, env_label: str, sub: pd.DataFrame) -> Heritabilit
             var_g, var_e, _mean_reps, blup_map = _h2_moment_estimator(
                 work, trait_name
             )
+            # Same reference the moment estimator centers its BLUPs on
+            # (arithmetic mean of the trait values in this env).
+            grand_mean = float(work[trait_name].mean())
             blups = [
                 BLUP(accession_name=str(a), blup=v)
                 for a, v in sorted(blup_map.items())
@@ -905,6 +914,7 @@ def _h2_panel(trait_name: str, env_label: str, sub: pd.DataFrame) -> Heritabilit
         var_g=var_g,
         var_e=var_e,
         h2=h2,
+        grand_mean=grand_mean,
         convergence_status=convergence_status,
         blups=blups,
         message=fallback_note,

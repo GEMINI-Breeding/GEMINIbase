@@ -239,8 +239,12 @@ def qq_plot(
     """Render a QQ plot with genomic-inflation annotation."""
     pvals = df[p_col].dropna().to_numpy()
     pvals = pvals[(pvals > 0) & (pvals <= 1)]
-    pvals.sort()
+    pvals.sort()  # ascending p → descending -log10(p) below
     n = pvals.size
+    # arange/(n+1) is ascending, so -log10 of it is descending — i.e. expected[0]
+    # is the LARGEST expected -log10(p). observed = -log10(sorted_p) is also
+    # descending. Both arrays are already in matched (descending) order, so
+    # we pair them element-wise as-is.
     expected = -np.log10(np.arange(1, n + 1) / (n + 1))
     observed = -np.log10(pvals)
 
@@ -248,7 +252,7 @@ def qq_plot(
     lam = float(np.median(chisq) / stats.chi2.ppf(0.5, df=1)) if n else float("nan")
 
     fig, ax = plt.subplots(figsize=(5, 5))
-    ax.scatter(expected[::-1], observed, s=6, rasterized=True)
+    ax.scatter(expected, observed, s=6, rasterized=True)
     lim = max(float(expected.max()), float(observed.max())) if n else 1.0
     ax.plot([0, lim], [0, lim], color="red", linewidth=0.8)
     ax.set_xlabel("Expected -log10(p)")

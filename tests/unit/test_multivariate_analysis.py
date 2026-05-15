@@ -504,6 +504,10 @@ class TestHeritability:
         assert len(p.blups) == 8
         names = [b.accession_name for b in p.blups]
         assert names == sorted(names)
+        # grand_mean should be present and live in the same neighborhood as
+        # the simulated trait values (centered at 50 + accession offsets).
+        assert p.grand_mean is not None
+        assert 40 < p.grand_mean < 70
 
     def test_h2_low_when_noise_dominates(self):
         from gemini.rest_api.controllers.multivariate_analysis import (

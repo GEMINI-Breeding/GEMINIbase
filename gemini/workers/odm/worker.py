@@ -367,19 +367,57 @@ def _diagnose_odm_failure(log_lines: list[str]) -> str:
             "differences between frames."
         )
 
-    # OpenMVS rejected every image during dense reconstruction. Seen on the
-    # 'Lowest' quality preset (pc-quality=lowest + depthmap-resolution=320):
-    # SfM reconstructs fine, but the densifier's view-selection step picks
-    # 0 of N images and DensifyPointCloud then segfaults on the empty input.
-    # The user-facing log shows:
-    #   "Selecting images for dense reconstruction completed: 0 images"
-    #   "error: no valid point-cloud for the ROI estimation"
-    #   "Densifying point-cloud completed: 0 points"
-    if (
+    # OpenMVS produced an empty dense cloud and then segfaulted. Two distinct
+    # root causes converge on the same downstream symptoms, so disambiguate
+    # by the OpenMVS self-reported memory line.
+    #
+    # Cause A (memory exhaustion): on Docker Desktop with a low memory/swap
+    # cap, DensifyPointCloud reports something like
+    #   "RAM: 7.65GB Physical Memory 1024.00MB Virtual Memory"
+    # then either OOM-kills or — without enough swap to even fail cleanly —
+    # produces 0 depthmaps and the next stage segfaults (exit 139) on the
+    # empty input. No "Killed" appears in the log because the kernel didn't
+    # SIGKILL anything; the process self-aborted on bad memory access.
+    #
+    # Cause B (preset too aggressive): on the 'Lowest' preset (pc-quality=
+    # lowest + depthmap-resolution=320) the densifier's view-selection step
+    # legitimately picks 0 of N images and DensifyPointCloud segfaults on
+    # empty input. Plenty of RAM available; just nothing to fuse.
+    empty_cloud = (
         "Selecting images for dense reconstruction completed: 0 images" in tail
         or "no valid point-cloud for the ROI estimation" in tail
         or "Densifying point-cloud completed: 0 points" in tail
-    ):
+    )
+    if empty_cloud:
+        # Heuristic for cause A: a small virtual-memory figure on the
+        # OpenMVS banner. Docker Desktop's default swap is 1 GiB; anything
+        # at or below that with a segfault almost always means the engine
+        # ran out of headroom mid-densification.
+        low_vmem = False
+        for line in log_lines[-200:]:
+            if "Virtual Memory" not in line or "RAM:" not in line:
+                continue
+            # Line shape: "... RAM: 7.65GB Physical Memory 1024.00MB Virtual Memory"
+            try:
+                vmem_token = line.split("Physical Memory", 1)[1].strip().split()[0]
+                value = float(vmem_token.rstrip("GBMmKkBb"))
+                unit = vmem_token[-2:].upper()
+                vmem_gib = value if unit.startswith("G") else value / 1024.0
+                if vmem_gib <= 2.0:
+                    low_vmem = True
+                    break
+            except (IndexError, ValueError):
+                continue
+        if low_vmem:
+            return (
+                "OpenMVS ran out of memory during dense reconstruction and "
+                "segfaulted on the empty result. The Docker engine is likely "
+                "capped too low (the log shows ~1 GiB virtual memory). Raise "
+                "Docker Desktop's Memory to at least 16 GiB and Swap to ~4 "
+                "GiB (Settings → Resources), then retry. As a workaround "
+                "without changing Docker settings, retry at a lower "
+                "Reconstruction quality."
+            )
         return (
             "OpenMVS rejected every image during dense reconstruction — "
             "the quality preset is likely too aggressive for this dataset. "
@@ -596,8 +634,12 @@ class OdmWorker(BaseWorker):
             logger.info(f"Extracted orthophoto: {ortho_size:,} bytes")
 
             # Phase 5: Upload orthophoto to MinIO (90-95%)
+            # Filename includes the job_id so re-runs don't overwrite prior
+            # versions — buildOrthoVersions on the frontend (and the geo
+            # worker's SPLIT_ORTHOMOSAIC discovery) recognize any
+            # `odm_orthophoto*.tif` as a version of this ortho.
             self.report_progress(job_id, 91, {"stage": "uploading_result"})
-            ortho_object_path = f"{output_prefix}odm_orthophoto.tif"
+            ortho_object_path = f"{output_prefix}odm_orthophoto-{job_id}.tif"
             client.fput_object(
                 STORAGE_BUCKET,
                 ortho_object_path,

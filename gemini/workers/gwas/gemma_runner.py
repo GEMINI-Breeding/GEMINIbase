@@ -4,13 +4,20 @@ GEMMA has a persistent quirk: regardless of -outdir, it writes outputs to a
 subdirectory called `output/` under the current working directory. We always
 invoke it with cwd=<scratch_dir>, then resolve files from
 <scratch_dir>/output/<prefix>.<suffix>.
+
+GEMMA also emits its per-SNP progress bar to stdout as carriage-return
+refreshed lines like "  0%=", " 12%=======", etc. We stream that here so
+callers can drive a UI progress bar instead of blocking for minutes on a
+single subprocess.run().
 """
 from __future__ import annotations
 
 import logging
+import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -23,28 +30,93 @@ LMM_TEST_FLAGS = {
     "all": "4",
 }
 
+OnProgress = Callable[[int], None]
+
+# GEMMA's progress bar: optional leading spaces, then "NN%", then "=" run.
+# We accept 1–3 digit percentages, anchored to the start of the segment so
+# stray "p<0.05%" style text in headers can't trip the parser.
+_GEMMA_PROGRESS_RE = re.compile(r"^\s*(\d{1,3})%=+")
+
+
+def _stream_run(
+    argv: list[str],
+    cwd: Path,
+    on_progress: Optional[OnProgress] = None,
+) -> subprocess.CompletedProcess:
+    """Run a command, streaming stdout line-by-line.
+
+    GEMMA refreshes its progress bar with `\\r`, so we split on both `\\r`
+    and `\\n` and inspect each fragment. Anything matching the progress
+    pattern triggers `on_progress(int_pct)`; everything else is just kept
+    in the captured buffer for error reporting on non-zero exit.
+    """
+    logger.info("exec: %s  (cwd=%s)", " ".join(str(a) for a in argv), cwd)
+    proc = subprocess.Popen(
+        argv,
+        cwd=cwd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        bufsize=0,
+    )
+    assert proc.stdout is not None
+
+    captured_parts: list[str] = []
+    buf = ""
+    last_pct = -1
+    try:
+        while True:
+            chunk_b = proc.stdout.read(256)
+            if not chunk_b:
+                break
+            chunk = chunk_b.decode("utf-8", errors="replace")
+            captured_parts.append(chunk)
+            buf += chunk
+            # Split on \r or \n; keep the trailing partial in buf.
+            parts = re.split(r"[\r\n]+", buf)
+            buf = parts.pop()
+            for line in parts:
+                if not on_progress:
+                    continue
+                m = _GEMMA_PROGRESS_RE.match(line)
+                if not m:
+                    continue
+                pct = int(m.group(1))
+                if not 0 <= pct <= 100 or pct == last_pct:
+                    continue
+                last_pct = pct
+                try:
+                    on_progress(pct)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("on_progress callback failed: %s", exc)
+    finally:
+        proc.stdout.close()
+
+    proc.wait()
+    captured = "".join(captured_parts)
+
+    if proc.returncode != 0:
+        tail = "\n".join(captured.splitlines()[-50:])
+        raise RuntimeError(
+            f"gemma exited with code {proc.returncode}:\n{tail}"
+        )
+
+    return subprocess.CompletedProcess(
+        args=argv,
+        returncode=0,
+        stdout=captured,
+        stderr="",
+    )
+
+
+def _run(argv: list[str], cwd: Path, on_progress: Optional[OnProgress] = None) -> subprocess.CompletedProcess:
+    """Backwards-compatible wrapper kept for callers that don't need streaming."""
+    return _stream_run(argv, cwd, on_progress=on_progress)
+
 
 @dataclass
 class GemmaRunResult:
     assoc_path: Path
     log_path: Path
-
-
-def _run(argv: list[str], cwd: Path) -> subprocess.CompletedProcess:
-    logger.info("exec: %s  (cwd=%s)", " ".join(str(a) for a in argv), cwd)
-    proc = subprocess.run(
-        argv,
-        cwd=cwd,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if proc.returncode != 0:
-        tail = "\n".join((proc.stderr or proc.stdout or "").splitlines()[-50:])
-        raise RuntimeError(
-            f"gemma exited with code {proc.returncode}:\n{tail}"
-        )
-    return proc
 
 
 def kinship(
@@ -53,6 +125,7 @@ def kinship(
     out_name: str = "kin",
     kinship_type: int = 1,
     pheno_path: Path | None = None,
+    on_progress: Optional[OnProgress] = None,
 ) -> Path:
     """Compute centered (1) or standardized (2) relatedness matrix.
 
@@ -72,7 +145,7 @@ def kinship(
     ]
     if pheno_path is not None:
         argv += ["-p", str(pheno_path)]
-    _run(argv, cwd=work_dir)
+    _run(argv, cwd=work_dir, on_progress=on_progress)
     suffix = ".cXX.txt" if kinship_type == 1 else ".sXX.txt"
     return work_dir / "output" / f"{out_name}{suffix}"
 
@@ -86,6 +159,7 @@ def lmm(
     test: str = "wald",
     covar_path: Path | None = None,
     trait_columns: list[int] | None = None,
+    on_progress: Optional[OnProgress] = None,
 ) -> GemmaRunResult:
     """Run GEMMA univariate LMM (or mvLMM when trait_columns has length > 1).
 
@@ -112,7 +186,7 @@ def lmm(
         argv.append("-n")
         argv += [str(i) for i in trait_columns]
 
-    _run(argv, cwd=work_dir)
+    _run(argv, cwd=work_dir, on_progress=on_progress)
     return GemmaRunResult(
         assoc_path=work_dir / "output" / f"{out_name}.assoc.txt",
         log_path=work_dir / "output" / f"{out_name}.log.txt",
@@ -125,6 +199,7 @@ def bslmm(
     work_dir: Path,
     out_name: str = "run",
     model: int = 1,
+    on_progress: Optional[OnProgress] = None,
 ) -> GemmaRunResult:
     """Bayesian sparse linear mixed model. `model` is 1|2|3 per GEMMA docs."""
     argv = [
@@ -134,7 +209,7 @@ def bslmm(
         "-bslmm", str(model),
         "-o", out_name,
     ]
-    _run(argv, cwd=work_dir)
+    _run(argv, cwd=work_dir, on_progress=on_progress)
     return GemmaRunResult(
         assoc_path=work_dir / "output" / f"{out_name}.param.txt",
         log_path=work_dir / "output" / f"{out_name}.log.txt",

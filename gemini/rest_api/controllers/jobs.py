@@ -402,10 +402,15 @@ class JobController(Controller):
             async def listen_redis():
                 """Poll Redis for pub/sub messages without blocking the event loop."""
                 while True:
-                    # Use get_message with a short timeout to yield control
-                    # back to the event loop, allowing disconnect detection.
-                    message = pubsub.get_message(
-                        ignore_subscribe_messages=True, timeout=1.0
+                    # redis-py's pubsub.get_message is synchronous; calling it
+                    # directly inside an async coroutine blocks the event loop
+                    # for `timeout` seconds. With N open WebSockets that's N
+                    # parallel blockers and any sync_to_thread HTTP handler
+                    # (e.g. PATCH /jobs/{id}/status) starves. Push it to a
+                    # thread so the loop stays responsive.
+                    message = await asyncio.to_thread(
+                        pubsub.get_message,
+                        ignore_subscribe_messages=True, timeout=1.0,
                     )
                     if message is not None and message["type"] == "message":
                         data = json.loads(message["data"])

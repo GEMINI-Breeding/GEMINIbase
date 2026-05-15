@@ -24,6 +24,13 @@ from gemini.workers.base import BaseWorker
 from gemini.workers.gwas import extract, gemma_runner, plink_runner, plots
 from gemini.workers.types import JobType
 
+# Progress band for the GEMMA association step. The pre-association stages
+# (validate → kinship) are typically 5–10 s combined; GEMMA association is
+# the multi-minute step, so it gets the bulk of the bar. Mapped linearly
+# from GEMMA's 0–100% per-SNP progress.
+ASSOC_PROGRESS_START = 15.0
+ASSOC_PROGRESS_END = 85.0
+
 
 def _json_safe(value: Any) -> Any:
     """Recursively replace NaN / +-Inf with None inside a JSON-ish tree.
@@ -104,24 +111,24 @@ class GwasWorker(BaseWorker):
         study = GenotypingStudy.get_by_id(id=study_id)
         if study is None:
             raise ValueError(f"GenotypingStudy {study_id} not found")
-        self.report_progress(job_id, 2.0, {"stage": "validate", "study_name": study.study_name})
+        self.report_progress(job_id, 1.0, {"stage": "validate", "study_name": study.study_name})
 
         with tempfile.TemporaryDirectory(prefix=f"gwas-{job_id}-") as tmp:
             work = Path(tmp)
 
             # 2. Extract genotypes.
-            self.report_progress(job_id, 5.0, {"stage": "extract_genotypes"})
+            self.report_progress(job_id, 2.0, {"stage": "extract_genotypes"})
             raw = extract.write_plink_fileset(
                 study_id=study.id, study_name=study.study_name, out_dir=work, basename="raw",
             )
-            self.report_progress(job_id, 18.0, {
+            self.report_progress(job_id, 5.0, {
                 "stage": "extract_genotypes",
                 "n_samples": len(raw.samples),
                 "n_variants": len(raw.variants),
             })
 
             # 3. QC (on genotypes only; phenotype alignment happens after).
-            self.report_progress(job_id, 22.0, {"stage": "qc"})
+            self.report_progress(job_id, 6.0, {"stage": "qc"})
             qc_result = plink_runner.qc(
                 in_prefix=work / "raw",
                 out_prefix=work / "qc",
@@ -130,7 +137,7 @@ class GwasWorker(BaseWorker):
                 mind=float(qc_params.get("mind", 0.1)),
                 hwe=float(qc_params.get("hwe", 1e-6)),
             )
-            self.report_progress(job_id, 34.0, {
+            self.report_progress(job_id, 8.0, {
                 "stage": "qc",
                 "n_variants_before": qc_result.n_variants_before,
                 "n_variants_after": qc_result.n_variants_after,
@@ -149,7 +156,7 @@ class GwasWorker(BaseWorker):
             qc_sample_order_db = [sanitized_to_db.get(iid, iid) for iid in qc_sanitized_order]
 
             # 4. Extract phenotype aligned to QC'd sample order.
-            self.report_progress(job_id, 36.0, {"stage": "extract_phenotype"})
+            self.report_progress(job_id, 9.0, {"stage": "extract_phenotype"})
             pheno_path, n_covered = extract.write_phenotype(
                 sample_order=qc_sample_order_db,
                 trait_ids=trait_ids,
@@ -169,7 +176,7 @@ class GwasWorker(BaseWorker):
                 )
 
             # 5. PCA (or just write intercept-only covariate file).
-            self.report_progress(job_id, 40.0, {"stage": "pca", "n_pcs": n_pcs})
+            self.report_progress(job_id, 11.0, {"stage": "pca", "n_pcs": n_pcs})
             eigenvec_path = None
             if n_pcs > 0:
                 eigenvec_path = plink_runner.pca(
@@ -185,7 +192,7 @@ class GwasWorker(BaseWorker):
             )
 
             # 6. Kinship.
-            self.report_progress(job_id, 48.0, {"stage": "kinship"})
+            self.report_progress(job_id, 13.0, {"stage": "kinship"})
             kin_path = gemma_runner.kinship(
                 bed_prefix=work / "qc",
                 work_dir=work,
@@ -194,14 +201,30 @@ class GwasWorker(BaseWorker):
                 pheno_path=pheno_path,
             )
 
-            # 7. Association.
-            self.report_progress(job_id, 58.0, {"stage": "association", "model": model})
+            # 7. Association. This is the long pole — stream GEMMA's
+            # per-SNP progress bar (0–100%) into ASSOC_PROGRESS_START..END
+            # so the UI doesn't appear frozen for several minutes.
+            self.report_progress(
+                job_id, ASSOC_PROGRESS_START,
+                {"stage": "association", "model": model},
+            )
+
+            def _assoc_progress(pct: int) -> None:
+                mapped = ASSOC_PROGRESS_START + (
+                    (ASSOC_PROGRESS_END - ASSOC_PROGRESS_START) * pct / 100.0
+                )
+                self.report_progress(
+                    job_id, mapped,
+                    {"stage": "association", "model": model, "gemma_pct": pct},
+                )
+
             if model == "bslmm":
                 run_result = gemma_runner.bslmm(
                     bed_prefix=work / "qc",
                     pheno_path=pheno_path,
                     work_dir=work,
                     out_name="run",
+                    on_progress=_assoc_progress,
                 )
             else:
                 trait_columns = list(range(1, len(trait_ids) + 1)) if len(trait_ids) > 1 else None
@@ -214,6 +237,7 @@ class GwasWorker(BaseWorker):
                     out_name="run",
                     test=lmm_test,
                     trait_columns=trait_columns,
+                    on_progress=_assoc_progress,
                 )
 
             # 8. Parse + plot (skipped for BSLMM — different output shape).
@@ -223,7 +247,7 @@ class GwasWorker(BaseWorker):
             summary_payload: dict[str, Any] = {}
 
             if model != "bslmm":
-                self.report_progress(job_id, 86.0, {"stage": "plot"})
+                self.report_progress(job_id, ASSOC_PROGRESS_END + 1.0, {"stage": "plot"})
                 df, p_col = plots.load_assoc(run_result.assoc_path)
                 assoc_summary = plots.summarize(df, p_col)
 
@@ -271,7 +295,7 @@ class GwasWorker(BaseWorker):
                 }
 
             # 9. Upload core artifacts.
-            self.report_progress(job_id, 94.0, {"stage": "upload"})
+            self.report_progress(job_id, 93.0, {"stage": "upload"})
             artifacts["assoc"] = _upload(client, run_result.assoc_path, f"{prefix}/{run_result.assoc_path.name}", "text/plain")
             if run_result.log_path.exists():
                 artifacts["gemma_log"] = _upload(client, run_result.log_path, f"{prefix}/{run_result.log_path.name}", "text/plain")
