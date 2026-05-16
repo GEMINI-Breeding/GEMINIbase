@@ -3,27 +3,30 @@ Thermal extraction worker.
 
 Handles THERMAL_EXTRACT jobs: for each thermal image in a dataset
 prefix, write three artifacts to MinIO so the rest of the platform can
-treat thermal data the same way it treats RGB:
+treat thermal data the same way it treats RGB. Post Option-A migration
+the dataset prefix carries an 8-hex per-batch segment between
+`{sensor}` and the trailing slash; legacy uploads (no segment) still
+flow through the same code path.
 
-  - `Raw/.../{sensor}/Images/{basename}.jpg`
+  - `Raw/.../{sensor}/{shortId}/Images/{basename}.jpg`
         8-bit RGB preview (iron palette by default) — used as the
         sensor's thumbnail and as the input to RUN_ODM.
 
-  - `Raw/.../{sensor}/RawThermal/{basename}.tif`
+  - `Raw/.../{sensor}/{shortId}/RawThermal/{basename}.tif`
         16-bit single-channel TIFF carrying the raw signal counts.
         For Boson sources this is just the original file written
         through; for FLIR One Pro JPEGs it's the embedded raw PNG
         decoded and re-saved as TIFF for a single consistent format
         downstream.
 
-  - `Raw/.../{sensor}/RawThermal/{basename}.json`
+  - `Raw/.../{sensor}/{shortId}/RawThermal/{basename}.json`
         Per-file sidecar with calibration constants, palette window
         (vmin/vmax in counts or °C), scene min/max, and the source
         mode. The browser viewer reads this without re-running
         exiftool.
 
 A per-dataset summary lands at
-`Raw/.../{sensor}/RawThermal/thermal_dataset.json` so Phase D's
+`Raw/.../{sensor}/{shortId}/RawThermal/thermal_dataset.json` so the
 RUN_ODM preflight can read `has_gps` without listing per-file
 sidecars.
 """
