@@ -221,6 +221,26 @@ mock_asyncpg = MagicMock()
 sys.modules["asyncpg"] = mock_asyncpg
 
 # ============================================================
+# PHASE 7: Make shutil.which("docker") return truthy
+# ------------------------------------------------------------
+# GEMINIManager.docker_client raises DockerUnavailableError when the
+# `docker` CLI isn't on PATH (e.g. running pytest inside the rest-api
+# container, which has docker-py the SDK but not the `docker` binary).
+# The DockerSDK calls themselves are already mocked via the docker
+# module shim above, so the CLI-presence check is the only thing left
+# preventing scan_containers from running in those environments.
+import shutil as _shutil
+
+_real_which = _shutil.which
+
+def _which_with_docker(name, *args, **kwargs):
+    if name == "docker":
+        return "/usr/local/bin/docker"  # any truthy path; never invoked
+    return _real_which(name, *args, **kwargs)
+
+_shutil.which = _which_with_docker
+
+# ============================================================
 # Shared fixtures
 # ============================================================
 

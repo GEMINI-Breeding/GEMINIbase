@@ -9,6 +9,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
+# matplotlib lives in the gwas worker image, not in rest-api / the
+# default test image. Skip the whole module when it's unavailable
+# rather than failing collection — the GWAS-worker CI image still
+# runs these.
+pytest.importorskip("matplotlib")
+
 import numpy as np
 import pandas as pd
 
