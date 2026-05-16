@@ -81,6 +81,13 @@ class GEMINISettings(BaseSettings):
     # here so pydantic-settings doesn't reject the env var.
     GEMINI_E2E_CLEANUP_ENABLED : str = "0"
 
+    # Run-once: when "1", enables POST /api/migrate_dataset_paths for
+    # the Option-A legacy-MinIO-key migration. Operator sets to 1,
+    # runs the endpoint, then unsets and restarts. Read directly from
+    # os.environ in the controller; left here so pydantic-settings
+    # doesn't reject the env var.
+    GEMINI_ADMIN_MIGRATIONS_ENABLED : str = "0"
+
     # Scheduler DB
     GEMINI_SCHEDULER_DB_CONTAINER_NAME : str = "geminibase-scheduler-db"
     GEMINI_SCHEDULER_DB_IMAGE_NAME : str = "geminibase/scheduler-db"
