@@ -17,6 +17,7 @@ class JobType(str, Enum):
     CREATE_COG = "CREATE_COG"
     EXTRACT_BINARY = "EXTRACT_BINARY"
     RUN_GWAS = "RUN_GWAS"
+    THERMAL_EXTRACT = "THERMAL_EXTRACT"
 
 
 class JobStatus(str, Enum):
@@ -43,4 +44,5 @@ JOB_TYPE_WORKER_MAP = {
     JobType.CREATE_COG: "geminibase-worker-geo",
     JobType.EXTRACT_BINARY: "geminibase-worker-amiga",
     JobType.RUN_GWAS: "geminibase-worker-gwas",
+    JobType.THERMAL_EXTRACT: "geminibase-worker-thermal",
 }

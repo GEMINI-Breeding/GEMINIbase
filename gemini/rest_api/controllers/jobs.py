@@ -101,6 +101,7 @@ VALID_JOB_TYPES = {
     "CREATE_COG",
     "EXTRACT_BINARY",
     "RUN_GWAS",
+    "THERMAL_EXTRACT",
 }
 
 
