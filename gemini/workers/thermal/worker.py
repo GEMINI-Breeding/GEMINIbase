@@ -111,10 +111,14 @@ def _build_dataset_prefix(parameters: dict) -> str:
        prefix.
 
     2. Structured fields `{year, experiment, location, population,
-       date, platform, sensor}` (legacy / ODM-style): mirrors the
-       prefix builder in odm/worker.py:230 so RUN_ODM and the
-       thermal worker agree on the same prefix when uploads come
-       through the richer drone-data path.
+       date, platform, sensor[, dataset_short_id]}` (legacy /
+       ODM-style): mirrors the prefix builder in odm/worker.py so
+       RUN_ODM and the thermal worker agree on the same prefix when
+       uploads come through the richer drone-data path. The optional
+       `dataset_short_id` is inserted between `{sensor}` and the
+       trailing slash so two uploads at the same scope land in
+       distinct subdirectories (sibling `Images/` + `RawThermal/`
+       per dataset).
 
     Always returns a value ending in `/` so MinIO list-by-prefix
     behaves correctly.
@@ -131,6 +135,7 @@ def _build_dataset_prefix(parameters: dict) -> str:
         parameters.get("date", ""),
         parameters.get("platform", ""),
         parameters.get("sensor", ""),
+        parameters.get("dataset_short_id", ""),
     ]
     return "/".join(p for p in parts if p) + "/"
 

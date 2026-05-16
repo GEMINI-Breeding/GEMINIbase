@@ -227,15 +227,16 @@ def _get_minio_client():
     )
 
 
-def _build_image_prefix(params: dict) -> str:
-    """Build the MinIO prefix for raw images from job parameters.
+def _build_scope_prefix(params: dict) -> str:
+    """Build the scope-root prefix `Raw/{year}/.../{sensor}/` (no
+    `dataset_short_id`, no `Images/`).
 
-    Mirrors the frontend upload-form convention from
-    `gemini-app/frontend/src/config/dataTypes.ts`: drone images land under
-    `Raw/{year}/{experiment}/{location}/{population}/{date}/{platform}/
-    {sensor}/Images/`. The bare `{year}/...` form has never been used by
-    the upload UI; the missing `Raw/` prefix here was causing every
-    RUN_ODM job to fail with "No images found in MinIO".
+    This is where scope-wide artifacts live: `image_filter.txt`,
+    `gcp_list.txt`, `geo.txt`, `gcp_locations.csv`,
+    `gcp_image_groups.json`. The Image Review and GCP Picker tools
+    write them at this root so they survive multi-dataset selection
+    in the Run wizard (one ODM job can pool images from multiple
+    per-dataset prefixes — the GCP/filter set is shared across them).
     """
     parts = [
         "Raw",
@@ -247,11 +248,69 @@ def _build_image_prefix(params: dict) -> str:
         params.get("platform", ""),
         params.get("sensor", ""),
     ]
+    return "/".join(p for p in parts if p) + "/"
+
+
+def _build_image_prefix(params: dict) -> str:
+    """Build the MinIO prefix for raw images from job parameters.
+
+    Mirrors the frontend upload-form convention from
+    `gemini-app/frontend/src/config/dataTypes.ts`: drone images land under
+    `Raw/{year}/{experiment}/{location}/{population}/{date}/{platform}/
+    {sensor}/[dataset_short_id/]Images/`. The optional `dataset_short_id`
+    segment isolates per-upload prefixes so two uploads at the same scope
+    don't commingle on disk; when absent the prefix collapses to the
+    legacy `{sensor}/Images/` shape (used by pre-migration uploads and as
+    the recursive root for multi-dataset listings — see
+    `_resolve_image_prefixes`).
+    """
+    parts = [
+        "Raw",
+        params.get("year", ""),
+        params.get("experiment", ""),
+        params.get("location", ""),
+        params.get("population", ""),
+        params.get("date", ""),
+        params.get("platform", ""),
+        params.get("sensor", ""),
+        params.get("dataset_short_id", ""),
+    ]
     return "/".join(p for p in parts if p) + "/Images/"
 
 
+def _resolve_image_prefixes(params: dict) -> list[str]:
+    """Decide which MinIO prefixes feed RUN_ODM for this job.
+
+    Three input shapes are accepted:
+
+    1. `dataset_short_ids: list[str]` — multi-dataset selection from the
+       Run wizard. One prefix per chosen dataset:
+       `Raw/.../{sensor}/{shortId}/Images/`.
+    2. `dataset_short_id: str` — single-dataset job. One prefix.
+    3. Neither — legacy / "all datasets at this scope" semantics. One
+       prefix at `Raw/.../{sensor}/` (recursive listing in
+       `_download_images` picks up both legacy `{sensor}/Images/...`
+       and new `{sensor}/{shortId}/Images/...` files).
+    """
+    short_ids = params.get("dataset_short_ids")
+    if isinstance(short_ids, list) and short_ids:
+        scope_prefix = _build_scope_prefix(params)
+        return [f"{scope_prefix}{sid}/Images/" for sid in short_ids if sid]
+    if params.get("dataset_short_id"):
+        return [_build_image_prefix(params)]
+    # Legacy / all-datasets fallback: recursive listing under the scope
+    # root catches both layouts.
+    return [_build_scope_prefix(params)]
+
+
 def _build_output_prefix(params: dict) -> str:
-    """Build the MinIO prefix for processed output from job parameters."""
+    """Build the MinIO prefix for processed output from job parameters.
+
+    `dataset_short_id` is intentionally NOT inserted here: outputs
+    (orthophoto, COG, log, etc.) are scope-wide products of one or more
+    datasets. The Run wizard's multi-dataset selection feeds them into
+    one ODM job whose output lives at the scope root.
+    """
     parts = [
         "Processed",
         params.get("year", ""),
@@ -488,7 +547,8 @@ class OdmWorker(BaseWorker):
         7. Cleanup
         """
         client = _get_minio_client()
-        image_prefix = _build_image_prefix(parameters)
+        image_prefixes = _resolve_image_prefixes(parameters)
+        scope_prefix = _build_scope_prefix(parameters)
         output_prefix = _build_output_prefix(parameters)
 
         # Parse ODM options. Precedence:
@@ -524,8 +584,10 @@ class OdmWorker(BaseWorker):
             )
 
             # Pull the optional Image Review exclusion list before the image
-            # download so we never stage excluded frames locally.
-            excluded = self._load_image_filter(client, image_prefix)
+            # download so we never stage excluded frames locally. The filter
+            # lives at the scope root (sibling of every dataset subdir) so a
+            # single list applies across multi-dataset selections.
+            excluded = self._load_image_filter(client, scope_prefix)
             if excluded:
                 logger.info(
                     f"Excluding {len(excluded)} image(s) from job {job_id} per "
@@ -534,18 +596,29 @@ class OdmWorker(BaseWorker):
 
             # Phase 1: Download images from MinIO (0-15%)
             self.report_progress(job_id, 2, {"stage": "downloading_images"})
-            image_paths = self._download_images(
-                client, image_prefix, images_dir, job_id, excluded=excluded
-            )
+            image_paths: list[str] = []
+            for prefix in image_prefixes:
+                image_paths.extend(
+                    self._download_images(
+                        client, prefix, images_dir, job_id, excluded=excluded
+                    )
+                )
             if not image_paths:
                 raise RuntimeError(
-                    f"No images found in MinIO at {STORAGE_BUCKET}/{image_prefix}"
+                    "No images found in MinIO at "
+                    f"{STORAGE_BUCKET}/{image_prefixes[0]}"
+                    + (f" (+{len(image_prefixes) - 1} more)"
+                       if len(image_prefixes) > 1 else "")
                 )
-            logger.info(f"Downloaded {len(image_paths)} images for job {job_id}")
+            logger.info(
+                f"Downloaded {len(image_paths)} images for job {job_id} "
+                f"from {len(image_prefixes)} prefix(es)"
+            )
 
-            # Pull GCP sidecar files (gcp_list.txt, geo.txt) from the same
-            # prefix so NodeODM can use them. Absent files are skipped.
-            gcp_paths = self._download_gcp_files(client, image_prefix, images_dir)
+            # Pull GCP sidecar files (gcp_list.txt, geo.txt) from the scope
+            # root (sibling of every dataset subdir) so NodeODM can use
+            # them. Absent files are skipped.
+            gcp_paths = self._download_gcp_files(client, scope_prefix, images_dir)
             if gcp_paths:
                 # Strip excluded images from geo.txt so NodeODM doesn't
                 # complain about GPS rows for files we never staged.
@@ -683,31 +756,29 @@ class OdmWorker(BaseWorker):
     ) -> list[str]:
         """Download all image files from MinIO prefix to a local directory.
 
+        Recursive listing: when the caller passes the scope-root prefix
+        (multi-dataset / legacy "all datasets at this scope" mode), this
+        walks every `…/{shortId}/Images/...` subdirectory plus any
+        legacy `…/Images/...` files. Restricts to keys under an
+        `Images/` segment so siblings (`gcp_list.txt`, `RawThermal/...`,
+        `Orthomosaic/...`) don't get pulled in.
+
         `excluded` is an optional set of basenames the user marked for
         exclusion via the Image Review step (image_filter.txt). Listed
         images are silently skipped here and removed from geo.txt by
         the caller before NodeODM sees either.
         """
         excluded = excluded or set()
-        objects = list(client.list_objects(STORAGE_BUCKET, prefix=prefix))
+        objects = list(
+            client.list_objects(STORAGE_BUCKET, prefix=prefix, recursive=True)
+        )
         image_objects = [
             obj
             for obj in objects
             if os.path.splitext(obj.object_name)[1].lower() in IMAGE_EXTENSIONS
+            and "/Images/" in obj.object_name
             and os.path.basename(obj.object_name) not in excluded
         ]
-
-        if not image_objects:
-            # Try without "Images/" suffix as some uploads may not use it
-            alt_prefix = prefix.rstrip("/").rsplit("/Images", 1)[0] + "/"
-            if alt_prefix != prefix:
-                objects = list(client.list_objects(STORAGE_BUCKET, prefix=alt_prefix))
-                image_objects = [
-                    obj
-                    for obj in objects
-                    if os.path.splitext(obj.object_name)[1].lower() in IMAGE_EXTENSIONS
-                    and os.path.basename(obj.object_name) not in excluded
-                ]
 
         paths = []
         total = len(image_objects)
@@ -717,6 +788,16 @@ class OdmWorker(BaseWorker):
 
             filename = os.path.basename(obj.object_name)
             local_path = os.path.join(dest_dir, filename)
+            if os.path.exists(local_path):
+                # Cross-dataset basename collision (two uploads with the
+                # same `IMG_001.jpg`). NodeODM and the user-supplied
+                # geo.txt are both keyed on basename — silent overwrite
+                # would mean unpredictable GPS pairing. Fail loud.
+                raise RuntimeError(
+                    f"Duplicate image basename {filename!r} across datasets "
+                    f"(collision at {obj.object_name}). Rename one of the "
+                    "colliding files or run ODM against a single dataset."
+                )
             client.fget_object(STORAGE_BUCKET, obj.object_name, local_path)
             paths.append(local_path)
 
@@ -737,8 +818,12 @@ class OdmWorker(BaseWorker):
     ) -> list[str]:
         """
         Download the GCP picker's sidecars (gcp_list.txt, geo.txt) from MinIO
-        if they exist at the same prefix as the images. NodeODM auto-detects
-        both filenames when they are present in the input set.
+        if they exist at the scope root (sibling of every dataset subdir).
+        Pre-migration uploads stored these alongside the images
+        (`…/{sensor}/Images/`); post-migration they live one level up
+        (`…/{sensor}/`) so a single set applies across multi-dataset
+        selections. NodeODM auto-detects both filenames when they are
+        present in the input set.
         """
         paths: list[str] = []
         for filename in GCP_SIDECAR_FILENAMES:
@@ -759,7 +844,9 @@ class OdmWorker(BaseWorker):
     def _load_image_filter(self, client, prefix: str) -> Set[str]:
         """Read the optional image_filter.txt sidecar and return the set
         of excluded basenames. Returns an empty set if the file is absent
-        or unreadable.
+        or unreadable. Reads from the scope root (sibling of every
+        dataset subdir) so a single exclusion list applies across
+        multi-dataset selections.
 
         Format: one basename per line; lines starting with `#` are comments.
         """

@@ -291,3 +291,38 @@ class TestThermalPrefixBuilder:
             "sensor": "FLIR-One-Pro",
         })
         assert out == "Raw/2024/GEMINI/2024-07-25/DJI/FLIR-One-Pro/"
+
+    def test_structured_prefix_with_dataset_short_id(self):
+        """Per-dataset isolation: the short-id segment lands between
+        sensor and the trailing slash so two uploads at the same scope
+        don't commingle on disk."""
+        from gemini.workers.thermal.worker import _build_dataset_prefix
+
+        out = _build_dataset_prefix({
+            "year": "2024",
+            "experiment": "GEMINI",
+            "location": "Davis",
+            "population": "Cowpea MAGIC",
+            "date": "2024-07-25",
+            "platform": "Drone",
+            "sensor": "Thermal",
+            "dataset_short_id": "a2f31b04",
+        })
+        assert out == (
+            "Raw/2024/GEMINI/Davis/Cowpea MAGIC/2024-07-25/Drone/Thermal/"
+            "a2f31b04/"
+        )
+
+    def test_structured_prefix_without_dataset_short_id(self):
+        """Backward-compatible fallback for legacy callers that never
+        pass the short-id."""
+        from gemini.workers.thermal.worker import _build_dataset_prefix
+
+        out = _build_dataset_prefix({
+            "year": "2024",
+            "experiment": "GEMINI",
+            "date": "2024-07-25",
+            "platform": "DJI",
+            "sensor": "Thermal",
+        })
+        assert out == "Raw/2024/GEMINI/2024-07-25/DJI/Thermal/"
