@@ -6,6 +6,7 @@ trait extraction, stitching, ODM, drone processing, etc.) that are submitted
 via the REST API and executed by worker services.
 """
 from sqlalchemy import (
+    ForeignKey,
     String,
     TIMESTAMP,
     Float,
@@ -53,7 +54,11 @@ class JobModel(BaseModel):
     parameters: Mapped[dict] = mapped_column(JSONB, nullable=True)
     result: Mapped[dict] = mapped_column(JSONB, nullable=True)
     error_message: Mapped[str] = mapped_column(String(2000), nullable=True)
-    experiment_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=False), nullable=True)
+    experiment_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=False),
+        ForeignKey("gemini.experiments.id", ondelete="CASCADE"),
+        nullable=True,
+    )
     worker_id: Mapped[str] = mapped_column(String(100), nullable=True)
     started_at: Mapped[datetime] = mapped_column(TIMESTAMP, nullable=True)
     completed_at: Mapped[datetime] = mapped_column(TIMESTAMP, nullable=True)

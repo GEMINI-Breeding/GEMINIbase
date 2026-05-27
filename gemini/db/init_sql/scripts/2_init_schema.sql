@@ -628,7 +628,7 @@ CREATE TABLE IF NOT EXISTS gemini.jobs (
     parameters JSONB,
     result JSONB,
     error_message VARCHAR(2000),
-    experiment_id UUID,
+    experiment_id UUID REFERENCES gemini.experiments(id) ON DELETE CASCADE,
     worker_id VARCHAR(100),
     started_at TIMESTAMPTZ,
     completed_at TIMESTAMPTZ,

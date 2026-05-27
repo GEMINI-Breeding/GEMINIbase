@@ -76,12 +76,21 @@ class NodeODMClient:
             Task UUID string.
         """
         # 1. Init: register the task and get its uuid.
-        init_data = {}
+        #
+        # Options MUST be sent as multipart/form-data, not application/
+        # x-www-form-urlencoded. NodeODM's body parser on /task/new/init
+        # is `multer().none()`, which only reads multipart fields — the
+        # default `requests.post(..., data=...)` form-encoding is
+        # silently dropped, body.json on disk ends up `{}`, and ODM
+        # runs every job at its built-in defaults (orthophoto_resolution
+        # 5 cm/px, feature_quality high, dsm False) regardless of what
+        # the worker requested. Passing `files=` instead forces multipart.
+        init_files = {}
         if options:
-            init_data["options"] = json.dumps(options)
+            init_files["options"] = (None, json.dumps(options))
         init_resp = requests.post(
             f"{self.base_url}/task/new/init",
-            data=init_data,
+            files=init_files or None,
             timeout=self.timeout,
         )
         init_resp.raise_for_status()

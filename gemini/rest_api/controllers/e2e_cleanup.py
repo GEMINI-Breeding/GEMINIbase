@@ -64,6 +64,12 @@ class E2ECleanupController(Controller):
             "accessions": 0,
             "lines": 0,
         }
+        # Per-entity failures are accumulated and bubbled to the caller
+        # so a silent in-cascade rollback (e.g. schema drift —
+        # ``Experiment.delete()`` returns False without raising, which
+        # used to look indistinguishable from "no rows matched") can't
+        # masquerade as a successful sweep.
+        failed: list[dict] = []
 
         # Collect ids first (separate session) so the per-row deletes
         # below can each run in their own transaction without holding
@@ -91,10 +97,29 @@ class E2ECleanupController(Controller):
                     continue
                 if exp.delete():
                     deleted["experiments"] += 1
+                else:
+                    # `Experiment.delete()` swallows exceptions and
+                    # returns False — the most common cause is the
+                    # cascade hitting a table that doesn't exist yet
+                    # (alembic drift). The detail is in the rest-api
+                    # logs; surface enough here that the test fixture
+                    # can fail-loud instead of silently leaking rows.
+                    failed.append({
+                        "kind": "experiment",
+                        "id": str(eid),
+                        "reason": "Experiment.delete() returned False — see "
+                                  "rest-api logs for the underlying error "
+                                  "(usually an in-cascade rollback).",
+                    })
             except Exception as exc:
                 logger.warning(
                     "E2E cleanup: experiment %s delete failed: %s", eid, exc
                 )
+                failed.append({
+                    "kind": "experiment",
+                    "id": str(eid),
+                    "reason": str(exc),
+                })
 
         # Studies that weren't tied to a deleted experiment (the
         # genotyping-studies-crud spec creates standalone studies).
@@ -105,10 +130,22 @@ class E2ECleanupController(Controller):
                     continue  # already cascaded above
                 if study.delete():
                     deleted["genotyping_studies"] += 1
+                else:
+                    failed.append({
+                        "kind": "genotyping_study",
+                        "id": str(sid),
+                        "reason": "GenotypingStudy.delete() returned False — "
+                                  "see rest-api logs.",
+                    })
             except Exception as exc:
                 logger.warning(
                     "E2E cleanup: study %s delete failed: %s", sid, exc
                 )
+                failed.append({
+                    "kind": "genotyping_study",
+                    "id": str(sid),
+                    "reason": str(exc),
+                })
 
         # Accessions / lines created by a spec but not reachable from
         # any experiment cascade (e.g. the ones created during the
@@ -128,4 +165,11 @@ class E2ECleanupController(Controller):
             deleted["accessions"] = int(acc_count)
             deleted["lines"] = int(line_count)
 
-        return {"prefix": prefix, "deleted": deleted}
+        body = {"prefix": prefix, "deleted": deleted, "failed": failed}
+        if failed:
+            # 500 so the Playwright fixture's `res.ok` check fires and
+            # the fixture's `throw new Error(...)` surfaces the failure
+            # at test-teardown time, instead of accumulating leaked
+            # rows across a whole CI run.
+            return Response(content=body, status_code=500)
+        return body

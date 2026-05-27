@@ -40,16 +40,26 @@ ALTER TABLE gemini.experiments ADD CONSTRAINT experiment_unique UNIQUE (experime
 CREATE TABLE IF NOT EXISTS gemini.experiment_files (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     experiment_id UUID NOT NULL REFERENCES gemini.experiments(id) ON DELETE CASCADE,
+    -- ``dataset_id`` + ``uploaded_by`` FKs are added by the ALTERs at
+    -- the bottom of this file, after their referenced tables exist.
+    -- This mirrors the Alembic-0007 + users-table state of
+    -- backend/gemini/db/init_sql/scripts/2_init_schema.sql so the
+    -- ExperimentFileModel ORM mapping (which expects both columns)
+    -- can run against the test DB unchanged.
+    dataset_id UUID,
     bucket TEXT NOT NULL,
     object_name TEXT NOT NULL,
     size_bytes BIGINT,
     sha256 TEXT,
+    uploaded_by UUID,
     uploaded_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
     CONSTRAINT experiment_files_unique_object UNIQUE (bucket, object_name)
 );
 CREATE INDEX IF NOT EXISTS idx_experiment_files_experiment_id
     ON gemini.experiment_files (experiment_id);
+CREATE INDEX IF NOT EXISTS idx_experiment_files_dataset_id
+    ON gemini.experiment_files (dataset_id);
 
 
 CREATE TABLE IF NOT EXISTS gemini.seasons (
@@ -168,6 +178,47 @@ CREATE TABLE IF NOT EXISTS gemini.genotyping_studies (
 );
 CREATE INDEX IF NOT EXISTS idx_genotyping_studies_info ON gemini.genotyping_studies USING GIN (study_info);
 ALTER TABLE gemini.genotyping_studies ADD CONSTRAINT genotyping_study_unique UNIQUE (study_name);
+
+-- Phase 9d genotyping satellite tables. Mirror
+-- backend/gemini/db/init_sql/scripts/2_init_schema.sql so integration
+-- tests can exercise the genomic ingest path's cascade behavior.
+CREATE TABLE IF NOT EXISTS gemini.genotyping_study_files (
+    study_id UUID NOT NULL REFERENCES gemini.genotyping_studies(id) ON DELETE CASCADE,
+    file_kind TEXT NOT NULL,
+    s3_uri TEXT NOT NULL,
+    bytes BIGINT,
+    sha256 TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (study_id, file_kind)
+);
+
+CREATE TABLE IF NOT EXISTS gemini.genotyping_study_variants (
+    study_id UUID NOT NULL REFERENCES gemini.genotyping_studies(id) ON DELETE CASCADE,
+    variant_id UUID NOT NULL REFERENCES gemini.variants(id) ON DELETE RESTRICT,
+    variant_index INTEGER NOT NULL,
+    PRIMARY KEY (study_id, variant_id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_genotyping_study_variants_ordinal
+    ON gemini.genotyping_study_variants (study_id, variant_index);
+
+CREATE TABLE IF NOT EXISTS gemini.genotyping_study_samples (
+    study_id UUID NOT NULL REFERENCES gemini.genotyping_studies(id) ON DELETE CASCADE,
+    accession_id UUID NOT NULL REFERENCES gemini.accessions(id) ON DELETE RESTRICT,
+    sample_index INTEGER NOT NULL,
+    PRIMARY KEY (study_id, accession_id)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_genotyping_study_samples_ordinal
+    ON gemini.genotyping_study_samples (study_id, sample_index);
+
+CREATE TABLE IF NOT EXISTS gemini.genotyping_study_variant_stats (
+    study_id UUID NOT NULL REFERENCES gemini.genotyping_studies(id) ON DELETE CASCADE,
+    variant_id UUID NOT NULL REFERENCES gemini.variants(id) ON DELETE RESTRICT,
+    n_called INTEGER,
+    n_missing INTEGER,
+    maf FLOAT,
+    hwe_p FLOAT,
+    PRIMARY KEY (study_id, variant_id)
+);
 
 CREATE TABLE IF NOT EXISTS gemini.plots (
     id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -544,6 +595,93 @@ CREATE TABLE IF NOT EXISTS gemini.procedure_datasets (
 );
 
 -- =============================================================================
+-- Tables that must be created after their FK targets exist
+-- =============================================================================
+
+-- Users (for the experiment_files.uploaded_by + user_experiments FKs).
+CREATE TABLE IF NOT EXISTS gemini.users (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    email VARCHAR(255) NOT NULL,
+    hashed_password VARCHAR(255) NOT NULL,
+    full_name VARCHAR(255),
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    is_superuser BOOLEAN NOT NULL DEFAULT FALSE,
+    user_info JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS users_email_unique ON gemini.users (email);
+CREATE INDEX IF NOT EXISTS idx_users_email ON gemini.users (email);
+CREATE INDEX IF NOT EXISTS idx_users_info ON gemini.users USING GIN (user_info);
+
+CREATE TABLE IF NOT EXISTS gemini.user_experiments (
+    user_id UUID REFERENCES gemini.users(id) ON DELETE CASCADE,
+    experiment_id UUID REFERENCES gemini.experiments(id) ON DELETE CASCADE,
+    role VARCHAR(50),
+    info JSONB DEFAULT '{}',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (user_id, experiment_id)
+);
+
+-- Reference Datasets / Reference Plots (the experiment-delete cascade
+-- sweeps reference_datasets by `experiment` VARCHAR match — no FK,
+-- intentional per 2_init_schema.sql comments).
+CREATE TABLE IF NOT EXISTS gemini.reference_datasets (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name VARCHAR(255) NOT NULL,
+    experiment VARCHAR(255),
+    location VARCHAR(255),
+    population VARCHAR(255),
+    dataset_date DATE,
+    trait_columns TEXT[] NOT NULL DEFAULT '{}',
+    dataset_info JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_reference_datasets_name ON gemini.reference_datasets (name);
+CREATE INDEX IF NOT EXISTS idx_reference_datasets_experiment ON gemini.reference_datasets (experiment);
+CREATE INDEX IF NOT EXISTS idx_reference_datasets_population ON gemini.reference_datasets (population);
+
+CREATE TABLE IF NOT EXISTS gemini.reference_plots (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    dataset_id UUID NOT NULL REFERENCES gemini.reference_datasets(id) ON DELETE CASCADE,
+    plot_id VARCHAR(255),
+    plot_column VARCHAR(64),
+    plot_row VARCHAR(64),
+    accession VARCHAR(255),
+    traits JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_reference_plots_dataset ON gemini.reference_plots (dataset_id);
+CREATE INDEX IF NOT EXISTS idx_reference_plots_plot_id ON gemini.reference_plots (plot_id);
+CREATE INDEX IF NOT EXISTS idx_reference_plots_accession ON gemini.reference_plots (accession);
+CREATE INDEX IF NOT EXISTS idx_reference_plots_traits ON gemini.reference_plots USING GIN (traits);
+
+CREATE TABLE IF NOT EXISTS gemini.plot_geometry_versions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    directory VARCHAR(1024) NOT NULL,
+    version INT NOT NULL,
+    name VARCHAR(255),
+    is_active BOOLEAN NOT NULL DEFAULT FALSE,
+    state_snapshot JSONB NOT NULL DEFAULT '{}',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_by VARCHAR(255)
+);
+ALTER TABLE gemini.plot_geometry_versions ADD CONSTRAINT plot_geometry_version_unique UNIQUE (directory, version);
+CREATE INDEX IF NOT EXISTS idx_plot_geometry_versions_directory ON gemini.plot_geometry_versions (directory);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_plot_geometry_versions_active ON gemini.plot_geometry_versions (directory) WHERE is_active;
+
+-- Deferred FKs on experiment_files (declared as bare UUIDs at the top
+-- of this file before `datasets` and `users` existed).
+ALTER TABLE gemini.experiment_files
+  ADD CONSTRAINT experiment_files_dataset_fkey
+    FOREIGN KEY (dataset_id) REFERENCES gemini.datasets(id) ON DELETE SET NULL;
+ALTER TABLE gemini.experiment_files
+  ADD CONSTRAINT experiment_files_uploaded_by_fkey
+    FOREIGN KEY (uploaded_by) REFERENCES gemini.users(id) ON DELETE SET NULL;
+
+-- =============================================================================
 -- RECORD TABLES (heap storage, no columnar extension)
 -- =============================================================================
 
@@ -578,6 +716,18 @@ CREATE TABLE IF NOT EXISTS gemini.trait_records (
     season_id UUID, season_name TEXT,
     site_id UUID, site_name TEXT,
     plot_id UUID, plot_number INTEGER, plot_row_number INTEGER, plot_column_number INTEGER,
+    -- Mirrors alembic 0006_trait_records_accession + the matching
+    -- block in init_sql/scripts/4_init_columnar.sql. The ORM model
+    -- (db/models/columnar/trait_records.py) writes these on every
+    -- INSERT, so the test DB has to carry them too — without these
+    -- columns the existing trait-records integration suite fails
+    -- with "column accession_id of relation trait_records does not
+    -- exist". No FK: production stores trait_records in a Citus
+    -- columnar table that doesn't support FKs; the test version is
+    -- a plain heap, but we match the column shape rather than the
+    -- FK behavior.
+    accession_id UUID,
+    accession_name TEXT,
     record_info JSONB NOT NULL DEFAULT '{}'
 );
 ALTER TABLE gemini.trait_records ADD CONSTRAINT trait_records_unique UNIQUE NULLS NOT DISTINCT (
@@ -645,6 +795,22 @@ CREATE TABLE IF NOT EXISTS gemini.script_records (
     record_info JSONB NOT NULL DEFAULT '{}'
 );
 
+-- IMMV stand-ins. Prod uses pg_ivm to incrementally maintain these as
+-- materialized views; the test DB doesn't have pg_ivm, so we create
+-- ordinary tables with matching columns. The cascade only does
+-- `DELETE FROM ..._immv WHERE experiment_name = ...` against them
+-- (see backend/gemini/db/models/columnar/*_records.py), which works
+-- fine on an empty plain table. Without these, the
+-- ``Experiment.delete()`` cascade hits UndefinedTable inside
+-- a session_replication_role=replica block, aborts the txn, and
+-- silently returns False.
+CREATE TABLE IF NOT EXISTS gemini.sensor_records_immv AS TABLE gemini.sensor_records WITH NO DATA;
+CREATE TABLE IF NOT EXISTS gemini.trait_records_immv AS TABLE gemini.trait_records WITH NO DATA;
+CREATE TABLE IF NOT EXISTS gemini.dataset_records_immv AS TABLE gemini.dataset_records WITH NO DATA;
+CREATE TABLE IF NOT EXISTS gemini.model_records_immv AS TABLE gemini.model_records WITH NO DATA;
+CREATE TABLE IF NOT EXISTS gemini.procedure_records_immv AS TABLE gemini.procedure_records WITH NO DATA;
+CREATE TABLE IF NOT EXISTS gemini.script_records_immv AS TABLE gemini.script_records WITH NO DATA;
+
 CREATE TABLE IF NOT EXISTS gemini.genotype_records (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     study_id UUID,
@@ -692,7 +858,7 @@ CREATE TABLE IF NOT EXISTS gemini.jobs (
     parameters JSONB,
     result JSONB,
     error_message VARCHAR(2000),
-    experiment_id UUID,
+    experiment_id UUID REFERENCES gemini.experiments(id) ON DELETE CASCADE,
     worker_id VARCHAR(100),
     started_at TIMESTAMPTZ,
     completed_at TIMESTAMPTZ,

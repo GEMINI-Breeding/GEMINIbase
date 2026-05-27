@@ -43,8 +43,13 @@ def test_default_options_contain_baseline_keys():
     assert "dsm" in keys
 
 
-def test_default_quality_returns_defaults():
-    """The 'Default' selection must produce DEFAULT_OPTIONS verbatim."""
+def test_legacy_default_quality_returns_defaults():
+    """The pre-rename "Default" label (and any other legacy string)
+    falls through to DEFAULT_OPTIONS unchanged. Saved pipeline configs
+    from before the Draft/Standard/High Quality/Ultra rename can still
+    submit jobs — the legacy migration runs frontend-side, but the
+    worker must not blow up if a stale string slips through.
+    """
     out = _apply_quality_preset("Default")
     assert out == DEFAULT_OPTIONS
 
@@ -68,52 +73,96 @@ def test_unknown_quality_returns_defaults():
     assert out == DEFAULT_OPTIONS
 
 
-def test_lowest_preset_sets_memory_friendly_flags():
-    """Lowest is the only preset designed to fit in a 7-8 GiB Docker
-    engine. Pin the four flags that make that possible — if any of
-    them is dropped or renamed, the user gets OOMs and we should know."""
-    out = _apply_quality_preset("Lowest")
-    assert _opt("feature-quality", out) == "lowest"
-    assert _opt("pc-quality", out) == "lowest"
-    assert _opt("depthmap-resolution", out) == 320
-    assert _opt("max-concurrency", out) == 4
+def test_preset_table_matches_main():
+    """The Draft/Standard/High Quality/Ultra preset values are a 1:1 port
+    of main's ODM_PRESETS table (frontend ProcessingPipeline.tsx +
+    backend run_orthomosaic defaults). Pin the exact values so any
+    drift from main is caught — silent divergence is what produced
+    the bug chain that motivated this rewrite.
+    """
+    expected = {
+        "Draft": {
+            "feature-quality": "low",
+            "pc-quality": "lowest",
+            "orthophoto-resolution": 5,
+            "dem-resolution": 5,
+        },
+        "Standard": {
+            "feature-quality": "high",
+            "pc-quality": "medium",
+            "orthophoto-resolution": 3,
+            "dem-resolution": 3,
+        },
+        "High Quality": {
+            "feature-quality": "ultra",
+            "pc-quality": "high",
+            "orthophoto-resolution": 2,
+            "dem-resolution": 2,
+        },
+        "Ultra": {
+            "feature-quality": "ultra",
+            "pc-quality": "ultra",
+            "orthophoto-resolution": 1,
+            "dem-resolution": 1,
+        },
+    }
+    for name, knobs in expected.items():
+        out = _apply_quality_preset(name)
+        for k, v in knobs.items():
+            assert _opt(k, out) == v, (
+                f"preset {name!r} drifted from main: expected {k}={v!r}, "
+                f"got {_opt(k, out)!r}"
+            )
 
 
-def test_medium_preset_sets_intermediate_flags():
-    out = _apply_quality_preset("Medium")
-    assert _opt("feature-quality", out) == "medium"
-    assert _opt("pc-quality", out) == "medium"
-    assert _opt("depthmap-resolution", out) == 640
+def test_preset_set_matches_main_exactly():
+    """We ship exactly the four presets main has — no extra tiers, no
+    missing ones. Drift either direction is a regression."""
+    assert set(QUALITY_PRESETS.keys()) == {"Draft", "Standard", "High Quality", "Ultra"}
 
 
-def test_ultra_preset_sets_full_quality_flags():
-    out = _apply_quality_preset("Ultra")
-    assert _opt("feature-quality", out) == "ultra"
-    assert _opt("pc-quality", out) == "ultra"
-    assert _opt("depthmap-resolution", out) == 1280
-
-
-def test_preset_preserves_default_baseline_keys():
-    """Every preset must keep the DEFAULT_OPTIONS baseline keys
-    (orthophoto-resolution, dem-resolution, dsm) — otherwise the
-    downstream COG/trait pipeline silently misses files."""
+def test_preset_carries_orthophoto_and_dem_resolution():
+    """Every preset must set both orthophoto-resolution and
+    dem-resolution. Without these the downstream COG/trait pipeline
+    silently misses files. All presets keep dsm enabled (main's
+    behavior — `--dsm` is always passed)."""
     for name in QUALITY_PRESETS:
         out = _apply_quality_preset(name)
-        assert _opt("orthophoto-resolution", out) == 0.25, (
+        assert _opt("orthophoto-resolution", out) is not None, (
             f"{name} dropped orthophoto-resolution"
         )
-        assert _opt("dem-resolution", out) == 0.25, (
+        assert _opt("dem-resolution", out) is not None, (
             f"{name} dropped dem-resolution"
         )
         assert _opt("dsm", out) is True, f"{name} dropped dsm"
 
 
+def test_preset_orthophoto_resolution_steps_with_quality():
+    """orthophoto-resolution (cm/px) must scale monotonically with
+    preset fidelity: Draft coarsest, Ultra finest. A non-monotone
+    sequence would mean a higher-fidelity tier produces a smaller
+    ortho than a lower one.
+    """
+    order = ["Draft", "Standard", "High Quality", "Ultra"]
+    resolutions = [
+        float(_opt("orthophoto-resolution", _apply_quality_preset(n)))
+        for n in order
+    ]
+    # cm/px: smaller = finer. Sequence must be strictly decreasing.
+    assert resolutions == sorted(resolutions, reverse=True), (
+        f"orthophoto-resolution not monotone across {order}: {resolutions}"
+    )
+    assert len(set(resolutions)) == len(resolutions), (
+        f"two presets share the same orthophoto-resolution: {resolutions}"
+    )
+
+
 def test_returned_list_is_mutation_safe():
     """Caller mutations must not affect later calls — module state
     has to be cloned, not shared."""
-    out_a = _apply_quality_preset("Lowest")
+    out_a = _apply_quality_preset("Draft")
     out_a.append({"name": "extra", "value": "stuff"})
-    out_b = _apply_quality_preset("Lowest")
+    out_b = _apply_quality_preset("Draft")
     assert all(o["name"] != "extra" for o in out_b)
 
 

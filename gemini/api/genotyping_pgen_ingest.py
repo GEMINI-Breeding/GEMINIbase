@@ -141,14 +141,11 @@ def ingest_genotype_file(
             experiment_name=experiment_name,
         )
 
-    # 1. Backfill accessions the wizard asked us to create. Idempotent —
-    #    duplicates are fine.
-    if created_accessions:
-        _ensure_accessions(created_accessions)
-        if population_name:
-            _associate_accessions_with_population(
-                created_accessions, population_name
-            )
+    # 1. Accession backfill (formerly: bulk-created here in its own
+    #    transaction). Moved into the main ingest transaction below so
+    #    a downstream failure rolls the accession rows back instead of
+    #    stranding them — the genomic ingest path used to be a primary
+    #    source of accessions with no surviving link to any experiment.
 
     with tempfile.TemporaryDirectory(prefix=f"gemini-pgen-{study_id}-") as tmpdir:
         work = Path(tmpdir)
@@ -219,9 +216,19 @@ def ingest_genotype_file(
         # frontend's existing display still wants this number).
         result.records_inserted = result.variants_inserted * result.samples_inserted
 
+        # Every accession we'll touch in this ingest: the wizard's
+        # explicit `created_accessions` (names the user mapped to as
+        # "create new") plus whatever names the .psam carries after
+        # PLINK transcoding. The in-session ensure call below creates
+        # both sets atomically with the study_samples rows, so a mid-
+        # ingest failure rolls every new accession back too.
+        ingest_accession_names = list({*created_accessions, *sample_names})
+
         with db_engine.get_session() as session:
             _upsert_files(session, study_id, result.files, work_dir=work)
-            sample_id_by_name = _ensure_accessions_in_session(session, sample_names)
+            sample_id_by_name = _ensure_accessions_in_session(
+                session, ingest_accession_names
+            )
             variant_id_by_key = _ensure_variants_in_session(session, variant_rows)
             _upsert_study_samples(
                 session, study_id, sample_names, sample_id_by_name
@@ -233,20 +240,17 @@ def ingest_genotype_file(
             _upsert_variant_stats(
                 session, study_id, stats_rows, variant_rows, variant_id_by_key,
             )
-            session.commit()
-
-        # 8. Link every accession the ingest created (or saw) to the
-        #    population, so the user's "Cowpea MAGIC" picker shows the
-        #    same accessions a trait import would. We pass the union of
-        #    the wizard's `created_accessions` and the .psam sample
-        #    names — get-or-create on the population_accessions M2M
-        #    keeps duplicates fine.
-        if population_name:
-            link_targets = list({*created_accessions, *sample_names})
-            if link_targets:
-                _associate_accessions_with_population(
-                    link_targets, population_name
+            # Population link in-session so the M2M rows commit
+            # together with the accessions and study_samples. Out-of-
+            # transaction linkage (the previous code path) would
+            # strand accessions if the link step failed after commit.
+            if population_name:
+                _associate_accessions_with_population_in_session(
+                    session,
+                    ingest_accession_names,
+                    population_name,
                 )
+            session.commit()
 
         # Sanity: counts in the file must match the declared sample map.
         if (
@@ -907,18 +911,6 @@ def _load_study(study_id: str) -> Optional[GenotypingStudyModel]:
         return session.execute(stmt).scalar_one_or_none()
 
 
-def _ensure_accessions(names: list[str]) -> None:
-    """Idempotent bulk-create accessions by name."""
-    if not names:
-        return
-    payload = [{"id": uuid.uuid4(), "accession_name": n} for n in names]
-    with db_engine.get_session() as session:
-        stmt = pg_insert(AccessionModel.__table__).values(payload)
-        stmt = stmt.on_conflict_do_nothing(index_elements=["accession_name"])
-        session.execute(stmt)
-        session.commit()
-
-
 def _associate_accessions_with_population(
     accession_names: list[str], population_name: str
 ) -> None:
@@ -936,39 +928,55 @@ def _associate_accessions_with_population(
     """
     if not accession_names or not population_name:
         return
+    with db_engine.get_session() as session:
+        _associate_accessions_with_population_in_session(
+            session, accession_names, population_name
+        )
+        session.commit()
+
+
+def _associate_accessions_with_population_in_session(
+    session, accession_names: list[str], population_name: str
+) -> None:
+    """Same as :func:`_associate_accessions_with_population` but uses
+    the caller's session and skips the commit, so the linkage rides
+    along with whatever outer transaction is open. The ingest path uses
+    this so accession + study_samples + population_accessions all
+    commit atomically.
+    """
+    if not accession_names or not population_name:
+        return
     from gemini.db.models.populations import PopulationModel
     from gemini.db.models.associations import PopulationAccessionModel
     from sqlalchemy import select as _select
     from sqlalchemy.dialects.postgresql import insert as _pg_insert
 
-    with db_engine.get_session() as session:
-        pop = session.execute(
-            _select(PopulationModel).where(
-                PopulationModel.population_name == population_name
-            )
-        ).scalar_one_or_none()
-        if pop is None:
-            logger.warning(
-                "Population %r does not exist; skipping accession link.",
-                population_name,
-            )
-            return
-        rows = session.execute(
-            _select(AccessionModel.id, AccessionModel.accession_name).where(
-                AccessionModel.accession_name.in_(accession_names)
-            )
-        ).all()
-        if not rows:
-            return
-        payload = [
-            {"population_id": pop.id, "accession_id": aid} for aid, _ in rows
-        ]
-        stmt = _pg_insert(PopulationAccessionModel.__table__).values(payload)
-        stmt = stmt.on_conflict_do_nothing(
-            index_elements=["population_id", "accession_id"]
+    pop = session.execute(
+        _select(PopulationModel).where(
+            PopulationModel.population_name == population_name
         )
-        session.execute(stmt)
-        session.commit()
+    ).scalar_one_or_none()
+    if pop is None:
+        logger.warning(
+            "Population %r does not exist; skipping accession link.",
+            population_name,
+        )
+        return
+    rows = session.execute(
+        _select(AccessionModel.id, AccessionModel.accession_name).where(
+            AccessionModel.accession_name.in_(accession_names)
+        )
+    ).all()
+    if not rows:
+        return
+    payload = [
+        {"population_id": pop.id, "accession_id": aid} for aid, _ in rows
+    ]
+    stmt = _pg_insert(PopulationAccessionModel.__table__).values(payload)
+    stmt = stmt.on_conflict_do_nothing(
+        index_elements=["population_id", "accession_id"]
+    )
+    session.execute(stmt)
 
 
 def _ensure_accessions_in_session(

@@ -339,6 +339,168 @@ class Plot(APIBase):
             return False, 0, len(plots)
 
     @classmethod
+    def upsert_from_features(
+        cls,
+        experiment_id: str,
+        season_id: str,
+        site_id: str,
+        features: List[dict],
+        accession_id_by_name: Optional[dict] = None,
+    ) -> Tuple[bool, int, int]:
+        """Upsert `plots` rows from GeoJSON-ish features within a fixed
+        (experiment_id, season_id, site_id) scope.
+
+        Used by the plot-geometry-version save/activate hook to materialize
+        a `plots` row for every polygon in the active snapshot, so that the
+        `trait_records` insert trigger has a parent row to link to.
+
+        Each feature dict must carry these properties (normalized by the
+        caller; either `plot_number`/`plot_row_number`/`plot_column_number`
+        or legacy `plot`/`row`/`column` keys are accepted):
+
+          * plot_number          (int, required — skipped otherwise)
+          * plot_row_number      (int, required)
+          * plot_column_number   (int, required)
+          * accession_name       (str, optional)
+
+        And typically a `geometry` field carrying the polygon coordinates
+        in WGS84. The full feature (geometry + normalized props) is stored
+        in `plot_geometry_info` so the analyze map and downstream tools
+        can read polygon geometry without re-querying the snapshot.
+
+        Behavior:
+          * `ON CONFLICT (experiment_id, season_id, site_id, plot_number,
+            plot_row_number, plot_column_number) DO UPDATE SET
+            plot_geometry_info = EXCLUDED.plot_geometry_info,
+            accession_id       = EXCLUDED.accession_id` — re-saving the
+            boundary version refreshes geometry and accession.
+          * Features missing any of plot_number/row/column are skipped.
+          * Returns (success, upserted_count, skipped_count).
+        """
+        try:
+            if not features:
+                return True, 0, 0
+
+            def _as_int(v):
+                if isinstance(v, bool):
+                    return None
+                if isinstance(v, int):
+                    return v
+                if isinstance(v, str) and v.strip():
+                    try:
+                        return int(float(v))
+                    except (TypeError, ValueError):
+                        return None
+                if isinstance(v, float):
+                    try:
+                        return int(v)
+                    except (TypeError, ValueError):
+                        return None
+                return None
+
+            acc_lookup = accession_id_by_name or {}
+            rows_to_upsert: List[dict] = []
+            skipped = 0
+            for f in features:
+                if not isinstance(f, dict):
+                    skipped += 1
+                    continue
+                props = f.get("properties") or {}
+                if not isinstance(props, dict):
+                    props = {}
+                plot_number = _as_int(
+                    props.get("plot_number")
+                    if props.get("plot_number") is not None
+                    else props.get("plot") or props.get("Plot")
+                )
+                plot_row = _as_int(
+                    props.get("plot_row_number")
+                    if props.get("plot_row_number") is not None
+                    else props.get("row") or props.get("Row")
+                )
+                plot_col = _as_int(
+                    props.get("plot_column_number")
+                    if props.get("plot_column_number") is not None
+                    else props.get("column")
+                    or props.get("Column")
+                    or props.get("col")
+                    or props.get("Col")
+                )
+                if plot_number is None or plot_row is None or plot_col is None:
+                    skipped += 1
+                    continue
+                accession_name = (
+                    props.get("accession_name")
+                    or props.get("accession")
+                    or props.get("Accession")
+                    or props.get("Label")
+                )
+                accession_id = (
+                    acc_lookup.get(accession_name)
+                    if isinstance(accession_name, str) and accession_name
+                    else None
+                )
+                # Persist the whole feature (geometry + normalized props) so
+                # downstream readers don't have to re-query the snapshot.
+                geom = f.get("geometry")
+                geometry_info = {
+                    "type": "Feature",
+                    "geometry": geom,
+                    "properties": {
+                        **props,
+                        "plot_number": plot_number,
+                        "plot_row_number": plot_row,
+                        "plot_column_number": plot_col,
+                        "accession_name": accession_name
+                        if isinstance(accession_name, str) and accession_name
+                        else None,
+                    },
+                }
+                rows_to_upsert.append(
+                    {
+                        "experiment_id": experiment_id,
+                        "season_id": season_id,
+                        "site_id": site_id,
+                        "plot_number": plot_number,
+                        "plot_row_number": plot_row,
+                        "plot_column_number": plot_col,
+                        "accession_id": accession_id,
+                        "plot_info": {},
+                        "plot_geometry_info": geometry_info,
+                    }
+                )
+
+            if not rows_to_upsert:
+                return True, 0, skipped
+
+            with db_engine.get_session() as session:
+                stmt = pg_insert(PlotModel.__table__).values(rows_to_upsert)
+                stmt = stmt.on_conflict_do_update(
+                    index_elements=[
+                        "experiment_id",
+                        "season_id",
+                        "site_id",
+                        "plot_number",
+                        "plot_row_number",
+                        "plot_column_number",
+                    ],
+                    set_={
+                        "plot_geometry_info": stmt.excluded.plot_geometry_info,
+                        "accession_id": stmt.excluded.accession_id,
+                    },
+                )
+                session.execute(stmt)
+
+            logger.info(
+                f"Upserted {len(rows_to_upsert)} plots ({skipped} skipped) for "
+                f"(experiment_id={experiment_id}, season_id={season_id}, site_id={site_id})."
+            )
+            return True, len(rows_to_upsert), skipped
+        except Exception as e:
+            logger.error(f"Error upserting plots from features: {e}")
+            return False, 0, len(features)
+
+    @classmethod
     def get(
         cls,
         plot_number: int,

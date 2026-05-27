@@ -560,6 +560,13 @@ class Experiment(APIBase):
                 # `genotyping_study_variants` so we can sweep variants
                 # whose only remaining link was via these studies.
                 orphan_study_variant_ids: list = []
+                # Accessions whose only reachability path was the orphan
+                # studies' samples. The genomic ingest wizard creates
+                # accessions from .psam sample names without linking them
+                # to any population, so they'd otherwise outlive the
+                # experiment they were ingested for. Captured BEFORE the
+                # orphan-study delete cascades `genotyping_study_samples`.
+                orphan_study_accession_candidates: list = []
                 for assoc_model, child_model, fk_name in children:
                     fk_col = getattr(assoc_model, fk_name)
                     # Child rows linked to THIS experiment via the association.
@@ -583,6 +590,16 @@ class Experiment(APIBase):
                                 session.execute(
                                     select(GenotypingStudyVariantModel.variant_id).where(
                                         GenotypingStudyVariantModel.study_id.in_(orphan_ids)
+                                    )
+                                ).scalars().all()
+                            ))
+                            orphan_study_accession_candidates = list(set(
+                                session.execute(
+                                    select(GenotypingStudySampleModel.accession_id).where(
+                                        and_(
+                                            GenotypingStudySampleModel.study_id.in_(orphan_ids),
+                                            GenotypingStudySampleModel.accession_id.is_not(None),
+                                        )
                                     )
                                 ).scalars().all()
                             ))
@@ -652,11 +669,15 @@ class Experiment(APIBase):
                     logger.info(f"Deleted {plot_deleted} plot(s) owned by {self.experiment_name}.")
 
                 # Extend orphan_accession_ids with plot/alias-reachable
-                # accessions that now have zero remaining references.
-                # Already-accounted-for IDs (from the population path)
-                # are filtered out.
+                # and orphan-study-sample-reachable accessions that now
+                # have zero remaining references. Already-accounted-for
+                # IDs (from the population path) are filtered out.
                 extra_candidates = list(
-                    (set(plot_accession_candidates) | set(alias_accession_candidates))
+                    (
+                        set(plot_accession_candidates)
+                        | set(alias_accession_candidates)
+                        | set(orphan_study_accession_candidates)
+                    )
                     - set(orphan_accession_ids)
                 )
                 if extra_candidates:

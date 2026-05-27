@@ -94,6 +94,11 @@ class MockNodeODMHandler(BaseHTTPRequestHandler):
     tasks = {}
     fail_next = False
     log_lines = ["[INFO] Starting OpenDroneMap", "[INFO] Processing 3 images"]
+    # Captures the raw body + content-type the most recent /task/new/init
+    # received so tests can assert that options arrive as multipart/form-data
+    # rather than url-encoded (NodeODM's multer parser only reads multipart).
+    last_init_content_type = ""
+    last_init_body = b""
 
     def log_message(self, format, *args):
         pass  # Suppress request logs during tests
@@ -152,8 +157,11 @@ class MockNodeODMHandler(BaseHTTPRequestHandler):
         #   POST /task/new/upload/{uuid}  → one image per request
         #   POST /task/new/commit/{uuid}  → finalises; task status flips here
         if self.path == "/task/new/init":
-            if content_length > 0:
-                self.rfile.read(content_length)
+            body = self.rfile.read(content_length) if content_length > 0 else b""
+            self.__class__.last_init_content_type = self.headers.get(
+                "Content-Type", ""
+            )
+            self.__class__.last_init_body = body
             task_id = str(uuid4())
             # Init creates a placeholder; status is finalised on commit.
             self.tasks[task_id] = {
@@ -261,6 +269,8 @@ def clean_mock_nodeodm():
     """Reset mock NodeODM state between tests."""
     MockNodeODMHandler.tasks = {}
     MockNodeODMHandler.fail_next = False
+    MockNodeODMHandler.last_init_content_type = ""
+    MockNodeODMHandler.last_init_body = b""
     yield
 
 
@@ -318,6 +328,41 @@ class TestNodeODMClient:
         task_id = client.create_task(image_paths)
         assert task_id is not None
         assert len(task_id) == 36  # UUID format
+
+    def test_create_task_options_sent_as_multipart(self, mock_nodeodm, tmp_path):
+        """Options must reach NodeODM as multipart/form-data, not url-encoded.
+
+        Regression for the silent-drop bug where the chunked-upload rewrite
+        used `requests.post(..., data=...)` (application/x-www-form-urlencoded)
+        for /task/new/init. NodeODM's body parser on that route is
+        `multer().none()`, which only reads multipart fields — url-encoded
+        bodies were dropped, body.json on disk ended up `{}`, and ODM ran
+        every job at its built-in defaults (orthophoto_resolution 5 cm/px,
+        feature_quality high, dsm False) regardless of what the worker
+        requested.
+        """
+        from gemini.workers.odm.nodeodm_client import NodeODMClient
+
+        client = NodeODMClient(base_url=mock_nodeodm)
+        (tmp_path / "img.jpg").write_bytes(b"\xff\xd8" + b"\x00" * 100)
+
+        options = [
+            {"name": "orthophoto-resolution", "value": 0.25},
+            {"name": "feature-quality", "value": "low"},
+        ]
+        client.create_task([str(tmp_path / "img.jpg")], options=options)
+
+        ct = MockNodeODMHandler.last_init_content_type
+        body = MockNodeODMHandler.last_init_body
+        assert ct.startswith("multipart/form-data"), (
+            f"/task/new/init must be multipart so NodeODM's multer parser "
+            f"reads options; got Content-Type={ct!r}"
+        )
+        # Either form of the options payload should appear in the multipart
+        # body — both proves multer would parse it AND that we serialized
+        # the option list rather than dropping it on the floor.
+        assert b"orthophoto-resolution" in body
+        assert b"feature-quality" in body
 
     def test_get_task_info(self, mock_nodeodm, tmp_path):
         from gemini.workers.odm.nodeodm_client import NodeODMClient
@@ -586,3 +631,68 @@ class TestOdmWorkerPipeline:
         finally:
             _cleanup_prefix(minio_client, image_prefix)
             _cleanup_prefix(minio_client, "Processed/test_odm_custom/")
+
+    def test_skip_gcps_ignores_sidecars_left_in_minio(
+        self, mock_nodeodm, minio_client
+    ):
+        """`skip_gcps=true` must override sidecar files at the scope root.
+
+        The user clicked "Skip" in the GcpPicker. Without honoring the
+        flag the worker auto-sniffs `Raw/.../{sensor}/gcp_list.txt` and
+        `geo.txt` and silently re-applies GCPs across runs — there's no
+        UI to delete sidecars and the user should never touch MinIO.
+        """
+        scope_root = "Raw/test_skip_gcps/2024/exp/loc/pop/2024-06-15/DJI/RGB/"
+        image_prefix = f"{scope_root}Images/"
+
+        try:
+            _seed_test_images(minio_client, image_prefix, count=2)
+            # Plant the sidecars a "previous session" would have left
+            # behind. Content is irrelevant — the assertion is on what
+            # gets forwarded to NodeODM, not what's in the files.
+            for name, body in (
+                ("gcp_list.txt", b"EPSG:4326\n0 0 0 0 0 img.jpg 1\n"),
+                ("geo.txt", b"EPSG:4326\nimg.jpg 0 0 0\n"),
+            ):
+                minio_client.put_object(
+                    BUCKET, f"{scope_root}{name}", io.BytesIO(body), len(body)
+                )
+
+            # Patch the underlying NodeODMClient.create_task to capture
+            # the `extra_files` argument so we can assert sidecars were
+            # NOT forwarded. The mock NodeODM server doesn't expose
+            # uploaded filenames; intercepting the client is the
+            # simplest faithful check.
+            worker = self._make_worker(mock_nodeodm)
+            captured: dict = {}
+            real_create = worker._nodeodm.create_task
+
+            def spy_create(image_paths, options=None, extra_files=None):
+                captured["extra_files"] = list(extra_files or [])
+                return real_create(image_paths, options=options, extra_files=extra_files)
+
+            worker._nodeodm.create_task = spy_create
+
+            worker.process(
+                job_id=str(uuid4()),
+                job_type="RUN_ODM",
+                parameters={
+                    "year": "test_skip_gcps/2024",
+                    "experiment": "exp",
+                    "location": "loc",
+                    "population": "pop",
+                    "date": "2024-06-15",
+                    "platform": "DJI",
+                    "sensor": "RGB",
+                    "skip_gcps": True,
+                },
+            )
+
+            assert captured["extra_files"] == [], (
+                "skip_gcps=true must suppress sidecar forwarding to NodeODM; "
+                f"got {captured['extra_files']!r}"
+            )
+
+        finally:
+            _cleanup_prefix(minio_client, scope_root)
+            _cleanup_prefix(minio_client, "Processed/test_skip_gcps/")

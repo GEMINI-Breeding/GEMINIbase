@@ -88,6 +88,15 @@ class WorkerSession:
         self._password = password
         self._timeout = timeout
         self._session = requests.Session()
+        # Disable HTTP keep-alive on worker requests. Uvicorn's default
+        # `--timeout-keep-alive` is 5s; workers poll `/api/jobs/claim` at
+        # roughly that same cadence, so the server closes the idle socket
+        # right as the next poll is about to reuse it — every poll racks up
+        # an ECONNRESET / RemoteDisconnected on the first attempt, retries
+        # with a fresh socket, and floods the log. A fresh TCP handshake per
+        # poll inside the compose network is cheap (~ms) and eliminates the
+        # race entirely.
+        self._session.headers["Connection"] = "close"
         self._token: str | None = None
         self._lock = threading.Lock()
         # `requests.Session` is documented as not thread-safe for

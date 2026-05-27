@@ -195,11 +195,35 @@ class MlWorker(BaseWorker):
                 exg_threshold=exg_threshold,
             )
 
-            self.report_progress(job_id, 90, {"stage": "uploading"})
+            self.report_progress(job_id, 80, {"stage": "uploading"})
             local_out = os.path.join(tmpdir, "traits.geojson")
             with open(local_out, "w") as f:
                 json.dump(geojson_dict, f)
             client.fput_object(STORAGE_BUCKET, output_path, local_out)
+
+            # Auto-ingest the per-plot values into `trait_records` so the
+            # analyze map (and any downstream consumer) can see them
+            # alongside manually-imported traits without a separate "load
+            # extracted traits into DB" step. Failures here are non-fatal:
+            # the GeoJSON is already in MinIO, so the user can re-run
+            # ingest later via the backfill flow. The error is surfaced
+            # in the result dict so the UI can call it out.
+            self.report_progress(job_id, 92, {"stage": "ingesting"})
+            from gemini.workers.ml.trait_ingest import ingest_extracted_traits
+
+            try:
+                ingested_counts = ingest_extracted_traits(
+                    self._http,
+                    output_path=output_path,
+                    geojson=geojson_dict,
+                )
+                ingest_error = None
+            except Exception as e:
+                logger.error(
+                    f"Trait ingest raised for job {job_id}: {e}"
+                )
+                ingested_counts = {}
+                ingest_error = str(e)
 
             return {
                 "output_traits_geojson_path": output_path,
@@ -207,6 +231,8 @@ class MlWorker(BaseWorker):
                 "traits": ["Vegetation_Fraction", "Height_95p_meters"]
                 if dem_path
                 else ["Vegetation_Fraction"],
+                "ingested_counts": ingested_counts,
+                **({"ingest_error": ingest_error} if ingest_error else {}),
             }
 
 

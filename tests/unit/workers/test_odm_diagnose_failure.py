@@ -86,9 +86,9 @@ OPENMVS_LOW_VMEM_LOG = [
 def test_openmvs_rejects_all_images_pattern():
     """The exact 'Selecting images ... completed: 0 images' line must
     surface a quality-preset hint, not the generic 'unknown' fallback.
-    This is the bug that motivated the new pattern: 'Lowest' preset on
-    a 189-image flight rejected every image and the user got the bare
-    'Cannot process dataset' message.
+    This is the bug that motivated the new pattern: the lowest preset
+    on a 189-image flight rejected every image and the user got the
+    bare 'Cannot process dataset' message.
     """
     detail = _diagnose_odm_failure(OPENMVS_ZERO_IMAGES_LOG)
     assert detail, "Expected a non-empty diagnosis for the OpenMVS-0-images case"
@@ -96,7 +96,8 @@ def test_openmvs_rejects_all_images_pattern():
     # The hint must mention raising the quality preset — that is the
     # actionable next step the user has from the UI.
     assert "Reconstruction quality" in detail or "quality preset" in detail
-    assert "Lowest" in detail or "Low" in detail
+    # Should name at least one current preset by name.
+    assert "Draft" in detail or "Standard" in detail
 
 
 def test_openmvs_rejects_all_images_via_no_valid_pointcloud_alone():
@@ -216,3 +217,59 @@ def test_oom_killer_still_wins_over_low_vmem_branch():
     ]
     detail = _diagnose_odm_failure(log)
     assert "out-of-memory" in detail.lower()
+
+
+# Real log tail captured from the 2026-05-18 Bean Drone Test 'Low'-preset
+# failure on a 7.65 GiB Docker Desktop VM. SfM and MVS both completed
+# (depth-map fusion to ~2.7M points succeeded); the kernel SIGKILL'd
+# the texrecon subprocess and ODM surfaced the textbook "Whoops! You ran
+# out of memory!" block. The original 'Low' preset only tuned SfM/MVS,
+# which don't affect texturing memory — fixed by clamping max-concurrency
+# and mesh-size in the preset itself.
+TEXTURING_OOM_LOG = [
+    "[INFO]    Running mvs_texturing stage",
+    "[INFO]    running \"/code/SuperBuild/install/bin/texrecon\" "
+    "\"/var/www/data/.../opensfm/undistorted/reconstruction.nvm\" "
+    "\"/var/www/data/.../odm_meshing/odm_mesh.ply\" "
+    "\"/var/www/data/.../odm_texturing/odm_textured_model_geo\" "
+    "-d gmi -o gauss_clamping -t none --no_intermediate_results "
+    "    --max_texture_size=8192",
+    "Running... Killed",
+    "File \"/code/stages/odm_app.py\", line 82, in execute",
+    "  self.first_stage.run()",
+    "File \"/code/stages/mvstex.py\", line 119, in process",
+    "[ERROR]   Whoops! You ran out of memory! Add more RAM to your "
+    "computer, if you're using docker configure it to use more memory, "
+    "for WSL2 make use of .wslconfig "
+    "(https://docs.microsoft.com/en-us/windows/wsl/wsl-config"
+    "#configure-global-options-with-wslconfig), resize your images, "
+    "lower the quality settings or process the images using a cloud "
+    "provider (e.g. https://webodm.net).",
+]
+
+
+def test_texturing_oom_routes_to_concurrency_hint():
+    """The mvs_texturing OOM has a distinct signature: 'Whoops! You ran
+    out of memory!' from ODM's own error block. The diagnosis must point
+    at the Draft preset (smaller ortho canvas) or raising Docker memory
+    rather than the depth-fusion hint — those are how the user actually
+    recovers.
+    """
+    detail = _diagnose_odm_failure(TEXTURING_OOM_LOG)
+    assert detail
+    assert "texturing" in detail.lower()
+    # The actionable next step is Draft preset or Docker memory.
+    assert "Draft" in detail or "Docker" in detail
+
+
+def test_texturing_oom_does_not_collide_with_depth_fusion_hint():
+    """Texturing OOM and depth-fusion OOM both involve 'Killed' but want
+    different diagnoses — depth-fusion blames OpenMVS depthmaps, texturing
+    blames max-concurrency. The texrecon log has no 'depth-maps' or
+    'Could not compute dense point cloud' string, so the original
+    OOM-killer branch must NOT catch it and shadow the texturing hint.
+    """
+    detail = _diagnose_odm_failure(TEXTURING_OOM_LOG)
+    # The depth-fusion message starts with "out-of-memory during
+    # depth-map fusion" — must not appear here.
+    assert "depth-map fusion" not in detail.lower()

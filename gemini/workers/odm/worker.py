@@ -55,53 +55,59 @@ GCP_SIDECAR_FILENAMES = ("gcp_list.txt", "geo.txt")
 # both the staged image set and the geo.txt rows we forward to NodeODM.
 IMAGE_FILTER_FILENAME = "image_filter.txt"
 
-# Default ODM options for "Default" quality.
-# Matches the original Flask backend behavior:
-# - No --fast-orthophoto (full quality reconstruction)
-# - High resolution (0.25 cm/pixel) for datasets < 500 images
-# - DSM generation enabled
+# Default ODM options. Match main's `run_orthomosaic` defaults
+# (backend/app/processing/aerial.py): --dsm at 3 cm/px for both ortho
+# and DEM, --skip-report to dodge the NumPy 2.x / GDAL incompatibility
+# in ODM's report stage. Quality presets layer on top of this; "Custom"
+# / None / unknown quality strings yield these unchanged.
+#
+# The historical 0.25 cm/px default on this branch produced ~20k×20k
+# px ortho canvases that OOM-killed texrecon on a stock Docker Desktop
+# install. 3 cm/px keeps us inside the memory envelope main targets
+# and matches the visual quality users have been getting from main.
 DEFAULT_OPTIONS = [
-    {"name": "orthophoto-resolution", "value": 0.25},
-    {"name": "dem-resolution", "value": 0.25},
+    {"name": "orthophoto-resolution", "value": 3},
+    {"name": "dem-resolution", "value": 3},
     {"name": "dsm", "value": True},
+    {"name": "skip-report", "value": True},
 ]
 
 
 # Reconstruction-quality presets exposed by the OrthomosaicTool dropdown.
 # Each preset is a flat list of NodeODM `{name, value}` overrides that get
-# merged into DEFAULT_OPTIONS at submit time. The pre-existing UI exposed
-# these labels for months without the worker honoring any of them — the
-# silent decorative dropdown is now backed by real flag mappings.
-#
-# Memory budget: NodeODM's default is "high" feature-quality + "medium"
-# pc-quality + 1280px depth maps, which needs ~15-25 GiB RAM for a
-# few-hundred-image flight. Lowest is tuned to finish on a 7-8 GiB
-# Docker engine cap; Ultra is for users with 32 GiB+ headroom.
+# merged into DEFAULT_OPTIONS at submit time.
+# Preset table is a 1:1 port of main's `ODM_PRESETS`
+# (backend/app/processing/aerial.py + ProcessingPipeline.tsx). Same names,
+# same cm/px, same pc/feature qualities. We keep the migrated stack
+# producing the same orthos main produced — diverging silently is what
+# got us into trouble (every prior preset divergence on this branch
+# either OOM'd at texrecon or ran at a different resolution than the
+# user expected). Custom is handled separately by the worker (the
+# textbox path), not as a preset row.
 QUALITY_PRESETS: dict[str, list[dict]] = {
-    "Lowest": [
-        {"name": "feature-quality", "value": "lowest"},
-        {"name": "pc-quality", "value": "lowest"},
-        {"name": "depthmap-resolution", "value": 320},
-        {"name": "max-concurrency", "value": 4},
-    ],
-    "Low": [
+    "Draft": [
         {"name": "feature-quality", "value": "low"},
-        {"name": "pc-quality", "value": "low"},
-        {"name": "depthmap-resolution", "value": 512},
+        {"name": "pc-quality", "value": "lowest"},
+        {"name": "orthophoto-resolution", "value": 5},
+        {"name": "dem-resolution", "value": 5},
     ],
-    "Medium": [
-        {"name": "feature-quality", "value": "medium"},
-        {"name": "pc-quality", "value": "medium"},
-        {"name": "depthmap-resolution", "value": 640},
-    ],
-    "High": [
+    "Standard": [
         {"name": "feature-quality", "value": "high"},
+        {"name": "pc-quality", "value": "medium"},
+        {"name": "orthophoto-resolution", "value": 3},
+        {"name": "dem-resolution", "value": 3},
+    ],
+    "High Quality": [
+        {"name": "feature-quality", "value": "ultra"},
         {"name": "pc-quality", "value": "high"},
+        {"name": "orthophoto-resolution", "value": 2},
+        {"name": "dem-resolution", "value": 2},
     ],
     "Ultra": [
         {"name": "feature-quality", "value": "ultra"},
         {"name": "pc-quality", "value": "ultra"},
-        {"name": "depthmap-resolution", "value": 1280},
+        {"name": "orthophoto-resolution", "value": 1},
+        {"name": "dem-resolution", "value": 1},
     ],
 }
 
@@ -199,7 +205,8 @@ def _smooth_progress(
 def _apply_quality_preset(quality: str | None) -> list[dict]:
     """Return DEFAULT_OPTIONS with the matching quality-preset overrides
     merged in (preset values win on key collisions). Unknown / empty
-    quality strings (`Default`, `Custom`, `None`) just yield DEFAULT_OPTIONS.
+    quality strings (`Custom`, `None`, anything not in QUALITY_PRESETS)
+    just yield DEFAULT_OPTIONS unchanged.
 
     Returns a fresh list so callers can mutate without polluting module
     state. Pure function — covered by pytest in
@@ -405,6 +412,23 @@ def _diagnose_odm_failure(log_lines: list[str]) -> str:
             "smaller `--depthmap-resolution`."
         )
 
+    # OOM at the texturing stage. Distinct signature from depth-map OOM:
+    # texrecon prints "Running..." then the kernel SIGKILL appends "Killed"
+    # on the same line, and ODM explicitly surfaces "Whoops! You ran out
+    # of memory!" in its error block. Texturing memory is dominated by
+    # the per-image working set, which the SfM/MVS quality knobs don't
+    # touch — the practical lever is the ortho canvas size
+    # (orthophoto-resolution) and the Docker memory cap.
+    if "Whoops! You ran out of memory" in tail or (
+        "Killed" in tail and "mvstex" in tail
+    ):
+        return (
+            "out-of-memory during texturing (mvs_texturing). Retry with the "
+            "Draft quality preset (5 cm/px ortho canvas), or raise Docker "
+            "Desktop's Memory limit (Settings → Resources → Memory) to "
+            "16 GiB+ if you need a higher tier."
+        )
+
     # Out-of-disk on the NodeODM working volume.
     if "No space left on device" in tail or "ENOSPC" in tail:
         return (
@@ -438,10 +462,10 @@ def _diagnose_odm_failure(log_lines: list[str]) -> str:
     # empty input. No "Killed" appears in the log because the kernel didn't
     # SIGKILL anything; the process self-aborted on bad memory access.
     #
-    # Cause B (preset too aggressive): on the 'Lowest' preset (pc-quality=
-    # lowest + depthmap-resolution=320) the densifier's view-selection step
-    # legitimately picks 0 of N images and DensifyPointCloud segfaults on
-    # empty input. Plenty of RAM available; just nothing to fuse.
+    # Cause B (preset too aggressive): on a Draft-class preset (pc-quality=
+    # lowest) the densifier's view-selection step legitimately picks 0 of
+    # N images and DensifyPointCloud segfaults on empty input. Plenty of
+    # RAM available; just nothing to fuse.
     empty_cloud = (
         "Selecting images for dense reconstruction completed: 0 images" in tail
         or "no valid point-cloud for the ROI estimation" in tail
@@ -480,9 +504,9 @@ def _diagnose_odm_failure(log_lines: list[str]) -> str:
         return (
             "OpenMVS rejected every image during dense reconstruction — "
             "the quality preset is likely too aggressive for this dataset. "
-            "Retry with a higher Reconstruction quality (e.g. Low or Medium "
-            "instead of Lowest), or pass `--depthmap-resolution 640` and "
-            "`--pc-quality low` via custom options."
+            "Retry with a higher Reconstruction quality (e.g. Standard or "
+            "High Quality instead of Draft), or pass `--depthmap-resolution "
+            "640` and `--pc-quality low` via custom options."
         )
 
     # SfM placed cameras outside any plausible ROI and ODM saw a flipped Z
@@ -555,12 +579,11 @@ class OdmWorker(BaseWorker):
         #   1. Explicit `custom_options` string/list always wins — the user
         #      typed CLI flags into the textbox; honor them as-is.
         #   2. Otherwise apply the `reconstruction_quality` preset
-        #      (Lowest/Low/Medium/High/Ultra) merged into DEFAULT_OPTIONS.
-        #   3. Fall back to DEFAULT_OPTIONS for `Default` / unknown values.
-        # The previous behaviour silently discarded both inputs unless
-        # quality=="Custom"; both halves are now honored.
+        #      (Draft/Standard/High Quality/Ultra) merged into DEFAULT_OPTIONS.
+        #   3. Fall back to DEFAULT_OPTIONS for `Custom` / unknown values
+        #      (DEFAULT_OPTIONS is intentionally identical to Standard).
         custom = parameters.get("custom_options")
-        quality = parameters.get("reconstruction_quality", "Default")
+        quality = parameters.get("reconstruction_quality", "Standard")
         if isinstance(custom, str) and custom.strip():
             options = _parse_custom_options(custom)
             logger.info(f"Using user-supplied custom options: {options}")
@@ -617,8 +640,22 @@ class OdmWorker(BaseWorker):
 
             # Pull GCP sidecar files (gcp_list.txt, geo.txt) from the scope
             # root (sibling of every dataset subdir) so NodeODM can use
-            # them. Absent files are skipped.
-            gcp_paths = self._download_gcp_files(client, scope_prefix, images_dir)
+            # them. Absent files are skipped. When the user clicked
+            # "Skip" in the GCP picker the frontend sends `skip_gcps:
+            # true`; honor that even if the files are still sitting in
+            # MinIO from a prior session — the UI state is the source
+            # of truth, not the sidecars on disk.
+            skip_gcps = bool(parameters.get("skip_gcps"))
+            gcp_paths = (
+                []
+                if skip_gcps
+                else self._download_gcp_files(client, scope_prefix, images_dir)
+            )
+            if skip_gcps:
+                logger.info(
+                    f"skip_gcps=true; not forwarding GCP sidecars to NodeODM "
+                    f"for job {job_id}"
+                )
             if gcp_paths:
                 # Strip excluded images from geo.txt so NodeODM doesn't
                 # complain about GPS rows for files we never staged.

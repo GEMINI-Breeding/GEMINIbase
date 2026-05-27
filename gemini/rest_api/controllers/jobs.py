@@ -294,6 +294,14 @@ class JobController(Controller):
                 update_kwargs["result"] = data.result
             if data.error_message is not None:
                 update_kwargs["error_message"] = data.error_message
+            # Stamp completed_at when the job lands in a terminal state.
+            # Workers PATCH status=COMPLETED/FAILED/CANCELLED but don't supply
+            # completed_at themselves; without this the column stays NULL and
+            # downstream consumers that read completion time get incorrect
+            # data. Job.complete()/fail()/cancel() already do this for direct
+            # in-process callers; mirror that behavior here.
+            if data.status in terminal_states and job.completed_at is None:
+                update_kwargs["completed_at"] = datetime.now()
 
             updated = job.update(**update_kwargs)
             if updated is None:

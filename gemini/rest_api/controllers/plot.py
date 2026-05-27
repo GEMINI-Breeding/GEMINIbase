@@ -155,6 +155,78 @@ class PlotController(Controller):
             )
             return Response(content=error, status_code=500)
 
+    # Plot geometry — GeoJSON FeatureCollection scoped to one
+    # (experiment, season, site). Powers the analyze-page geospatial
+    # viewer. Reads plots.plot_geometry_info populated by
+    # PlotGeometryVersion.save()/.activate() materialization. Plots
+    # without a geometry are filtered out (no point returning them).
+    @get(path="/geojson", sync_to_thread=True)
+    def get_plots_geojson(
+        self,
+        experiment_id: str,
+        season_id: str,
+        site_id: str,
+    ) -> dict:
+        try:
+            from sqlalchemy import select as _select
+            from gemini.db.core.base import db_engine
+            from gemini.db.models.plots import PlotModel
+
+            with db_engine.get_session() as session:
+                rows = (
+                    session.execute(
+                        _select(
+                            PlotModel.id,
+                            PlotModel.plot_number,
+                            PlotModel.plot_row_number,
+                            PlotModel.plot_column_number,
+                            PlotModel.accession_id,
+                            PlotModel.plot_geometry_info,
+                        )
+                        .where(PlotModel.experiment_id == experiment_id)
+                        .where(PlotModel.season_id == season_id)
+                        .where(PlotModel.site_id == site_id)
+                    )
+                    .all()
+                )
+            features = []
+            for r in rows:
+                geom_info = r.plot_geometry_info or {}
+                if not isinstance(geom_info, dict):
+                    continue
+                geom = geom_info.get("geometry")
+                if not isinstance(geom, dict):
+                    continue
+                stored_props = geom_info.get("properties") or {}
+                if not isinstance(stored_props, dict):
+                    stored_props = {}
+                # Authoritative props come from the row; anything extra
+                # the snapshot carried is preserved underneath.
+                props = {
+                    **stored_props,
+                    "plot_id": str(r.id) if r.id is not None else None,
+                    "plot_number": r.plot_number,
+                    "plot_row_number": r.plot_row_number,
+                    "plot_column_number": r.plot_column_number,
+                    "accession_id": str(r.accession_id)
+                    if r.accession_id is not None
+                    else None,
+                }
+                features.append(
+                    {
+                        "type": "Feature",
+                        "geometry": geom,
+                        "properties": props,
+                    }
+                )
+            return {"type": "FeatureCollection", "features": features}
+        except Exception as e:
+            error = RESTAPIError(
+                error=str(e),
+                error_description="An error occurred while building plot GeoJSON",
+            )
+            return Response(content=error, status_code=500)
+
     # Update Plot
     @patch(path="/id/{plot_id:str}", sync_to_thread=True)
     def update_plot(
