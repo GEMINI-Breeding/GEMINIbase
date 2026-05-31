@@ -25,7 +25,7 @@ from uuid import UUID
 
 from pydantic import Field, AliasChoices
 import logging
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from gemini.api.types import ID
@@ -203,10 +203,23 @@ class Plot(APIBase):
 
         Resolves experiment / season / site / accession / population names to IDs
         via one SELECT per entity type, then issues a single
-        ``INSERT ... ON CONFLICT DO NOTHING`` for all rows. This replaces the
+        ``INSERT ... ON CONFLICT DO UPDATE`` for all rows. This replaces the
         per-plot path (5 SELECTs + 1 get_or_create per plot) used by
         :meth:`create`, which does not scale for the import wizard where a
         single spreadsheet can carry thousands of unique plots.
+
+        On conflict (a plot with the same identity already exists), the row's
+        ``accession_id`` / ``population_id`` are refreshed from the incoming
+        values **only when those are non-NULL** (``COALESCE(EXCLUDED, plots)``).
+        This is required for correctness on re-import: ``ON CONFLICT DO NOTHING``
+        kept the *first* germplasm a plot was ever created with and silently
+        dropped later corrections, so a retry after a failed/mis-mapped import
+        resolved trait records to a stale plot accession and the
+        ``populate_trait_record_ids`` trigger raised "Accession mismatch". The
+        COALESCE guard also means a later plot-less / germplasm-less row can't
+        wipe an existing accession back to NULL. (True intra-import conflicts —
+        two different accessions for the same plot in one batch — still surface
+        via the trigger, which is correct: one plot can't hold two germplasm.)
 
         Args:
             plots: A list of dicts matching ``PlotInput`` — each with
@@ -282,7 +295,12 @@ class Plot(APIBase):
                     ).all()
                     pop_id_by_name = {r.population_name: r.id for r in rows}
 
-            rows_to_insert = []
+            # Dedup by the conflict key (last row wins). Postgres rejects an
+            # ON CONFLICT DO UPDATE whose VALUES list names the same conflict
+            # target twice ("cannot affect row a second time"), so collapse
+            # duplicates here. Last-wins matches the upsert semantics: the
+            # final germplasm/population supplied for a plot is the one kept.
+            rows_by_key: dict = {}
             skipped = 0
             for p in plots:
                 exp_name = p.get("experiment_name")
@@ -298,7 +316,15 @@ class Plot(APIBase):
                     skipped += 1
                     continue
 
-                rows_to_insert.append({
+                key = (
+                    experiment_id,
+                    season_id,
+                    site_id,
+                    p["plot_number"],
+                    p["plot_row_number"],
+                    p["plot_column_number"],
+                )
+                rows_by_key[key] = {
                     "plot_number": p["plot_number"],
                     "plot_row_number": p["plot_row_number"],
                     "plot_column_number": p["plot_column_number"],
@@ -309,7 +335,9 @@ class Plot(APIBase):
                     "population_id": pop_id_by_name.get(p.get("population_name")) if p.get("population_name") else None,
                     "plot_info": p.get("plot_info") or {},
                     "plot_geometry_info": p.get("plot_geometry_info") or {},
-                })
+                }
+
+            rows_to_insert = list(rows_by_key.values())
 
             if skipped:
                 logger.warning(
@@ -320,7 +348,8 @@ class Plot(APIBase):
                 return True, 0, skipped
 
             with db_engine.get_session() as session:
-                stmt = pg_insert(PlotModel.__table__).values(rows_to_insert).on_conflict_do_nothing(
+                stmt = pg_insert(PlotModel.__table__).values(rows_to_insert)
+                stmt = stmt.on_conflict_do_update(
                     index_elements=[
                         "experiment_id",
                         "season_id",
@@ -328,7 +357,21 @@ class Plot(APIBase):
                         "plot_number",
                         "plot_row_number",
                         "plot_column_number",
-                    ]
+                    ],
+                    # Refresh germplasm/population from the incoming row, but
+                    # only when supplied — never overwrite an existing link
+                    # with NULL. See the method docstring for why DO NOTHING
+                    # was wrong here.
+                    set_={
+                        "accession_id": func.coalesce(
+                            stmt.excluded.accession_id,
+                            PlotModel.__table__.c.accession_id,
+                        ),
+                        "population_id": func.coalesce(
+                            stmt.excluded.population_id,
+                            PlotModel.__table__.c.population_id,
+                        ),
+                    },
                 )
                 session.execute(stmt)
 
@@ -346,9 +389,15 @@ class Plot(APIBase):
         site_id: str,
         features: List[dict],
         accession_id_by_name: Optional[dict] = None,
+        population_id: Optional[str] = None,
     ) -> Tuple[bool, int, int]:
         """Upsert `plots` rows from GeoJSON-ish features within a fixed
         (experiment_id, season_id, site_id) scope.
+
+        `population_id` (optional) is stamped on every upserted row so that
+        plot-linked trait records inherit population via the
+        populate_trait_record_ids trigger — `plot_number` is unique only
+        within a population, which is what the analyze map joins on.
 
         Used by the plot-geometry-version save/activate hook to materialize
         a `plots` row for every polygon in the active snapshot, so that the
@@ -465,6 +514,7 @@ class Plot(APIBase):
                         "plot_row_number": plot_row,
                         "plot_column_number": plot_col,
                         "accession_id": accession_id,
+                        "population_id": population_id,
                         "plot_info": {},
                         "plot_geometry_info": geometry_info,
                     }
@@ -487,6 +537,7 @@ class Plot(APIBase):
                     set_={
                         "plot_geometry_info": stmt.excluded.plot_geometry_info,
                         "accession_id": stmt.excluded.accession_id,
+                        "population_id": stmt.excluded.population_id,
                     },
                 )
                 session.execute(stmt)
