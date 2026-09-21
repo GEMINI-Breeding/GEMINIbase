@@ -49,7 +49,13 @@ services:
       - db
     
   storage-init:
-    image: minio/mc:latest
+    # quay.io, not Docker Hub: the docker.io/minio/mc and
+    # docker.io/minio/minio repositories were removed upstream, so
+    # `docker pull minio/mc` now fails with "pull access denied /
+    # repository does not exist". quay.io/minio is MinIO's own registry
+    # and still carries both. Machines with a cached copy kept working,
+    # which is why this only surfaced in CI.
+    image: quay.io/minio/mc:latest
     networks:
       - geminibase_network
     depends_on:
