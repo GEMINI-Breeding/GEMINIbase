@@ -818,10 +818,17 @@ class Trait(APIBase):
         plot_row_numbers: List[int] = None,
         plot_column_numbers: List[int] = None,
         accession_names: List[str] = None,
+        population_name: str = None,
         record_info: List[dict] = None
     ) -> tuple[bool, List[str]]:
         """
         Insert multiple trait records for this trait.
+
+        ``population_name`` is a single value applied to every record in the
+        batch (a bulk insert is scoped to one population). The DB trigger
+        resolves it to ``population_id`` and backfills from the plot when
+        NULL. Population is what the analyze map joins on, since
+        ``plot_number`` is unique only within a population.
 
         Examples:
             >>> trait = Trait.get("Leaf Area Index")
@@ -884,6 +891,7 @@ class Trait(APIBase):
                     plot_row_number=plot_row_numbers[i] if plot_row_numbers else None,
                     plot_column_number=plot_column_numbers[i] if plot_column_numbers else None,
                     accession_name=accession_names[i] if accession_names else None,
+                    population_name=population_name,
                     record_info=record_info[i] if record_info else {},
                     insert_on_create=False
                 )
@@ -908,6 +916,7 @@ class Trait(APIBase):
         experiment_name: str = None,
         season_name: str = None,
         site_name: str = None,
+        population_name: str = None,
         plot_number: int = None,
         plot_row_number: int = None,
         plot_column_number: int = None,
@@ -958,6 +967,7 @@ class Trait(APIBase):
                 experiment_name=experiment_name,
                 season_name=season_name,
                 site_name=site_name,
+                population_name=population_name,
                 plot_number=plot_number,
                 plot_row_number=plot_row_number,
                 plot_column_number=plot_column_number,

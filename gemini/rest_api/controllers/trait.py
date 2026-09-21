@@ -354,6 +354,7 @@ class TraitController(Controller):
                 plot_row_numbers=plot_row_numbers if any(p is not None for p in plot_row_numbers) else None,
                 plot_column_numbers=plot_column_numbers if any(p is not None for p in plot_column_numbers) else None,
                 accession_names=accession_names if any(a is not None for a in accession_names) else None,
+                population_name=data.population_name,
                 record_info=record_infos,
             )
 
@@ -385,6 +386,7 @@ class TraitController(Controller):
         experiment_name: Optional[str] = None,
         season_name: Optional[str] = None,
         site_name: Optional[str] = None,
+        population_name: Optional[str] = None,
         plot_number: Optional[int] = None,
         plot_row_number: Optional[int] = None,
         plot_column_number: Optional[int] = None,
@@ -402,6 +404,7 @@ class TraitController(Controller):
                 experiment_name=experiment_name,
                 season_name=season_name,
                 site_name=site_name,
+                population_name=population_name,
                 plot_number=plot_number,
                 plot_row_number=plot_row_number,
                 plot_column_number=plot_column_number,

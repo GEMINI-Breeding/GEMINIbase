@@ -334,6 +334,11 @@ def ingest_extracted_traits(
             "experiment_name": scope["experiment_name"],
             "season_name": scope["year"],
             "site_name": scope["site_name"],
+            # Population scopes the records so the analyze map can join by
+            # plot_number (unique only within a population). The trigger
+            # also backfills it from the plot, but sending it explicitly
+            # covers plot-less records too.
+            "population_name": scope["population_name"],
             "dataset_name": dataset_name,
             "collection_date": f"{scope['date']}T00:00:00",
         }

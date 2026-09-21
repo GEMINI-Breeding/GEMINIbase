@@ -83,6 +83,8 @@ class TraitRecord(APIBase):
     plot_column_number: Optional[int] = None
     accession_id: Optional[ID] = None
     accession_name: Optional[str] = None
+    population_id: Optional[ID] = None
+    population_name: Optional[str] = None
     record_info: Optional[dict] = None
 
     def __str__(self):
@@ -169,6 +171,7 @@ class TraitRecord(APIBase):
         plot_row_number: int = None,
         plot_column_number: int = None,
         accession_name: str = None,
+        population_name: str = None,
         record_info: dict = None,
         insert_on_create: bool = True
     ) -> Optional["TraitRecord"]:
@@ -245,6 +248,9 @@ class TraitRecord(APIBase):
                 # client-side. NULL is the "orphan / no germplasm
                 # column mapped" case and remains legal.
                 accession_name=accession_name,
+                # Likewise the trigger resolves population_name →
+                # population_id (and backfills from the plot when NULL).
+                population_name=population_name,
                 record_info=record_info
             )
             if insert_on_create:
@@ -429,6 +435,7 @@ class TraitRecord(APIBase):
         experiment_name: str = None,
         site_name: str = None,
         season_name: str = None,
+        population_name: str = None,
         plot_number: int = None,
         plot_row_number: int = None,
         plot_column_number: int = None,
@@ -460,7 +467,7 @@ class TraitRecord(APIBase):
             TraitRecord: Matching trait records.
         """
         try:
-            if not any([dataset_name, trait_name, trait_value, experiment_name, site_name, season_name, plot_number, plot_row_number, plot_column_number, collection_date, record_info]):
+            if not any([dataset_name, trait_name, trait_value, experiment_name, site_name, season_name, population_name, plot_number, plot_row_number, plot_column_number, collection_date, record_info]):
                 logger.warning("At least one search parameter must be provided.")
                 return
             records = TraitRecordsIMMVModel.stream(
@@ -470,6 +477,7 @@ class TraitRecord(APIBase):
                 experiment_name=experiment_name,
                 site_name=site_name,
                 season_name=season_name,
+                population_name=population_name,
                 plot_number=plot_number,
                 plot_row_number=plot_row_number,
                 plot_column_number=plot_column_number,

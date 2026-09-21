@@ -632,6 +632,8 @@ DECLARE
     acc_id UUID;
     plot_acc_id UUID;
     plot_acc_name TEXT;
+    pop_id UUID;
+    plot_pop_id UUID;
 BEGIN
     -- Check if the trait, dataset, experiment, season, and site are valid
     IF NOT gemini.check_trait_validity(NEW.trait_name, NEW.dataset_name, NEW.experiment_name, NEW.season_name, NEW.site_name) THEN
@@ -680,10 +682,23 @@ BEGIN
         NEW.accession_id := acc_id;
     END IF;
 
-    -- If we resolved a plot, check / backfill from the plot's accession.
+    -- Resolve population_name → population_id. Population names are
+    -- globally unique in gemini.populations. NULL name leaves the record
+    -- unscoped-by-population (still legal). See alembic 0009.
+    IF NEW.population_name IS NOT NULL THEN
+        SELECT id INTO pop_id FROM gemini.populations
+        WHERE population_name = NEW.population_name;
+        IF pop_id IS NULL THEN
+            RAISE EXCEPTION 'No population found with name %', NEW.population_name;
+        END IF;
+        NEW.population_id := pop_id;
+    END IF;
+
+    -- If we resolved a plot, check / backfill from the plot's accession
+    -- and population.
     IF NEW.plot_id IS NOT NULL THEN
-        SELECT p.accession_id, a.accession_name
-          INTO plot_acc_id, plot_acc_name
+        SELECT p.accession_id, a.accession_name, p.population_id
+          INTO plot_acc_id, plot_acc_name, plot_pop_id
           FROM gemini.plots p
           LEFT JOIN gemini.accessions a ON a.id = p.accession_id
          WHERE p.id = NEW.plot_id;
@@ -704,6 +719,11 @@ BEGIN
             IF NEW.accession_name IS NULL THEN
                 NEW.accession_name := plot_acc_name;
             END IF;
+        END IF;
+        -- Backfill population from the plot (authoritative for
+        -- plot-linked records — it's what boundary materialization set).
+        IF plot_pop_id IS NOT NULL AND NEW.population_id IS NULL THEN
+            NEW.population_id := plot_pop_id;
         END IF;
     END IF;
 

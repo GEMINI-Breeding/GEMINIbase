@@ -166,6 +166,7 @@ class PlotController(Controller):
         experiment_id: str,
         season_id: str,
         site_id: str,
+        population_id: Optional[str] = None,
     ) -> dict:
         try:
             from sqlalchemy import select as _select
@@ -173,22 +174,26 @@ class PlotController(Controller):
             from gemini.db.models.plots import PlotModel
 
             with db_engine.get_session() as session:
-                rows = (
-                    session.execute(
-                        _select(
-                            PlotModel.id,
-                            PlotModel.plot_number,
-                            PlotModel.plot_row_number,
-                            PlotModel.plot_column_number,
-                            PlotModel.accession_id,
-                            PlotModel.plot_geometry_info,
-                        )
-                        .where(PlotModel.experiment_id == experiment_id)
-                        .where(PlotModel.season_id == season_id)
-                        .where(PlotModel.site_id == site_id)
+                query = (
+                    _select(
+                        PlotModel.id,
+                        PlotModel.plot_number,
+                        PlotModel.plot_row_number,
+                        PlotModel.plot_column_number,
+                        PlotModel.accession_id,
+                        PlotModel.plot_geometry_info,
                     )
-                    .all()
+                    .where(PlotModel.experiment_id == experiment_id)
+                    .where(PlotModel.season_id == season_id)
+                    .where(PlotModel.site_id == site_id)
                 )
+                # Optional population narrowing: plot_number is unique only
+                # within a population, so the analyze map passes population_id
+                # to get a clean plot_number join. Omitted → all populations
+                # in this experiment/season/site (back-compatible).
+                if population_id:
+                    query = query.where(PlotModel.population_id == population_id)
+                rows = session.execute(query).all()
             features = []
             for r in rows:
                 geom_info = r.plot_geometry_info or {}

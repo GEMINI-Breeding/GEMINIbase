@@ -1240,6 +1240,7 @@ class TraitRecordBulkInput(RESTAPIBase):
     experiment_name: Optional[str] = None
     season_name: Optional[str] = None
     site_name: Optional[str] = None
+    population_name: Optional[str] = None
     dataset_name: Optional[str] = None
     collection_date: Optional[datetime] = None
 

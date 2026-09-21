@@ -193,12 +193,38 @@ def _materialize_plots_from_snapshot(
                 except Exception:
                     continue
 
+        # Resolve population by name (4th path segment). Population names
+        # are globally unique. Auto-create if missing so the analyze map can
+        # population-scope this scope's plots without a separate "create
+        # population" step (mirrors the season/site auto-create above).
+        # plot_number is unique only within a population, so stamping it on
+        # the plots is what lets trait records join by plot_number.
+        from gemini.api.population import Population
+
+        pop_id = None
+        pop_name = scope.get("population_name")
+        if isinstance(pop_name, str) and pop_name:
+            pop = Population.get(population_name=pop_name)
+            if pop is None or pop.id is None:
+                try:
+                    Population.create(population_name=pop_name)
+                    pop = Population.get(population_name=pop_name)
+                except Exception as e:
+                    logger.info(
+                        f"Plot materialization: failed to auto-create population "
+                        f"{pop_name!r}: {e}; plots will be unscoped-by-population."
+                    )
+                    pop = None
+            if pop is not None and pop.id is not None:
+                pop_id = str(pop.id)
+
         ok, upserted, skipped = Plot.upsert_from_features(
             experiment_id=str(exp.id),
             season_id=str(sea.id),
             site_id=str(sit.id),
             features=features,
             accession_id_by_name=acc_id_by_name,
+            population_id=pop_id,
         )
         if not ok:
             logger.warning(

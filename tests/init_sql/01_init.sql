@@ -728,6 +728,11 @@ CREATE TABLE IF NOT EXISTS gemini.trait_records (
     -- FK behavior.
     accession_id UUID,
     accession_name TEXT,
+    -- Mirrors alembic 0009_trait_records_population + the matching block
+    -- in init_sql/scripts/4_init_columnar.sql. The ORM model writes these
+    -- on every INSERT, so the test DB must carry them too.
+    population_id UUID,
+    population_name TEXT,
     record_info JSONB NOT NULL DEFAULT '{}'
 );
 ALTER TABLE gemini.trait_records ADD CONSTRAINT trait_records_unique UNIQUE NULLS NOT DISTINCT (

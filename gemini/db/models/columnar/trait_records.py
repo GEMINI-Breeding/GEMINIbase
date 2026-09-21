@@ -78,6 +78,13 @@ class TraitRecordModel(ColumnarBaseModel):
     # the populate_trait_record_ids trigger RAISEs on bad names.
     accession_id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), nullable=True)
     accession_name: Mapped[str] = mapped_column(Text, nullable=True)
+    # Added in alembic 0009. NULL when the record carried no population
+    # and no plot to derive one from. No FK constraint (columnar table);
+    # the populate_trait_record_ids trigger resolves name → id and
+    # backfills from the plot. Lets the analyze map join by plot_number
+    # within a population (plot_number is unique only within population).
+    population_id: Mapped[UUID] = mapped_column(UUID(as_uuid=True), nullable=True)
+    population_name: Mapped[str] = mapped_column(Text, nullable=True)
     record_info: Mapped[dict] = mapped_column(JSONB)
 
     __table_args__ = (

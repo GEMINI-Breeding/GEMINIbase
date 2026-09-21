@@ -118,6 +118,14 @@ CREATE TABLE IF NOT EXISTS gemini.trait_records (
     -- support them — the trigger RAISEs on bad names instead.
     accession_id UUID,
     accession_name TEXT,
+    -- Direct trait_record -> population link, populated by the
+    -- populate_trait_record_ids trigger (resolves population_name ->
+    -- population_id and backfills from the plot's population). Lets the
+    -- analyze map join by plot_number within a population — plot_number
+    -- is unique only within a population, not across an experiment/
+    -- season/site. See alembic 0009_trait_records_population.py.
+    population_id UUID,
+    population_name TEXT,
     record_info JSONB NOT NULL DEFAULT '{}'
 ) USING columnar;
 

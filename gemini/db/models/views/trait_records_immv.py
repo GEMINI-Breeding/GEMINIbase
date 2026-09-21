@@ -33,4 +33,9 @@ class TraitRecordsIMMVModel(BaseModel):
     # base table; pg_ivm's IMMV refresh keeps the values in sync.
     accession_id : Mapped[UUID] = mapped_column(UUID(as_uuid=True), nullable=True)
     accession_name : Mapped[str] = mapped_column(Text, nullable=True)
+    # Added in alembic 0009 — direct trait_record → population link. The
+    # analyze map joins by plot_number, which is unique only within a
+    # population. Mirrors the columnar base table; pg_ivm keeps it in sync.
+    population_id : Mapped[UUID] = mapped_column(UUID(as_uuid=True), nullable=True)
+    population_name : Mapped[str] = mapped_column(Text, nullable=True)
     record_info : Mapped[dict] = mapped_column(JSONB)
