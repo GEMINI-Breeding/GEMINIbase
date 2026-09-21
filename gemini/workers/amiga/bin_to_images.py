@@ -18,8 +18,15 @@ from datetime import datetime, timezone
 from scipy.spatial import KDTree
 from scipy.interpolate import interp1d
 from google.protobuf import json_format
-from kornia_rs import ImageDecoder
-from kornia.core import tensor
+# kornia.core stopped re-exporting `tensor`, which broke every
+# EXTRACT_BINARY job with "cannot import name 'tensor' from
+# 'kornia.core'". It was only ever torch's `tensor`, so import it from
+# torch directly. kornia itself is still used for the depth geometry in
+# `process_disparity` (K.geometry.depth.*), so the `import kornia as K`
+# above stays. Upstream GEMINI-App made the same swap in 41c1283 but
+# also dropped `import kornia as K` while keeping those K.geometry
+# calls — don't copy that half of it.
+from torch import tensor
 from typing import List, Dict, Optional
 
 from farm_ng.oak import oak_pb2
@@ -257,9 +264,6 @@ def extract_images(
     cols = ['sequence_num'] + image_topics_location
     ts_df: pd.DataFrame = pd.DataFrame(columns=cols) 
     
-    # define image decoder
-    image_decoder = ImageDecoder()
-
     # loop through each topic
     for topic_name in image_topics:
         
@@ -296,7 +300,13 @@ def extract_images(
 
             # save image
             if "disparity" in topic_name:
-                img = image_decoder.decode(sample.image_data)
+                # Was kornia_rs ImageDecoder; cv2 with IMREAD_UNCHANGED
+                # preserves the 16-bit disparity payload just the same and
+                # drops the kornia-rs dependency (upstream 41c1283).
+                img = cv2.imdecode(
+                    np.frombuffer(sample.image_data, dtype="uint8"),
+                    cv2.IMREAD_UNCHANGED,
+                )
                 
                 if calibrations is None or camera_name not in calibrations:
                     # Just save the raw disparity image if no calibration is available

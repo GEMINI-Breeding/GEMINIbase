@@ -1085,6 +1085,14 @@ RETURNS TABLE (
     "plot_column_number" INTEGER,
     "accession_id" UUID,
     "accession_name" TEXT,
+    -- Added alongside alembic 0010. This RETURNS TABLE list pins what
+    -- TraitRecord.filter() can ever see, so every column added to
+    -- gemini.trait_records must be added here too — 0006 (accession) and
+    -- 0009 (population) both missed it, which left filter() handing back
+    -- NULL accessions and made ANOVA/heritability/GGE/MANOVA report
+    -- "insufficient_data" over complete datasets.
+    "population_id" UUID,
+    "population_name" TEXT,
     "record_info" JSONB
 )
 LANGUAGE plpgsql
@@ -1112,6 +1120,8 @@ BEGIN
         tr.plot_column_number,
         tr.accession_id,
         tr.accession_name,
+        tr.population_id,
+        tr.population_name,
         tr.record_info
     FROM
         gemini.trait_records tr
