@@ -253,13 +253,6 @@ class GeoWorker(BaseWorker):
             year, experiment, location, population, date: Path components
             boundaries: GeoJSON FeatureCollection with plot polygons (WGS84)
         """
-        import json
-        import numpy as np
-        import rasterio
-        from rasterio.mask import mask as rio_mask
-        from rasterio.warp import transform_geom
-        from PIL import Image
-
         year = parameters["year"]
         experiment = parameters["experiment"]
         location = parameters["location"]
@@ -269,7 +262,9 @@ class GeoWorker(BaseWorker):
 
         features = boundaries.get("features", [])
         if not features:
-            return {"plots_processed": 0, "error": "No plot boundaries provided"}
+            # Fail, don't "succeed" with nothing done: the step would turn
+            # green and the user would find no plot images later.
+            raise ValueError("No plot boundaries provided")
 
         client = _get_minio_client()
         base_prefix = f"Processed/{year}/{experiment}/{location}/{population}/{date}/"
@@ -283,35 +278,54 @@ class GeoWorker(BaseWorker):
         # folder and skip pyramids — splitting always operates on the
         # latest ortho.
         orthomosaics: list[str] = []
-        try:
-            candidates_by_folder: dict[str, tuple[str, object]] = {}
-            objects = client.list_objects(STORAGE_BUCKET, prefix=base_prefix, recursive=True)
-            for obj in objects:
-                name = obj.object_name
-                basename = name.rsplit("/", 1)[-1]
-                if not basename.startswith("odm_orthophoto"):
-                    continue
-                if not (basename.endswith(".tif") or basename.endswith(".tiff")):
-                    continue
-                if "-Pyramid." in basename:
-                    continue
-                folder = name.rsplit("/", 1)[0]
-                lm = getattr(obj, "last_modified", None)
-                existing = candidates_by_folder.get(folder)
-                if existing is None:
-                    candidates_by_folder[folder] = (name, lm)
-                elif lm is not None and (existing[1] is None or lm > existing[1]):
-                    candidates_by_folder[folder] = (name, lm)
-            orthomosaics = [path for path, _ in candidates_by_folder.values()]
-        except Exception as e:
-            logger.error(f"Error listing objects: {e}")
-            return {"plots_processed": 0, "error": str(e)}
+        explicit = parameters.get("orthomosaic_path")
+        if explicit:
+            # The run's chosen ortho — required for imported orthos, which
+            # live under Raw/…/Orthomosaic/ where discovery never looks.
+            orthomosaics = [explicit]
+        else:
+            try:
+                candidates_by_folder: dict[str, tuple[str, object]] = {}
+                objects = client.list_objects(
+                    STORAGE_BUCKET, prefix=base_prefix, recursive=True
+                )
+                for obj in objects:
+                    name = obj.object_name
+                    basename = name.rsplit("/", 1)[-1]
+                    if not basename.startswith("odm_orthophoto"):
+                        continue
+                    if not (basename.endswith(".tif") or basename.endswith(".tiff")):
+                        continue
+                    if "-Pyramid." in basename:
+                        continue
+                    folder = name.rsplit("/", 1)[0]
+                    lm = getattr(obj, "last_modified", None)
+                    existing = candidates_by_folder.get(folder)
+                    if existing is None:
+                        candidates_by_folder[folder] = (name, lm)
+                    elif lm is not None and (existing[1] is None or lm > existing[1]):
+                        candidates_by_folder[folder] = (name, lm)
+                orthomosaics = [path for path, _ in candidates_by_folder.values()]
+            except Exception as e:
+                logger.error(f"Error listing objects: {e}")
+                raise
 
         if not orthomosaics:
-            return {"plots_processed": 0, "error": "No orthomosaics found"}
+            raise FileNotFoundError(
+                f"No orthomosaic found under {base_prefix} — run the "
+                "orthomosaic step or import one first"
+            )
 
         logger.info(f"Found {len(orthomosaics)} orthomosaic(s): {orthomosaics}")
         self.report_progress(job_id, 10, {"stage": "downloading", "orthomosaics": len(orthomosaics)})
+
+        # Heavy imports only once there is work to do.
+        import json
+        import numpy as np
+        import rasterio
+        from rasterio.mask import mask as rio_mask
+        from rasterio.warp import transform_geom
+        from PIL import Image
 
         total_plots = 0
 
@@ -320,11 +334,12 @@ class GeoWorker(BaseWorker):
                 if self.is_cancelled(job_id):
                     return {"status": "cancelled"}
 
-                # Extract platform/sensor from path
-                # Path: Processed/year/exp/loc/pop/date/platform/sensor/odm_orthophoto.tif
+                # {Processed|Raw}/year/exp/loc/pop/date/platform/sensor/…
+                # Positional, so both an ODM output (…/sensor/odm_…tif) and
+                # an imported ortho (…/sensor/Orthomosaic/x.tif) resolve.
                 parts = ortho_path.split("/")
-                platform = parts[-3]
-                sensor = parts[-2]
+                platform = parts[6]
+                sensor = parts[7]
                 output_prefix = f"Processed/{year}/{experiment}/{location}/{population}/{date}/{platform}/{sensor}/PlotImages/"
 
                 # Download orthomosaic

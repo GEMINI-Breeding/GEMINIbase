@@ -142,3 +142,57 @@ class TestProcessDroneTiff:
         worker._tif_to_png_job.assert_called_once()
         assert result["cog_path"] == "drone-Pyramid.tif"
         assert result["png_path"] == "drone.png"
+
+
+class TestSplitOrthomosaicFailsLoudly:
+    """A split that can do nothing must fail, not report success."""
+
+    PARAMS = {
+        "year": "S1",
+        "experiment": "E",
+        "location": "Davis",
+        "population": "Cowpea",
+        "date": "2024-07-10",
+    }
+
+    def _worker(self):
+        from gemini.workers.geo.worker import GeoWorker
+
+        w = GeoWorker(worker_id="test")
+        w.report_progress = MagicMock()
+        return w
+
+    def test_no_boundaries(self):
+        with pytest.raises(ValueError, match="No plot boundaries"):
+            self._worker()._split_orthomosaic_job(
+                "j", {**self.PARAMS, "boundaries": {"features": []}}
+            )
+
+    @patch("gemini.workers.geo.worker._get_minio_client")
+    def test_no_orthomosaic_found(self, mock_client):
+        mock_client.return_value.list_objects.return_value = iter([])
+        with pytest.raises(FileNotFoundError, match="No orthomosaic found"):
+            self._worker()._split_orthomosaic_job(
+                "j",
+                {**self.PARAMS, "boundaries": {"features": [{"type": "Feature"}]}},
+            )
+
+    @patch("gemini.workers.geo.worker._get_minio_client")
+    def test_explicit_path_skips_discovery(self, mock_client):
+        # An imported ortho lives under Raw/, which discovery never lists.
+        import sys
+
+        w = self._worker()
+        mock_client.return_value.fget_object.side_effect = RuntimeError("stop")
+        heavy = {m: MagicMock() for m in ("rasterio", "rasterio.mask", "rasterio.warp", "PIL")}
+        with patch.dict(sys.modules, heavy), pytest.raises(RuntimeError, match="stop"):
+            w._split_orthomosaic_job(
+                "j",
+                {
+                    **self.PARAMS,
+                    "boundaries": {"features": [{"type": "Feature"}]},
+                    "orthomosaic_path": "Raw/S1/E/Davis/Cowpea/2024-07-10/DJI/RGB/Orthomosaic/o.tif",
+                },
+            )
+        mock_client.return_value.list_objects.assert_not_called()
+        assert mock_client.return_value.fget_object.call_args.args[1].startswith("Raw/")

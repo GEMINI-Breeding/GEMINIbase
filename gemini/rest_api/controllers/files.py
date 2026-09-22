@@ -1089,15 +1089,29 @@ class FileController(Controller):
 
     @post(path="/download_zip", sync_to_thread=True)
     def download_zip(self, data: dict) -> Response:
-        """Download multiple files as a ZIP archive."""
+        """Download many files as one ZIP.
+
+        Body: ``{"files": [object names]}`` or ``{"prefix": "..."}`` (every
+        object under it), plus an optional ``"filename"`` for the download.
+
+        The archive is spooled to a temp file rather than built in memory —
+        a flight's images run to gigabytes. Entries keep their path relative
+        to the common prefix, so same-named files from different dates or
+        sensors don't collide. Already-compressed formats are stored, not
+        re-deflated. Files that can't be read are listed in MISSING.txt
+        inside the archive instead of vanishing silently.
+        """
+        import posixpath
+        import tempfile
         import zipfile
+
+        stored = (".jpg", ".jpeg", ".png", ".tif", ".tiff", ".zip", ".bin", ".gz")
         try:
             bucket = minio_storage_config.bucket_name
-            files = data.get("files", [])
-            prefix = data.get("prefix", "")
+            files = [f for f in (data.get("files") or []) if f]
+            prefix = data.get("prefix", "") or ""
 
             if prefix and not files:
-                # List all files under the prefix
                 items = minio_storage_provider.list_files(
                     bucket_name=bucket, prefix=prefix
                 )
@@ -1109,29 +1123,65 @@ class FileController(Controller):
                     status_code=400,
                 )
 
-            # Create ZIP in memory
-            zip_buffer = io.BytesIO()
-            with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+            root = prefix if prefix and all(f.startswith(prefix) for f in files) else (
+                posixpath.commonpath(files) + "/" if len(files) > 1 else posixpath.dirname(files[0]) + "/"
+            )
+            if root == "/":
+                root = ""
+
+            spool = tempfile.SpooledTemporaryFile(max_size=64 * 1024 * 1024)
+            missing: list = []
+            with zipfile.ZipFile(spool, "w", zipfile.ZIP_DEFLATED, allowZip64=True) as zf:
                 for file_path in files:
+                    arcname = file_path[len(root):] if file_path.startswith(root) else file_path
+                    compress = (
+                        zipfile.ZIP_STORED
+                        if arcname.lower().endswith(stored)
+                        else zipfile.ZIP_DEFLATED
+                    )
                     try:
                         stream = minio_storage_provider.download_file_stream(
                             object_name=file_path, bucket_name=bucket
                         )
-                        content = stream.read()
-                        stream.close()
-                        stream.release_conn()
-                        # Use just the filename in the zip
-                        arcname = file_path.split("/")[-1]
-                        zf.writestr(arcname, content)
-                    except Exception:
-                        continue
+                        try:
+                            with zf.open(
+                                zipfile.ZipInfo(arcname) if compress == zipfile.ZIP_STORED else arcname,
+                                "w",
+                                force_zip64=True,
+                            ) as dst:
+                                for chunk in stream.stream(1024 * 1024):
+                                    dst.write(chunk)
+                        finally:
+                            stream.close()
+                            stream.release_conn()
+                    except Exception as e:  # noqa: BLE001 — reported in MISSING.txt
+                        missing.append(f"{file_path}: {e}")
+                if missing:
+                    zf.writestr("MISSING.txt", "\n".join(missing) + "\n")
 
-            zip_buffer.seek(0)
+            size = spool.tell()
+            spool.seek(0)
+            filename = (data.get("filename") or "download.zip").replace('"', "")
+            if not filename.lower().endswith(".zip"):
+                filename += ".zip"
+
+            def chunks():
+                try:
+                    while True:
+                        block = spool.read(1024 * 1024)
+                        if not block:
+                            break
+                        yield block
+                finally:
+                    spool.close()
 
             return Stream(
-                content=zip_buffer,
+                content=chunks(),
                 media_type="application/zip",
-                headers={"Content-Disposition": "attachment; filename=download.zip"},
+                headers={
+                    "Content-Disposition": f'attachment; filename="{filename}"',
+                    "Content-Length": str(size),
+                },
             )
         except Exception as e:
             return Response(
