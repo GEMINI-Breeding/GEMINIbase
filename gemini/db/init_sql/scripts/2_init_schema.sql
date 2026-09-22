@@ -719,6 +719,18 @@ ALTER TABLE gemini.plot_geometry_versions ADD CONSTRAINT plot_geometry_version_u
 CREATE INDEX IF NOT EXISTS idx_plot_geometry_versions_directory ON gemini.plot_geometry_versions (directory);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_plot_geometry_versions_active ON gemini.plot_geometry_versions (directory) WHERE is_active;
 
+-- Process workspaces / pipelines / runs (formerly browser localStorage).
+CREATE TABLE IF NOT EXISTS gemini.process_entities (
+    id UUID PRIMARY KEY,
+    kind VARCHAR(16) NOT NULL CHECK (kind IN ('workspace', 'pipeline', 'run')),
+    parent_id UUID REFERENCES gemini.process_entities(id) ON DELETE CASCADE,
+    doc JSONB NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_by VARCHAR(255)
+);
+CREATE INDEX IF NOT EXISTS idx_process_entities_kind ON gemini.process_entities (kind);
+CREATE INDEX IF NOT EXISTS idx_process_entities_parent ON gemini.process_entities (parent_id);
+
 -------------------------------------------------------------------------------
 -- Experiment Files Table (Phase 9j)
 -- Authoritative pointer from a Postgres-known experiment to a MinIO object

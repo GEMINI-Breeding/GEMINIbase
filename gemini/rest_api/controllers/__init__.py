@@ -34,6 +34,7 @@ from gemini.rest_api.controllers.reference_data import ReferenceDataController
 from gemini.rest_api.controllers.e2e_cleanup import E2ECleanupController
 from gemini.rest_api.controllers.migrate_dataset_paths import MigrateDatasetPathsController
 from gemini.rest_api.controllers.multivariate_analysis import MultiVariateAnalysisController
+from gemini.rest_api.controllers.process_state import ProcessStateController
 
 controllers = {
     "populations": PopulationController,
@@ -72,5 +73,6 @@ controllers = {
     "e2e_cleanup": E2ECleanupController,
     "migrate_dataset_paths": MigrateDatasetPathsController,
     "multivariate_analysis": MultiVariateAnalysisController,
+    "process_state": ProcessStateController,
 }
 

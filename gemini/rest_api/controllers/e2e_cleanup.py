@@ -14,6 +14,7 @@ Playwright fixture does.
 import logging
 import os
 
+from sqlalchemy import text
 from litestar import Response
 from litestar.controller import Controller
 from litestar.handlers import delete
@@ -164,6 +165,20 @@ class E2ECleanupController(Controller):
             ).rowcount or 0
             deleted["accessions"] = int(acc_count)
             deleted["lines"] = int(line_count)
+
+        # Process workspaces the spec created (their pipelines and runs
+        # cascade). Stored server-side since 3F; before that each test's
+        # browser context had its own localStorage and nothing leaked.
+        with db_engine.get_session() as session:
+            ws_count = session.execute(
+                text(
+                    "DELETE FROM gemini.process_entities "
+                    "WHERE kind = 'workspace' AND doc->>'name' LIKE :p"
+                ),
+                {"p": f"{prefix}%"},
+            ).rowcount or 0
+            session.commit()
+            deleted["process_workspaces"] = int(ws_count)
 
         body = {"prefix": prefix, "deleted": deleted, "failed": failed}
         if failed:
