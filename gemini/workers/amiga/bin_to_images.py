@@ -680,6 +680,13 @@ def process_single_binary_file(args):
         
     except Exception as e:
         print(f"Error processing file {file_name}: {e}")
+        # Record it in the report too: the worker reads the report to say
+        # why a job produced nothing, instead of reporting a silent success.
+        try:
+            with open(os.path.join(str(output_path), "report.txt"), "a") as rf:
+                rf.write(f"ERROR {os.path.basename(str(file_name))}: {e}\n")
+        except Exception:
+            pass
         # Return empty/minimal data to allow other files to continue processing
         empty_df = pd.DataFrame()
         empty_gps = {k: pd.DataFrame(columns=GPS_SCHEMAS[k]) for k in GPS_ORDER}
@@ -750,7 +757,9 @@ def extract_binary(file_names, output_path, granular_progress: bool = True) -> N
                     counter.value += 1
                     progress_path.write_text(f"{counter.value}")
 
-            process_args = [(f, output_path, i, total) for i, f in enumerate(file_names)]
+            # process_single_binary_file unpacks five fields (the last is the
+            # optional progress meta); passing four crashed this path.
+            process_args = [(f, output_path, i, total, None) for i, f in enumerate(file_names)]
 
             with Pool(processes=max_workers) as pool:
                 for args in process_args:
@@ -802,7 +811,7 @@ def extract_binary(file_names, output_path, granular_progress: bool = True) -> N
         print(f"Using threading with {max_workers} threads for {len(file_names)} files (daemon process detected).")
 
         try:
-            process_args = [(f, output_path, i, len(file_names)) for i, f in enumerate(file_names)]
+            process_args = [(f, output_path, i, len(file_names), None) for i, f in enumerate(file_names)]
 
             progress_path = output_path / "progress.txt"
             total = len(file_names)

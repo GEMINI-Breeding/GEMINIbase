@@ -372,6 +372,25 @@ class AmigaWorker(BaseWorker):
             finally:
                 extract_stop.set()
                 extract_thread.join(timeout=2.0)
+            # Nothing extracted means nothing worked: every .bin failed
+            # (bad name, corrupt file, no camera topics). Say so and fail,
+            # rather than uploading an empty report and reporting "Done".
+            extracted = [
+                p for p in (output_dir / "RGB").rglob("*.jpg")
+            ] if (output_dir / "RGB").exists() else []
+            if not extracted:
+                report = output_dir / "RGB" / "report.txt"
+                reasons = []
+                if report.exists():
+                    reasons = [
+                        line[len("ERROR "):].strip()
+                        for line in report.read_text().splitlines()
+                        if line.startswith("ERROR ")
+                    ]
+                raise RuntimeError(
+                    "No images could be extracted from the uploaded .bin file(s)"
+                    + (": " + "; ".join(reasons) if reasons else ".")
+                )
             # Make sure the bar lands at the end of the extract band
             # before the upload phase resets it.
             self.report_progress(job_id, 70, {"stage": "extracting"})
