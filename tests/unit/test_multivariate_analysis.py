@@ -934,3 +934,49 @@ def test_fetch_long_population_filter_reads_the_column(monkeypatch):
     assert n == 3
     assert sorted(df["plot_number"].tolist()) == [1, 2]
     assert set(df["population"]) == {"Cowpea"}
+
+
+def test_catalog_maps_rows_and_blanks(monkeypatch):
+    """The dashboard's record list: one entry per grouped row, empty
+    population → None, null trait names dropped, counts as ints."""
+    from contextlib import contextmanager
+    from types import SimpleNamespace
+
+    from gemini.rest_api.controllers import multivariate_analysis as mv
+
+    rows = [
+        {
+            "experiment_name": "E",
+            "season_name": "S",
+            "site_name": "Davis",
+            "population": "",
+            "collection_date": date(2024, 5, 1),
+            "trait_names": ["height", None],
+            "plot_count": 4,
+            "record_count": 8,
+        }
+    ]
+    seen = {}
+
+    class _Result:
+        def mappings(self):
+            return SimpleNamespace(all=lambda: rows)
+
+    class _Session:
+        def execute(self, stmt):
+            seen["sql"] = str(stmt)
+            return _Result()
+
+    @contextmanager
+    def _get_session():
+        yield _Session()
+
+    monkeypatch.setattr(mv.db_engine, "get_session", _get_session)
+    out = mv._catalog()
+    assert len(out) == 1
+    e = out[0]
+    assert (e.site_name, e.population, e.collection_date) == ("Davis", None, date(2024, 5, 1))
+    assert e.trait_names == ["height"]
+    assert (e.plot_count, e.record_count) == (4, 8)
+    # Must read the heap IMMV, never the columnar table directly.
+    assert "trait_records_immv" in seen["sql"]

@@ -23,12 +23,15 @@ import statsmodels.api as sm
 import statsmodels.formula.api as smf
 from litestar import Response
 from litestar.controller import Controller
-from litestar.handlers import post
+from litestar.handlers import get, post
 from pydantic import BaseModel, Field
 from scipy.spatial import ConvexHull
 from scipy.stats import spearmanr
 
+from sqlalchemy import text
+
 from gemini.api.trait_record import TraitRecord
+from gemini.db.core.base import db_engine
 from gemini.rest_api.models import RESTAPIBase, RESTAPIError
 
 
@@ -85,6 +88,20 @@ class MatrixResponse(RESTAPIBase):
     trait_names: List[str]
     rows: List[TraitMatrixRow]
     message: Optional[str] = None
+
+
+class CatalogEntry(RESTAPIBase):
+    """One (experiment, season, site, population, collection date) group of
+    trait records — the unit the home dashboard picks as a "trait record"."""
+
+    experiment_name: Optional[str] = None
+    season_name: Optional[str] = None
+    site_name: Optional[str] = None
+    population: Optional[str] = None
+    collection_date: date
+    trait_names: List[str]
+    plot_count: int
+    record_count: int
 
 
 class CorrelationMatrix(RESTAPIBase):
@@ -1433,12 +1450,69 @@ def _spearman_with_n(values: pd.DataFrame, trait_names: List[str]) -> Correlatio
     return CorrelationMatrix(trait_names=trait_names, matrix=matrix, n=counts)
 
 
+# Grouped over the heap IMMV, touching only name / date columns: reading
+# most UUID columns from the columnar trait_records crashes Postgres.
+# Population mirrors _fetch_long: the column first, record_info as the
+# fallback for CSV imports that predate it. Records without a collection
+# date are left out — the matrix endpoint's per-date mode can't fetch them.
+_CATALOG_SQL = text(
+    """
+    SELECT experiment_name,
+           season_name,
+           site_name,
+           COALESCE(population_name, record_info->>'population') AS population,
+           collection_date,
+           array_agg(DISTINCT trait_name ORDER BY trait_name) AS trait_names,
+           count(DISTINCT (plot_number, plot_row_number, plot_column_number))
+               AS plot_count,
+           count(*) AS record_count
+      FROM gemini.trait_records_immv
+     WHERE collection_date IS NOT NULL
+     GROUP BY 1, 2, 3, 4, 5
+     ORDER BY collection_date DESC, 1, 2, 3, 4
+    """
+)
+
+
+def _catalog() -> List[CatalogEntry]:
+    with db_engine.get_session() as session:
+        rows = session.execute(_CATALOG_SQL).mappings().all()
+    return [
+        CatalogEntry(
+            experiment_name=r["experiment_name"],
+            season_name=r["season_name"],
+            site_name=r["site_name"],
+            population=r["population"] or None,
+            collection_date=r["collection_date"],
+            trait_names=[t for t in (r["trait_names"] or []) if t],
+            plot_count=int(r["plot_count"]),
+            record_count=int(r["record_count"]),
+        )
+        for r in rows
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Controller
 # ---------------------------------------------------------------------------
 
 
 class MultiVariateAnalysisController(Controller):
+
+    @get(path="/catalog", sync_to_thread=True)
+    def catalog(self) -> Response:
+        """Every (experiment, season, site, population, date) with trait
+        records, newest first, with its traits and plot count."""
+        try:
+            return Response(content=_catalog(), status_code=200)
+        except Exception as e:
+            return Response(
+                content=RESTAPIError(
+                    error=str(e),
+                    error_description="Failed to list trait-record groups.",
+                ),
+                status_code=500,
+            )
 
     @post(path="/matrix", sync_to_thread=True)
     def matrix(self, data: MultivariateRequest) -> Response:
