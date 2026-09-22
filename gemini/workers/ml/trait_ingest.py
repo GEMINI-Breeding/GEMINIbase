@@ -26,6 +26,7 @@ the consumer's perspective.
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 from datetime import datetime, timezone
 from typing import Iterable, Optional
@@ -73,12 +74,89 @@ def parse_scope_from_output_path(output_path: str) -> Optional[dict]:
     }
 
 
+# dataset_name is VARCHAR(255) on both datasets and trait_records.
+_MAX_NAME = 255
+
+
+def run_dataset_base(source: str, scope: dict, label: Optional[str] = None) -> str:
+    """Name shared by every run of one analysis on one flight, e.g.
+    ``EXTRACT_TRAITS · Exp · 2024/Davis/Cowpea · 2024-06-01 DJI/RGB``.
+
+    Dataset names are globally unique, so the experiment and scope must be
+    in it: the old ``"{source} {date} {platform}/{sensor}"`` collided
+    across experiments, and a second experiment's records were written
+    under the first experiment's dataset (so deleting one deleted both).
+    Deterministic, so a re-run can find its predecessors.
+    """
+    where = f"{scope['year']}/{scope['site_name']}/{scope['population_name']}"
+    flight = f"{scope['date']} {scope['platform']}/{scope['sensor']}"
+    parts = [source, scope["experiment_name"], where, flight]
+    if label:
+        parts.append(label)
+    name = " · ".join(parts)
+    # Leave room for the " · <run id>" suffix.
+    if len(name) > _MAX_NAME - 12:
+        digest = hashlib.sha1(name.encode()).hexdigest()[:10]
+        head = " · ".join([source, scope["experiment_name"][:60], digest])
+        name = head[: _MAX_NAME - 12]
+    return name
+
+
+def run_dataset_name(
+    source: str, scope: dict, run_id: Optional[str], label: Optional[str] = None
+) -> str:
+    """One dataset per run: the base plus the run's short id."""
+    base = run_dataset_base(source, scope, label)
+    return f"{base} · {run_id[:8]}" if run_id else base
+
+
+def _replace_previous_runs(
+    http: WorkerSession, *, experiment_name: str, base: str, keep: str
+) -> list:
+    """Delete this experiment's earlier runs of the same analysis.
+
+    A re-run used to append a second set of records that Analyze then
+    averaged with the first — wrong whenever a threshold or the boundaries
+    changed. Deleting goes through ``DELETE /api/datasets/id/{id}``
+    (Dataset.delete sweeps that dataset's trait_records). Only datasets of
+    *this* experiment named ``base`` or ``base · <run>`` are touched; the
+    old shared-name datasets are left alone, since they may hold another
+    experiment's records.
+    """
+    try:
+        resp = http.get("/api/datasets", params={"experiment_name": experiment_name})
+        datasets = resp.json() if resp.ok else []
+    except Exception as e:
+        logger.warning(f"Trait ingest: could not list datasets to replace: {e}")
+        return []
+    removed = []
+    for d in datasets or []:
+        name = d.get("dataset_name") or ""
+        if name == keep or not (name == base or name.startswith(base + " · ")):
+            continue
+        try:
+            r = http.delete(f"/api/datasets/id/{d.get('id')}")
+            if r.ok:
+                removed.append(name)
+            else:
+                logger.warning(
+                    f"Trait ingest: deleting previous run {name!r} returned {r.status_code}"
+                )
+        except Exception as e:
+            logger.warning(f"Trait ingest: deleting previous run {name!r} raised: {e}")
+    if removed:
+        logger.info(f"Trait ingest: replaced previous run(s): {removed}")
+    return removed
+
+
 def _ensure_dataset(
     http: WorkerSession,
     *,
     dataset_name: str,
     experiment_name: str,
     collection_date: str,
+    source: str = "EXTRACT_TRAITS",
+    run_id: Optional[str] = None,
 ) -> None:
     """POST `/api/datasets`. 4xx (already-exists) is treated as success —
     same idempotent pattern the CSV import wizard uses."""
@@ -91,7 +169,8 @@ def _ensure_dataset(
                 "dataset_type_id": _DATASET_TYPE_TRAIT,
                 "collection_date": collection_date,
                 "dataset_info": {
-                    "source": "EXTRACT_TRAITS",
+                    "source": source,
+                    **({"job_id": run_id} if run_id else {}),
                 },
             },
         )
@@ -266,8 +345,15 @@ def ingest_trait_features(
     trait_columns: Iterable[tuple[str, str]],
     source: str,
     timestamp: Optional[datetime] = None,
+    run_id: Optional[str] = None,
+    label: Optional[str] = None,
 ) -> dict:
     """Ingest per-plot trait values from a FeatureCollection into `trait_records`.
+
+    With ``run_id`` (the job id) each run gets its own dataset and replaces
+    the experiment's earlier runs of the same analysis (see
+    ``run_dataset_base`` / ``_replace_previous_runs``); deleting a run's
+    results is then deleting its dataset.
 
     Generic core shared by EXTRACT_TRAITS (vegetation fraction, height) and
     LOCATE_PLANTS batch mode (detection counts). Each entry in
@@ -305,14 +391,21 @@ def ingest_trait_features(
         return {}
 
     ts = (timestamp or datetime.now(timezone.utc)).isoformat()
-    dataset_name = (
-        f"{source} {scope['date']} {scope['platform']}/{scope['sensor']}"
-    )
+    dataset_name = run_dataset_name(source, scope, run_id, label)
+    if run_id:
+        _replace_previous_runs(
+            http,
+            experiment_name=scope["experiment_name"],
+            base=run_dataset_base(source, scope, label),
+            keep=dataset_name,
+        )
     _ensure_dataset(
         http,
         dataset_name=dataset_name,
         experiment_name=scope["experiment_name"],
         collection_date=scope["date"],
+        source=source,
+        run_id=run_id,
     )
 
     counts: dict[str, int] = {}
@@ -419,6 +512,7 @@ def ingest_extracted_traits(
     output_path: str,
     geojson: dict,
     timestamp: Optional[datetime] = None,
+    run_id: Optional[str] = None,
 ) -> dict:
     """Ingest the EXTRACT_TRAITS GeoJSON into `trait_records`.
 
@@ -432,4 +526,5 @@ def ingest_extracted_traits(
         trait_columns=EXTRACTED_TRAIT_COLUMNS,
         source="EXTRACT_TRAITS",
         timestamp=timestamp,
+        run_id=run_id,
     )

@@ -22,7 +22,7 @@ import logging
 import os
 import tempfile
 from pathlib import Path
-from typing import Set
+from typing import Optional, Set
 
 from gemini.workers.base import BaseWorker
 from gemini.workers.types import JobType
@@ -46,6 +46,17 @@ def _get_minio_client():
         secure=False,
     )
 
+
+
+def _run_dataset_name(source, output_path, job_id, label=None):
+    """The dataset a run's records went into (for the job result), or None."""
+    from gemini.workers.ml.trait_ingest import (
+        parse_scope_from_output_path,
+        run_dataset_name,
+    )
+
+    scope = parse_scope_from_output_path(output_path)
+    return run_dataset_name(source, scope, job_id, label) if scope else None
 
 class MlWorker(BaseWorker):
     """Worker for ML + trait-extraction tasks."""
@@ -322,6 +333,10 @@ class MlWorker(BaseWorker):
                     classes=sorted(counts_by_class),
                     label=count_label,
                     output_path=output_predictions_path,
+                    run_id=job_id,
+                )
+                result["dataset_name"] = _run_dataset_name(
+                    "LOCATE_PLANTS", output_predictions_path, job_id, count_label
                 )
 
             if output_predictions_path:
@@ -346,6 +361,7 @@ class MlWorker(BaseWorker):
         classes: list,
         label: str,
         output_path: str,
+        run_id: Optional[str] = None,
     ) -> dict:
         """Write per-plot detection counts into trait_records.
 
@@ -391,6 +407,8 @@ class MlWorker(BaseWorker):
             trait_columns=[(total_col, "count")]
             + [(col, "count") for col in class_cols.values()],
             source="LOCATE_PLANTS",
+            run_id=run_id,
+            label=label,
         )
 
     # ------------------------------------------------------------------
@@ -468,6 +486,7 @@ class MlWorker(BaseWorker):
                     self._http,
                     output_path=output_path,
                     geojson=geojson_dict,
+                    run_id=job_id,
                 )
                 ingest_error = None
             except Exception as e:
@@ -484,6 +503,9 @@ class MlWorker(BaseWorker):
                 + (["Height_95p_meters"] if dem_path else [])
                 + (["Temp_veg_avg_C"] if thermal_path else []),
                 "ingested_counts": ingested_counts,
+                "dataset_name": _run_dataset_name(
+                    "EXTRACT_TRAITS", output_path, job_id
+                ),
                 **({"ingest_error": ingest_error} if ingest_error else {}),
             }
 

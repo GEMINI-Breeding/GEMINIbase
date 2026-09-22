@@ -281,6 +281,9 @@ class WorkerSession:
     def patch(self, path: str, **kwargs: Any) -> requests.Response:
         return self.request("PATCH", path, **kwargs)
 
+    def delete(self, path: str, **kwargs: Any) -> requests.Response:
+        return self.request("DELETE", path, **kwargs)
+
 
 def session_from_env(api_base_url: str | None = None) -> WorkerSession:
     """Build a WorkerSession from the standard worker env vars."""
