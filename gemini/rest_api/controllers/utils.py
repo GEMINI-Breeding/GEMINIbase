@@ -66,6 +66,39 @@ if not any(isinstance(h, _RingBufferHandler) for h in _root_logger.handlers):
 
 # ────────────────────────────────────────────────────────────────────────────
 
+def merge_log_lines(
+    api_lines: List[dict],
+    worker_lines: List[dict],
+    *,
+    limit: Optional[int] = None,
+    level: Optional[str] = None,
+    since: Optional[float] = None,
+    source: Optional[str] = None,
+) -> List[dict]:
+    """Tag the API's lines, merge with workers' by time, then filter."""
+    lines = [{**l, "source": "api"} for l in api_lines] + list(worker_lines)
+    lines.sort(key=lambda l: float(l.get("ts", 0)))
+    if source:
+        lines = [l for l in lines if l.get("source") == source]
+    if level:
+        wanted = level.upper()
+        lines = [l for l in lines if l.get("level") == wanted]
+    if since is not None:
+        lines = [l for l in lines if float(l.get("ts", 0)) >= since]
+    if limit is not None and limit > 0:
+        lines = lines[-limit:]
+    return lines
+
+
+def _worker_log_lines() -> List[dict]:
+    """Log lines the worker containers shipped to Redis; [] if unreachable."""
+    from gemini.rest_api.controllers.jobs import _get_redis_client
+    from gemini.workers.log_shipping import read_worker_logs
+
+    client = _get_redis_client()
+    return read_worker_logs(client) if client is not None else []
+
+
 def _agrowstitch_status() -> dict:
     """Report whether AgRowStitch is importable in this environment."""
     available = False
@@ -179,24 +212,26 @@ class UtilsController(Controller):
             "cpu_count": os.cpu_count() or 1,
         }
 
-    @get(path="/logs", sync_to_thread=False)
+    @get(path="/logs", sync_to_thread=True)
     def get_logs(
         self,
         superuser: User,
         limit: Optional[int] = None,
         level: Optional[str] = None,
         since: Optional[float] = None,
+        source: Optional[str] = None,
     ) -> List[dict]:
-        # Iterate a snapshot so concurrent writes don't skew the response.
-        lines: List[dict] = list(_log_buffer)
-        if level:
-            wanted = level.upper()
-            lines = [l for l in lines if l.get("level") == wanted]
-        if since is not None:
-            lines = [l for l in lines if float(l.get("ts", 0)) >= since]
-        if limit is not None and limit > 0:
-            lines = lines[-limit:]
-        return lines
+        """The API's own log lines plus every worker's (shipped via Redis),
+        oldest first, each tagged with ``source`` ("api", "ml", "odm", …)."""
+        # Snapshot the buffer so concurrent writes don't skew the response.
+        return merge_log_lines(
+            list(_log_buffer),
+            _worker_log_lines(),
+            limit=limit,
+            level=level,
+            since=since,
+            source=source,
+        )
 
     @get(path="/docker-check", sync_to_thread=True)
     def docker_check(self) -> dict:

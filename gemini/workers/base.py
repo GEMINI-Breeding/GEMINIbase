@@ -51,6 +51,21 @@ class BaseWorker(ABC):
         # REST-API JWT guard rejects unauthenticated /api/* traffic.
         self._http = session_from_env(api_base_url=self.api_base_url)
 
+        # Ship this worker's log lines to the in-app console (see
+        # log_shipping). Best-effort: a Redis outage only loses lines.
+        from gemini.workers import log_shipping
+
+        log_shipping.install(
+            log_shipping.source_for(self.__class__.__name__),
+            lambda: redis.Redis(
+                host=self.redis_host,
+                port=self.redis_port,
+                password=self.redis_password,
+                decode_responses=True,
+                socket_timeout=2,
+            ),
+        )
+
         signal.signal(signal.SIGTERM, self._handle_shutdown)
         signal.signal(signal.SIGINT, self._handle_shutdown)
 
