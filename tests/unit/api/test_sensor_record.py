@@ -137,10 +137,13 @@ class TestSensorRecordFilter:
         assert len(results) == 1
 
     @patch(f"{MODULE}.SensorRecordModel")
-    def test_exception(self, m):
+    def test_exception_propagates(self, m):
+        # Was `assert len(results) == 0`, i.e. it asserted the swallow as the
+        # contract. A failed query must be distinguishable from an empty one;
+        # see the matching note in test_trait_record.py.
         m.filter_records.side_effect = Exception("err")
-        results = list(SensorRecord.filter(sensor_names=["S"]))
-        assert len(results) == 0
+        with pytest.raises(Exception, match="err"):
+            list(SensorRecord.filter(sensor_names=["S"]))
 
 
 class TestSensorRecordUpdate:

@@ -489,7 +489,13 @@ class TraitRecord(APIBase):
                 yield record
         except Exception as e:
             logger.error(f"Error searching TraitRecords: {e}")
-            yield from []
+            # Re-raise instead of `yield from []`. Swallowing here turned a
+            # failed query into an empty result set indistinguishable from
+            # "no rows matched": a Postgres backend crash (signal 11 on
+            # columnar UUID reads) surfaced as an ANOVA panel reporting
+            # "insufficient data" over a complete dataset, and the API still
+            # returned HTTP 200. A caller that wants tolerance can catch.
+            raise
 
 
     @classmethod
@@ -549,7 +555,13 @@ class TraitRecord(APIBase):
                 yield record
         except Exception as e:
             logger.error(f"Error filtering TraitRecords: {e}")
-            yield from []
+            # Re-raise instead of `yield from []`. Swallowing here turned a
+            # failed query into an empty result set indistinguishable from
+            # "no rows matched": a Postgres backend crash (signal 11 on
+            # columnar UUID reads) surfaced as an ANOVA panel reporting
+            # "insufficient data" over a complete dataset, and the API still
+            # returned HTTP 200. A caller that wants tolerance can catch.
+            raise
 
     def update(
         self,

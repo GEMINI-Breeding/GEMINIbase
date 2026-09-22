@@ -118,10 +118,15 @@ class TestTraitRecordFilter:
         assert len(results) == 1
 
     @patch(f"{MODULE}.TraitRecordModel")
-    def test_exception(self, m):
+    def test_exception_propagates(self, m):
+        # Was `assert len(results) == 0` — it asserted the swallow as the
+        # contract. A query that FAILS must not be indistinguishable from a
+        # query that matched nothing: that is exactly how a Postgres backend
+        # crash surfaced as an ANOVA panel reporting "insufficient data" over
+        # a complete dataset, with the API still returning HTTP 200.
         m.filter_records.side_effect = Exception("err")
-        results = list(TraitRecord.filter(trait_names=["LeafArea"]))
-        assert len(results) == 0
+        with pytest.raises(Exception, match="err"):
+            list(TraitRecord.filter(trait_names=["LeafArea"]))
 
 
 class TestTraitRecordUpdate:
