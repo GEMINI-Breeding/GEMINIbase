@@ -31,6 +31,10 @@ from gemini.api.reference_data import (
     IDENTITY_FIELDS,
     ReferenceDataset,
 )
+from gemini.rest_api.controllers.files import (
+    minio_storage_config,
+    minio_storage_provider,
+)
 from gemini.rest_api.models import (
     ParseHeadersRequest,
     ParseHeadersResponse,
@@ -100,6 +104,28 @@ def _validate_rows(rows: List[dict]) -> Optional[str]:
     return None
 
 
+def _original_object_info(original_object: Optional[str]) -> Optional[dict]:
+    """dataset_info recording where the uploaded file lives in MinIO.
+
+    The Files page stages the original through the chunked uploader before
+    posting it here, so the bytes are already stored (and owned by the
+    experiment's upload dataset). Record the pointer only if the object is
+    really there — a stale or made-up path would render a download button
+    that 404s.
+    """
+    if not original_object:
+        return None
+    try:
+        if minio_storage_provider.file_exists(
+            original_object, bucket_name=minio_storage_config.bucket_name
+        ):
+            return {"original_object": original_object}
+    except Exception:
+        logger.exception("could not check original_object %s", original_object)
+    logger.warning("original_object %s not found; not recording it", original_object)
+    return None
+
+
 def _dataset_to_output(
     dataset: ReferenceDataset, plot_count: Optional[int] = None
 ) -> ReferenceDatasetOutput:
@@ -166,6 +192,7 @@ class ReferenceDataController(Controller):
         location: Optional[str] = None,
         population: Optional[str] = None,
         date: Optional[str] = None,
+        original_object: Optional[str] = None,
     ) -> ReferenceDatasetOutput:
         try:
             try:
@@ -244,6 +271,7 @@ class ReferenceDataController(Controller):
                 population=population,
                 dataset_date=dataset_date_parsed,
                 trait_columns=trait_columns,
+                dataset_info=_original_object_info(original_object),
             )
             if dataset is None:
                 error = RESTAPIError(
