@@ -14,7 +14,7 @@ from datetime import datetime
 from typing import List, Optional
 
 from pydantic import AliasChoices, Field
-from sqlalchemy import desc, func, select, update
+from sqlalchemy import text, desc, func, select, update
 from sqlalchemy.exc import IntegrityError
 
 from gemini.api.base import APIBase
@@ -346,6 +346,37 @@ class PlotGeometryVersion(APIBase):
             return [cls.model_validate(r) for r in rows]
         except Exception as e:
             logger.error(f"Error listing plot-geometry versions: {e}")
+            return []
+
+    @classmethod
+    def list_all(cls) -> List[dict]:
+        """Every saved version in every directory, newest directory first,
+        with its plot count — for "Import boundaries from…".
+
+        Plot count excludes `role: "outer"` block outlines, which the editor
+        stores alongside the plots. Only light columns plus the feature
+        count leave the database; snapshots can be large.
+        """
+        try:
+            with db_engine.get_session() as session:
+                rows = session.execute(
+                    text(
+                        """
+                        SELECT directory, version, name, is_active, created_at,
+                               (SELECT count(*)
+                                  FROM jsonb_array_elements(
+                                         COALESCE(state_snapshot->'boundaries'->'features',
+                                                  '[]'::jsonb)) f
+                                 WHERE COALESCE(f->'properties'->>'role', '') <> 'outer')
+                                 AS plot_count
+                          FROM gemini.plot_geometry_versions
+                         ORDER BY created_at DESC NULLS LAST, directory, version DESC
+                        """
+                    )
+                ).mappings().all()
+            return [dict(r) for r in rows]
+        except Exception as e:
+            logger.error(f"Error listing all plot-geometry versions: {e}")
             return []
 
     @classmethod

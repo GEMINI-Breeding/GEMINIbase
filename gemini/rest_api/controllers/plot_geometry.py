@@ -782,6 +782,22 @@ class PlotGeometryController(Controller):
             for v in versions
         ]
 
+    @get(path="/versions/all", sync_to_thread=True)
+    def list_all_versions(self) -> List[dict]:
+        """Every directory's saved boundary versions, for reusing a layout
+        from another date, run or experiment."""
+        return [
+            {
+                "directory": r["directory"],
+                "version": r["version"],
+                "name": r["name"],
+                "is_active": r["is_active"],
+                "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+                "plot_count": int(r["plot_count"] or 0),
+            }
+            for r in PlotGeometryVersion.list_all()
+        ]
+
     @post(path="/versions/load", sync_to_thread=True)
     def load_version(self, data: VersionLoadRequest) -> dict:
         version = PlotGeometryVersion.load(
