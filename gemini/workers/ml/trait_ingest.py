@@ -10,7 +10,7 @@ the GeoJSON, it calls `ingest_extracted_traits()` which:
   2. Idempotently creates the dataset that scopes the records (via
      `POST /api/datasets`).
   3. For each trait column (Vegetation_Fraction, optionally
-     Height_95p_meters): idempotently creates the trait definition,
+     Height_95p_meters and Temp_veg_avg_C): idempotently creates the trait definition,
      then POSTs `/api/traits/id/{trait_id}/records/bulk` with one row
      per plot feature.
 
@@ -41,6 +41,7 @@ logger = logging.getLogger(__name__)
 EXTRACTED_TRAIT_COLUMNS: tuple[tuple[str, str], ...] = (
     ("Vegetation_Fraction", ""),
     ("Height_95p_meters", "m"),
+    ("Temp_veg_avg_C", "°C"),
 )
 
 # Pydantic / Litestar models on the server side import this enum value;

@@ -732,6 +732,17 @@ class OdmWorker(BaseWorker):
                     with zf.open(ortho_entry) as src, open(ortho_path, "wb") as dst:
                         import shutil
                         shutil.copyfileobj(src, dst)
+                    # The DSM (--dsm) feeds canopy height in EXTRACT_TRAITS.
+                    # It used to be computed and thrown away with the zip.
+                    dsm_entry = next(
+                        (n for n in zf.namelist() if n.endswith("odm_dem/dsm.tif")),
+                        None,
+                    )
+                    dsm_path = None
+                    if dsm_entry is not None:
+                        dsm_path = os.path.join(tmpdir, "dsm.tif")
+                        with zf.open(dsm_entry) as src, open(dsm_path, "wb") as dst:
+                            shutil.copyfileobj(src, dst)
             except zipfile.BadZipFile:
                 raise RuntimeError("NodeODM returned invalid zip file")
 
@@ -758,6 +769,18 @@ class OdmWorker(BaseWorker):
             )
             logger.info(f"Uploaded orthophoto to {ortho_object_path}")
 
+            # Same job-id suffix as the ortho so the frontend pairs them.
+            dsm_object_path = None
+            if dsm_path and os.path.getsize(dsm_path) >= 1024:
+                dsm_object_path = f"{output_prefix}odm_dsm-{job_id}.tif"
+                client.fput_object(
+                    STORAGE_BUCKET,
+                    dsm_object_path,
+                    dsm_path,
+                    content_type="image/tiff",
+                )
+                logger.info(f"Uploaded DSM to {dsm_object_path}")
+
             # Phase 6: Save final log to MinIO (95-98%)
             self.report_progress(job_id, 96, {"stage": "saving_log"})
             self._save_log(task_id, output_prefix, client)
@@ -779,6 +802,8 @@ class OdmWorker(BaseWorker):
                 "orthophoto_path": ortho_object_path,
                 "image_count": len(image_paths),
             }
+            if dsm_object_path:
+                result["dsm_path"] = dsm_object_path
             if cog_job_id:
                 result["cog_job_id"] = cog_job_id
             return result

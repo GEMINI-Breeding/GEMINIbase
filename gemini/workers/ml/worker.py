@@ -405,6 +405,8 @@ class MlWorker(BaseWorker):
             boundary_geojson_path: MinIO path to plot-boundary GeoJSON
             dem_path: MinIO path to DEM GeoTIFF (optional; height skipped
                 if absent)
+            thermal_path: MinIO path to a thermal orthomosaic in °C
+                (optional; canopy temperature skipped if absent)
             exg_threshold: float, default 0.1
             output_traits_geojson_path: MinIO path to write the traits
                 GeoJSON (required)
@@ -414,6 +416,7 @@ class MlWorker(BaseWorker):
         rgb_path = parameters["orthomosaic_path"]
         boundary_path = parameters["boundary_geojson_path"]
         dem_path = parameters.get("dem_path")
+        thermal_path = parameters.get("thermal_path")
         exg_threshold = float(parameters.get("exg_threshold", 0.1))
         output_path = parameters["output_traits_geojson_path"]
 
@@ -430,12 +433,18 @@ class MlWorker(BaseWorker):
                 local_dem = os.path.join(tmpdir, "dem.tif")
                 client.fget_object(STORAGE_BUCKET, dem_path, local_dem)
 
+            local_thermal = None
+            if thermal_path:
+                local_thermal = os.path.join(tmpdir, "thermal.tif")
+                client.fget_object(STORAGE_BUCKET, thermal_path, local_thermal)
+
             self.report_progress(job_id, 30, {"stage": "extracting traits"})
             records, geojson_dict = extract_traits_from_ortho(
                 rgb_path=local_rgb,
                 boundary_geojson_path=local_boundary,
                 dem_path=local_dem,
                 exg_threshold=exg_threshold,
+                thermal_path=local_thermal,
             )
 
             self.report_progress(job_id, 80, {"stage": "uploading"})
@@ -471,9 +480,9 @@ class MlWorker(BaseWorker):
             return {
                 "output_traits_geojson_path": output_path,
                 "plot_count": len(records),
-                "traits": ["Vegetation_Fraction", "Height_95p_meters"]
-                if dem_path
-                else ["Vegetation_Fraction"],
+                "traits": ["Vegetation_Fraction"]
+                + (["Height_95p_meters"] if dem_path else [])
+                + (["Temp_veg_avg_C"] if thermal_path else []),
                 "ingested_counts": ingested_counts,
                 **({"ingest_error": ingest_error} if ingest_error else {}),
             }

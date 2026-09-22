@@ -10,6 +10,8 @@ per-plot trait columns) out through MinIO.
 Produced traits:
     - Vegetation_Fraction (0..1): fraction of plot pixels above ExG threshold
     - Height_95p_meters (optional): 95th percentile canopy height from DEM
+    - Temp_veg_avg_C (optional): mean canopy temperature from a thermal
+      orthomosaic, over the plot's vegetation pixels
 """
 from __future__ import annotations
 
@@ -81,11 +83,44 @@ def estimate_height_from_dem(
     return round(height, 4) if height > 0 else 0.0
 
 
+def estimate_canopy_temperature(
+    thermal_data: np.ndarray,
+    vegetation_mask: np.ndarray,
+    nodata: Optional[float] = None,
+) -> Optional[float]:
+    """Mean temperature (°C) of the vegetation pixels in a thermal crop.
+
+    The RGB vegetation mask is resized onto the thermal grid (thermal
+    orthos are much coarser). Non-finite and ``nodata`` pixels are
+    excluded, so an ortho edge crossing the plot doesn't drag the mean
+    toward the fill value. Returns ``None`` when no vegetation pixel has a
+    reading. Assumes the raster holds temperatures in °C, as main did.
+    """
+    import cv2
+
+    if thermal_data.size == 0:
+        return None
+    mask = cv2.resize(
+        vegetation_mask,
+        (thermal_data.shape[1], thermal_data.shape[0]),
+        interpolation=cv2.INTER_NEAREST,
+    )
+    data = thermal_data.astype(np.float64)
+    valid = np.isfinite(data)
+    if nodata is not None and np.isfinite(nodata):
+        valid &= data != nodata
+    temps = data[(mask > 0) & valid]
+    if temps.size == 0:
+        return None
+    return round(float(np.mean(temps)), 2)
+
+
 def extract_traits_from_ortho(
     rgb_path: str,
     boundary_geojson_path: str,
     dem_path: Optional[str] = None,
     exg_threshold: float = 0.1,
+    thermal_path: Optional[str] = None,
 ) -> Tuple[List[dict], Any]:
     """Compute per-plot traits and return ``(records, geojson_dict)``.
 
@@ -112,6 +147,12 @@ def extract_traits_from_ortho(
                 gdf.to_crs(dem_src.crs)
                 if dem_src.crs != rgb_src.crs
                 else gdf_raster
+            )
+        th_src = rasterio.open(thermal_path) if thermal_path else None
+        gdf_th = None
+        if th_src is not None:
+            gdf_th = (
+                gdf.to_crs(th_src.crs) if th_src.crs != rgb_src.crs else gdf_raster
             )
 
         try:
@@ -143,21 +184,38 @@ def extract_traits_from_ortho(
                     )
                     height_m = estimate_height_from_dem(dem_data, mask)
 
+                temp_c: Optional[float] = None
+                if th_src is not None and gdf_th is not None:
+                    th_row = gdf_th.iloc[i]
+                    th_window = _from_bounds(
+                        *th_row.geometry.bounds, th_src.transform
+                    )
+                    th_data = th_src.read(
+                        1, window=th_window, boundless=True, fill_value=np.nan
+                    )
+                    temp_c = estimate_canopy_temperature(
+                        th_data, mask, nodata=th_src.nodata
+                    )
+
                 record = {
                     "plot_index": i,
                     "Vegetation_Fraction": vf,
                     "Height_95p_meters": height_m,
+                    "Temp_veg_avg_C": temp_c,
                 }
                 records.append(record)
         finally:
             if dem_src is not None:
                 dem_src.close()
+            if th_src is not None:
+                th_src.close()
 
     # Merge traits back onto original-CRS GeoJSON so downstream map layers
     # don't have to reason about raster vs. WGS84 CRS.
     gdf_out = gdf.copy()
     gdf_out["Vegetation_Fraction"] = None
     gdf_out["Height_95p_meters"] = None
+    gdf_out["Temp_veg_avg_C"] = None
     for rec in records:
         idx = rec["plot_index"]
         gdf_out.at[gdf_out.index[idx], "Vegetation_Fraction"] = rec[
@@ -166,6 +224,7 @@ def extract_traits_from_ortho(
         gdf_out.at[gdf_out.index[idx], "Height_95p_meters"] = rec[
             "Height_95p_meters"
         ]
+        gdf_out.at[gdf_out.index[idx], "Temp_veg_avg_C"] = rec["Temp_veg_avg_C"]
 
     import json as _json
 

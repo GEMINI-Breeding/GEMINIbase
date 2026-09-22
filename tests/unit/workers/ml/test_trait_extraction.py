@@ -10,7 +10,9 @@ pytest.importorskip("cv2")
 
 from gemini.workers.ml.trait_extraction import (  # noqa: E402
     compute_exg_mask,
+    estimate_canopy_temperature,
     estimate_height_from_dem,
+    extract_traits_from_ortho,
 )
 
 
@@ -102,3 +104,98 @@ def test_estimate_height_from_dem_negative_height_clamped_to_zero():
     mask[:, 20:] = 255
     h = estimate_height_from_dem(dem, mask)
     assert h == 0.0
+
+
+# ---------------------------------------------------------------------------
+# estimate_canopy_temperature
+# ---------------------------------------------------------------------------
+
+
+def test_canopy_temperature_averages_vegetation_pixels_only():
+    # Left half vegetation at 25 °C, right half soil at 40 °C.
+    thermal = np.full((4, 4), 40.0)
+    thermal[:, :2] = 25.0
+    mask = np.zeros((40, 40), np.uint8)
+    mask[:, :20] = 255  # RGB mask is 10× finer; resized onto the thermal grid
+    assert estimate_canopy_temperature(thermal, mask) == 25.0
+
+
+def test_canopy_temperature_ignores_nodata_and_nan():
+    thermal = np.array([[20.0, -9999.0], [np.nan, 30.0]])
+    mask = np.full((2, 2), 255, np.uint8)
+    assert estimate_canopy_temperature(thermal, mask, nodata=-9999.0) == 25.0
+
+
+def test_canopy_temperature_none_without_vegetation_or_data():
+    thermal = np.full((3, 3), 22.0)
+    assert estimate_canopy_temperature(thermal, np.zeros((3, 3), np.uint8)) is None
+    assert estimate_canopy_temperature(np.zeros((0, 0)), np.zeros((0, 0), np.uint8)) is None
+
+
+# ---------------------------------------------------------------------------
+# extract_traits_from_ortho with a thermal ortho
+# ---------------------------------------------------------------------------
+
+
+def _write_tif(path, bands, transform, crs="EPSG:4326", nodata=None):
+    import rasterio
+
+    arr = np.asarray(bands)
+    if arr.ndim == 2:
+        arr = arr[np.newaxis]
+    with rasterio.open(
+        path, "w", driver="GTiff", height=arr.shape[1], width=arr.shape[2],
+        count=arr.shape[0], dtype=arr.dtype, crs=crs, transform=transform,
+        nodata=nodata,
+    ) as dst:
+        dst.write(arr)
+
+
+def test_extract_traits_reports_canopy_temperature(tmp_path):
+    import json
+
+    from rasterio.transform import from_origin
+
+    # 100×100 px RGB over a 0.001° square: left half green, right half soil.
+    rgb = np.zeros((3, 100, 100), np.uint8)
+    rgb[1, :, :50] = 200  # green canopy
+    rgb[:, :, 50:] = 120  # grey soil
+    rgb_tf = from_origin(-121.0, 38.001, 0.00001, 0.00001)
+    _write_tif(tmp_path / "rgb.tif", rgb, rgb_tf)
+
+    # Thermal at 10× coarser resolution: canopy 24 °C, soil 38 °C.
+    th = np.full((10, 10), 38.0, np.float32)
+    th[:, :5] = 24.0
+    _write_tif(
+        tmp_path / "th.tif", th, from_origin(-121.0, 38.001, 0.0001, 0.0001),
+        nodata=-9999.0,
+    )
+
+    boundary = {
+        "type": "FeatureCollection",
+        "features": [{
+            "type": "Feature",
+            "properties": {"plot": 1},
+            "geometry": {"type": "Polygon", "coordinates": [[
+                [-121.0, 38.0], [-120.999, 38.0], [-120.999, 38.001],
+                [-121.0, 38.001], [-121.0, 38.0],
+            ]]},
+        }],
+    }
+    (tmp_path / "b.geojson").write_text(json.dumps(boundary))
+
+    records, gj = extract_traits_from_ortho(
+        rgb_path=str(tmp_path / "rgb.tif"),
+        boundary_geojson_path=str(tmp_path / "b.geojson"),
+        thermal_path=str(tmp_path / "th.tif"),
+    )
+    assert records[0]["Temp_veg_avg_C"] == pytest.approx(24.0)
+    assert records[0]["Vegetation_Fraction"] == pytest.approx(0.5, abs=0.05)
+    assert gj["features"][0]["properties"]["Temp_veg_avg_C"] == pytest.approx(24.0)
+
+    # Without a thermal ortho the column is present but empty.
+    records, _ = extract_traits_from_ortho(
+        rgb_path=str(tmp_path / "rgb.tif"),
+        boundary_geojson_path=str(tmp_path / "b.geojson"),
+    )
+    assert records[0]["Temp_veg_avg_C"] is None
