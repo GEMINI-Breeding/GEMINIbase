@@ -891,3 +891,46 @@ class TestManova:
         # Only 1 trait → no panels (we filter for ≥2 available traits).
         panels = _build_manova_panels(wide, ["trait_a"])
         assert panels == []
+
+
+# ── _fetch_long population filter ─────────────────────────────────────────
+
+
+def _rec(plot, pop_col, pop_info, value=1.0):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        plot_id=None,
+        plot_number=plot,
+        plot_row_number=1,
+        plot_column_number=plot,
+        experiment_name="E",
+        season_name="S",
+        site_name="Si",
+        accession_name="A",
+        population_name=pop_col,
+        record_info=({"population": pop_info} if pop_info else {"source": "EXTRACT_TRAITS"}),
+        trait_name="t",
+        trait_value=value,
+        timestamp=datetime(2024, 5, 1),
+        collection_date=date(2024, 5, 1),
+    )
+
+
+def test_fetch_long_population_filter_reads_the_column(monkeypatch):
+    """Machine-written records (EXTRACT_TRAITS, LOCATE_PLANTS) carry
+    population only in the population_name column — record_info is just
+    {"source": ...}. Filtering on record_info alone dropped all of them."""
+    from gemini.rest_api.controllers import multivariate_analysis as mv
+
+    recs = [
+        _rec(1, "Cowpea", None),       # EXTRACT_TRAITS-style: column only
+        _rec(2, None, "Cowpea"),       # legacy CSV import: record_info only
+        _rec(3, "Other", None),        # different population: excluded
+    ]
+    monkeypatch.setattr(mv.TraitRecord, "filter", lambda **kw: iter(recs))
+    req = mv.MultivariateRequest(trait_names=["t"], populations=["Cowpea"])
+    df, n = mv._fetch_long(req)
+    assert n == 3
+    assert sorted(df["plot_number"].tolist()) == [1, 2]
+    assert set(df["population"]) == {"Cowpea"}

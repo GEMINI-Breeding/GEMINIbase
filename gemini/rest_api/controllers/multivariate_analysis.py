@@ -295,8 +295,14 @@ def _fetch_long(req: MultivariateRequest) -> tuple[pd.DataFrame, int]:
             # Bail early — don't materialize huge frames.
             return pd.DataFrame(), n_fetched
 
-        pop = None
-        if r.record_info:
+        # Prefer the population_name column (alembic 0009). It is the only
+        # place machine-written records carry population: EXTRACT_TRAITS and
+        # LOCATE_PLANTS put just {"source": ...} in record_info, so reading
+        # record_info alone made a population filter silently drop every
+        # one of them. record_info.population is kept as a fallback for CSV
+        # imports that predate the column.
+        pop = getattr(r, "population_name", None) or None
+        if pop is None and r.record_info:
             pop_val = r.record_info.get("population")
             if pop_val is not None:
                 pop = str(pop_val)
