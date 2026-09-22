@@ -185,6 +185,12 @@ services:
     build:
       context: ../../
       dockerfile: ./gemini/workers/ml/Dockerfile
+    # A self-hosted Roboflow inference server runs on the user's machine, and
+    # the worker rewrites localhost -> host.docker.internal to reach it (see
+    # inference_utils.resolve_inference_api_url). Docker Desktop provides that
+    # name on macOS/Windows; this mapping provides it on Linux.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       - "GEMINI_REST_API_URL=http://${GEMINI_REST_API_HOSTNAME}:7777"
       - "GEMINI_LOGGER_HOSTNAME=${GEMINI_LOGGER_HOSTNAME}"

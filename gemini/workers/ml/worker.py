@@ -120,6 +120,8 @@ class MlWorker(BaseWorker):
         crop_size = int(parameters.get("crop_size", 640))
         overlap = int(parameters.get("overlap", 32))
         output_predictions_path = parameters.get("output_predictions_path")
+        # Self-hosted Roboflow inference server; None = Roboflow cloud.
+        api_url = parameters.get("api_url")
 
         self.report_progress(job_id, 5, {"stage": "downloading"})
         client = _get_minio_client()
@@ -138,6 +140,7 @@ class MlWorker(BaseWorker):
                 iou_threshold=iou_threshold,
                 crop_size=crop_size,
                 overlap=overlap,
+                api_url=api_url,
             )
 
             counts_by_class: dict = {}
@@ -186,6 +189,13 @@ class MlWorker(BaseWorker):
         from gemini.workers.ml.inference_utils import run_inference_on_image
 
         images_prefix = parameters["images_prefix"]
+        # Optional: the plot boundaries the images were split with. When
+        # present, per-plot detection counts are written to trait_records
+        # so they reach Analyze. Boundaries (not the filenames) supply the
+        # row/col the populate_trait_record_ids trigger needs to resolve a
+        # plot — the PNG name only carries the plot number.
+        boundaries = parameters.get("boundaries")
+        count_label = parameters.get("count_label") or parameters["model_id"]
         api_key = parameters["api_key"]
         model_id = parameters["model_id"]
         confidence_threshold = float(parameters.get("confidence_threshold", 0.1))
@@ -193,6 +203,8 @@ class MlWorker(BaseWorker):
         crop_size = int(parameters.get("crop_size", 640))
         overlap = int(parameters.get("overlap", 32))
         output_predictions_path = parameters.get("output_predictions_path")
+        # Self-hosted Roboflow inference server; None = Roboflow cloud.
+        api_url = parameters.get("api_url")
 
         client = _get_minio_client()
         self.report_progress(job_id, 2, {"stage": "listing", "prefix": images_prefix})
@@ -253,6 +265,7 @@ class MlWorker(BaseWorker):
                         iou_threshold=iou_threshold,
                         crop_size=crop_size,
                         overlap=overlap,
+                        api_url=api_url,
                     )
                 except Exception as e:  # noqa: BLE001 — one plot must not sink the run
                     logger.warning("LOCATE_PLANTS failed for %s: %s", object_name, e)
@@ -301,6 +314,16 @@ class MlWorker(BaseWorker):
             if errors:
                 result["errors"] = errors
 
+            if boundaries and output_predictions_path:
+                self.report_progress(job_id, 90, {"stage": "ingesting_counts"})
+                result["ingested"] = self._ingest_detection_counts(
+                    boundaries=boundaries,
+                    by_plot=by_plot,
+                    classes=sorted(counts_by_class),
+                    label=count_label,
+                    output_path=output_predictions_path,
+                )
+
             if output_predictions_path:
                 self.report_progress(job_id, 92, {"stage": "uploading"})
                 local_out = os.path.join(tmpdir, "predictions_by_plot.json")
@@ -314,6 +337,61 @@ class MlWorker(BaseWorker):
                 result["predictions_by_plot"] = by_plot
 
             return result
+
+    def _ingest_detection_counts(
+        self,
+        *,
+        boundaries: dict,
+        by_plot: dict,
+        classes: list,
+        label: str,
+        output_path: str,
+    ) -> dict:
+        """Write per-plot detection counts into trait_records.
+
+        One trait per class (`"<class> count (<label>)"`) plus a total
+        (`"detections (<label>)"`). The label disambiguates models: two
+        detectors can both emit "plant", and their counts are different
+        measurements.
+
+        A plot that was inferred and had no detections gets 0 — that IS a
+        measurement. A plot that errored or had no image gets NO record:
+        writing 0 there would claim "we looked and found nothing" for a plot
+        nobody looked at.
+        """
+        from gemini.workers.ml.trait_ingest import ingest_trait_features
+
+        total_col = f"detections ({label})"
+        class_cols = {c: f"{c} count ({label})" for c in classes if c}
+
+        features = []
+        for feat in (boundaries or {}).get("features", []) or []:
+            if not isinstance(feat, dict):
+                continue
+            props = dict(feat.get("properties") or {})
+            raw = props.get("plot_number", props.get("plot", props.get("Plot")))
+            try:
+                key = str(int(float(raw)))
+            except (TypeError, ValueError):
+                continue
+            hit = by_plot.get(key)
+            if hit is None:
+                continue  # errored or no image — no measurement, no record
+            props[total_col] = hit["count"]
+            for cls, col in class_cols.items():
+                props[col] = hit["counts_by_class"].get(cls, 0)
+            features.append({**feat, "properties": props})
+
+        if not features:
+            return {}
+        return ingest_trait_features(
+            self._http,
+            output_path=output_path,
+            geojson={"type": "FeatureCollection", "features": features},
+            trait_columns=[(total_col, "count")]
+            + [(col, "count") for col in class_cols.values()],
+            source="LOCATE_PLANTS",
+        )
 
     # ------------------------------------------------------------------
     # EXTRACT_TRAITS

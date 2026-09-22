@@ -173,7 +173,7 @@ def _ensure_trait(
 
 
 def _features_to_records(
-    features: Iterable[dict], trait_column: str
+    features: Iterable[dict], trait_column: str, source: str = "EXTRACT_TRAITS"
 ) -> list[dict]:
     """Project a list of GeoJSON features into TraitRecordBulkInput records
     for one trait column. Skips features missing plot_number/row/col.
@@ -251,20 +251,29 @@ def _features_to_records(
                 "accession_name": accession
                 if isinstance(accession, str) and accession
                 else None,
-                "record_info": {"source": "EXTRACT_TRAITS"},
+                "record_info": {"source": source},
             }
         )
     return out
 
 
-def ingest_extracted_traits(
+def ingest_trait_features(
     http: WorkerSession,
     *,
     output_path: str,
     geojson: dict,
+    trait_columns: Iterable[tuple[str, str]],
+    source: str,
     timestamp: Optional[datetime] = None,
 ) -> dict:
-    """Ingest the EXTRACT_TRAITS GeoJSON into `trait_records`.
+    """Ingest per-plot trait values from a FeatureCollection into `trait_records`.
+
+    Generic core shared by EXTRACT_TRAITS (vegetation fraction, height) and
+    LOCATE_PLANTS batch mode (detection counts). Each entry in
+    `trait_columns` is `(property_name, units)`: the property is read off
+    every feature and becomes a trait of that name. Features need
+    `plot`/`row`/`col` (or the canonical `plot_number`/... keys) so the
+    `populate_trait_record_ids` trigger can resolve them to a plot.
 
     Args:
         http: Authenticated WorkerSession (typically `self._http` from
@@ -296,7 +305,7 @@ def ingest_extracted_traits(
 
     ts = (timestamp or datetime.now(timezone.utc)).isoformat()
     dataset_name = (
-        f"EXTRACT_TRAITS {scope['date']} {scope['platform']}/{scope['sensor']}"
+        f"{source} {scope['date']} {scope['platform']}/{scope['sensor']}"
     )
     _ensure_dataset(
         http,
@@ -306,8 +315,8 @@ def ingest_extracted_traits(
     )
 
     counts: dict[str, int] = {}
-    for trait_name, units in EXTRACTED_TRAIT_COLUMNS:
-        records = _features_to_records(features, trait_name)
+    for trait_name, units in trait_columns:
+        records = _features_to_records(features, trait_name, source=source)
         if not records:
             continue
         # Stamp each record's timestamp (the bulk endpoint reads
@@ -402,3 +411,24 @@ def ingest_extracted_traits(
         )
 
     return counts
+
+def ingest_extracted_traits(
+    http: WorkerSession,
+    *,
+    output_path: str,
+    geojson: dict,
+    timestamp: Optional[datetime] = None,
+) -> dict:
+    """Ingest the EXTRACT_TRAITS GeoJSON into `trait_records`.
+
+    Thin wrapper over `ingest_trait_features` with the fixed
+    EXTRACT_TRAITS column allow-list.
+    """
+    return ingest_trait_features(
+        http,
+        output_path=output_path,
+        geojson=geojson,
+        trait_columns=EXTRACTED_TRAIT_COLUMNS,
+        source="EXTRACT_TRAITS",
+        timestamp=timestamp,
+    )

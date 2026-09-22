@@ -148,10 +148,40 @@ def apply_nms(predictions: List[dict], iou_threshold: float = 0.5) -> List[dict]
     return kept
 
 
+def resolve_inference_api_url(api_url: Optional[str]) -> str:
+    """Base URL for the Roboflow-compatible inference API.
+
+    Empty means Roboflow cloud. Otherwise it's a self-hosted Roboflow
+    inference server, which serves the same `POST /{model_id}` API.
+
+    `localhost` / `127.0.0.1` are rewritten to `host.docker.internal`.
+    The URL is entered by a user thinking of *their* machine ("I started
+    the inference server on port 9002"), but this code runs inside the ML
+    worker container, where `localhost` is the container itself — so the
+    literal URL would always be refused. host.docker.internal is the
+    container's name for the host (Docker Desktop provides it; on Linux the
+    compose service maps it via extra_hosts: host-gateway).
+    """
+    if not api_url or not str(api_url).strip():
+        return CLOUD_API_URL
+    url = str(api_url).strip().rstrip("/")
+    from urllib.parse import urlsplit, urlunsplit
+
+    parts = urlsplit(url)
+    if parts.hostname in ("localhost", "127.0.0.1", "0.0.0.0"):
+        netloc = "host.docker.internal" + (f":{parts.port}" if parts.port else "")
+        url = urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))
+    return url
+
+
 def _infer_cloud(
-    api_key: str, model_id: str, confidence_threshold: float
+    api_key: str,
+    model_id: str,
+    confidence_threshold: float,
+    api_url: Optional[str] = None,
 ) -> Callable[[str], List[dict]]:
-    endpoint = f"{CLOUD_API_URL}/{model_id}"
+    base = resolve_inference_api_url(api_url)
+    endpoint = f"{base}/{model_id}"
     # Reuse a single TLS connection across all crops — a 10k-crop image
     # otherwise triggers 10k handshakes and dominates wall-clock time.
     session = requests.Session()
@@ -199,8 +229,12 @@ def run_inference_on_image(
     crop_size: int = 640,
     overlap: int = 32,
     on_warning: Optional[Callable[[str], None]] = None,
+    api_url: Optional[str] = None,
 ) -> List[dict]:
-    """Run Roboflow cloud inference on one image, tiled + NMS-merged.
+    """Run Roboflow inference on one image, tiled + NMS-merged.
+
+    `api_url` selects a self-hosted inference server; omit it for Roboflow
+    cloud. See `resolve_inference_api_url`.
 
     Returns a list of prediction dicts with image-level ``(x, y, width,
     height)`` coordinates.
@@ -209,6 +243,7 @@ def run_inference_on_image(
         api_key=api_key,
         model_id=model_id,
         confidence_threshold=confidence_threshold,
+        api_url=api_url,
     )
 
     crops = crop_image_with_overlap(
