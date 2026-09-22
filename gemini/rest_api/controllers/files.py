@@ -360,6 +360,35 @@ minio_storage_config = MinioStorageConfig(
 )
 minio_storage_provider = MinioStorageProvider(minio_storage_config)
 
+def _drop_experiment_file_row(bucket_name: str, object_name: str) -> None:
+    """Remove the ``experiment_files`` pointer for a deleted object.
+
+    The chunked-upload finaliser is the only writer of these rows and keys
+    them on (bucket, object_name), the unique constraint — so this deletes
+    at most one row. A warning, not an error: the MinIO object is already
+    gone, and a later Experiment.delete() only logs a missing object.
+    """
+    try:
+        from gemini.db.core.base import db_engine
+        from gemini.db.models.experiment_files import ExperimentFileModel
+
+        with db_engine.get_session() as session:
+            session.execute(
+                ExperimentFileModel.__table__.delete().where(
+                    (ExperimentFileModel.bucket == bucket_name)
+                    & (ExperimentFileModel.object_name == object_name)
+                )
+            )
+            session.commit()
+    except Exception as exc:
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "experiment_files row sweep for %s/%s failed: %s",
+            bucket_name, object_name, exc,
+        )
+
+
 class FileController(Controller):
 
     @get(path="/metadata/{file_path:path}", sync_to_thread=True)
@@ -694,27 +723,7 @@ class FileController(Controller):
             # at `_record_experiment_file` is the only writer of these
             # rows; it keys on (bucket, object_name) which is also our
             # unique constraint — so the DELETE is at-most-one-row.
-            try:
-                from gemini.db.core.base import db_engine
-                from gemini.db.models.experiment_files import ExperimentFileModel
-                with db_engine.get_session() as session:
-                    session.execute(
-                        ExperimentFileModel.__table__.delete().where(
-                            (ExperimentFileModel.bucket == bucket_name)
-                            & (ExperimentFileModel.object_name == object_name)
-                        )
-                    )
-                    session.commit()
-            except Exception as exc:
-                # Logged-warning, not fatal: the MinIO object is already
-                # gone, so a subsequent Experiment.delete() that tries to
-                # remove this object via the row-targeted sweep will
-                # see a missing-object warning rather than a zombie row.
-                import logging
-                logging.getLogger(__name__).warning(
-                    "experiment_files row sweep for %s/%s failed: %s",
-                    bucket_name, object_name, exc,
-                )
+            _drop_experiment_file_row(bucket_name, object_name)
             return None
         except Exception as e:
             error_message = RESTAPIError(
@@ -722,6 +731,51 @@ class FileController(Controller):
                 error_description="An error occurred while deleting the file"
             )
             return Response(content=error_message, status_code=500)
+
+    @post(path="/delete_many", sync_to_thread=True)
+    def delete_many(self, data: dict) -> Response:
+        """Delete selected files (e.g. images picked in the viewer).
+
+        Body: ``{"objects": [object names in the default bucket]}``.
+        Each is removed exactly like ``DELETE /delete/{path}``: the MinIO
+        object, then its ``experiment_files`` pointer row, so the owning
+        dataset's file count stays right. Folder (prefix) paths are refused.
+        Reports per-object outcomes rather than stopping at the first
+        failure: ``{"deleted": [...], "failed": [{"object", "error"}]}``.
+        """
+        objects = [o for o in (data.get("objects") or []) if isinstance(o, str)]
+        if not objects:
+            return Response(
+                content=RESTAPIError(
+                    error="No files", error_description="Nothing to delete"
+                ),
+                status_code=400,
+            )
+        bucket = minio_storage_config.bucket_name
+        deleted: list = []
+        failed: list = []
+        for obj in objects:
+            if not obj or obj.endswith("/"):
+                failed.append({"object": obj, "error": "Folder paths can't be deleted here"})
+                continue
+            try:
+                if not minio_storage_provider.file_exists(
+                    object_name=obj, bucket_name=bucket
+                ):
+                    failed.append({"object": obj, "error": "Not found"})
+                    continue
+                if not minio_storage_provider.delete_file(
+                    object_name=obj, bucket_name=bucket
+                ):
+                    failed.append({"object": obj, "error": "Delete failed"})
+                    continue
+                _drop_experiment_file_row(bucket, obj)
+                deleted.append(obj)
+            except Exception as e:  # noqa: BLE001 — reported per object
+                failed.append({"object": obj, "error": str(e)})
+        return Response(
+            content={"deleted": deleted, "failed": failed}, status_code=201
+        )
 
     @post(path="/upload_chunk", sync_to_thread=True)
     def upload_chunk(
