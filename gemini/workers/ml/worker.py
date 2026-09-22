@@ -78,10 +78,24 @@ class MlWorker(BaseWorker):
     # ------------------------------------------------------------------
 
     def _locate_plants_job(self, job_id: str, parameters: dict) -> dict:
-        """Roboflow cloud inference on a single image.
+        """Roboflow cloud inference on one image, or on every plot image.
+
+        Two modes, chosen by which parameter is supplied:
+
+        * ``image_path`` — a single PNG/JPEG. Returns the detections for
+          that image.
+        * ``images_prefix`` — a MinIO prefix (typically a ``PlotImages/``
+          directory written by SPLIT_ORTHOMOSAIC). Every image under it is
+          inferred in one job, and the result is keyed by plot number.
+
+        The prefix mode exists because the alternative — the client
+        submitting one job per plot — means hundreds of jobs for a single
+        field, each paying container + model startup. The old backend
+        looped server-side for the same reason.
 
         Parameters:
-            image_path: MinIO object path to a PNG/JPEG
+            image_path: MinIO object path to a PNG/JPEG (single mode)
+            images_prefix: MinIO prefix to infer over (batch mode)
             api_key: Roboflow API key (string)
             model_id: "workspace/model/version" or "workspace/model"
             confidence_threshold: float, default 0.1
@@ -90,9 +104,13 @@ class MlWorker(BaseWorker):
             overlap: int, default 32
             output_predictions_path: MinIO path to write a JSON array of
                 predictions (optional; default omits upload and just
-                returns the summary).
+                returns the summary). In batch mode this receives the
+                per-plot mapping instead.
         """
         from gemini.workers.ml.inference_utils import run_inference_on_image
+
+        if parameters.get("images_prefix") and not parameters.get("image_path"):
+            return self._locate_plants_batch(job_id, parameters)
 
         image_path = parameters["image_path"]
         api_key = parameters["api_key"]
@@ -147,6 +165,153 @@ class MlWorker(BaseWorker):
                 # with thousands of detection rows.
                 if len(predictions) <= 500:
                     result["predictions"] = predictions
+
+            return result
+
+    def _locate_plants_batch(self, job_id: str, parameters: dict) -> dict:
+        """Run inference over every image under ``images_prefix``.
+
+        Keyed by plot number parsed from the SPLIT_ORTHOMOSAIC naming
+        scheme (``plot_{n}_accession_{name}.png``). Images whose names
+        don't carry a plot number are still inferred, keyed by basename,
+        so a non-standard directory degrades rather than silently
+        dropping work.
+
+        One bad image must not lose the whole run — a per-image failure is
+        recorded against that plot and the loop continues. `errors` in the
+        result is how the caller tells "0 detections" from "never ran".
+        """
+        import re
+
+        from gemini.workers.ml.inference_utils import run_inference_on_image
+
+        images_prefix = parameters["images_prefix"]
+        api_key = parameters["api_key"]
+        model_id = parameters["model_id"]
+        confidence_threshold = float(parameters.get("confidence_threshold", 0.1))
+        iou_threshold = float(parameters.get("iou_threshold", 0.5))
+        crop_size = int(parameters.get("crop_size", 640))
+        overlap = int(parameters.get("overlap", 32))
+        output_predictions_path = parameters.get("output_predictions_path")
+
+        client = _get_minio_client()
+        self.report_progress(job_id, 2, {"stage": "listing", "prefix": images_prefix})
+
+        image_names: list[str] = []
+        for obj in client.list_objects(
+            STORAGE_BUCKET, prefix=images_prefix, recursive=True
+        ):
+            name = obj.object_name or ""
+            if re.search(r"\.(png|jpe?g)$", name, re.IGNORECASE):
+                image_names.append(name)
+        image_names.sort()
+
+        if not image_names:
+            return {
+                "images_prefix": images_prefix,
+                "plots_processed": 0,
+                "total_detections": 0,
+                "error": f"No images found under {images_prefix}",
+            }
+
+        def _plot_key(object_name: str) -> str:
+            base = object_name.rsplit("/", 1)[-1]
+            m = re.match(r"^plot_(\d+)(?:_|\.)", base)
+            return m.group(1) if m else base
+
+        by_plot: dict = {}
+        counts_by_class: dict = {}
+        errors: dict = {}
+        total_detections = 0
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            for idx, object_name in enumerate(image_names):
+                if self.is_cancelled(job_id):
+                    return {"status": "cancelled"}
+
+                pct = 5 + int(85 * idx / len(image_names))
+                self.report_progress(
+                    job_id,
+                    pct,
+                    {
+                        "stage": "inference",
+                        "image": idx + 1,
+                        "of": len(image_names),
+                        "model_id": model_id,
+                    },
+                )
+
+                key = _plot_key(object_name)
+                local_image = os.path.join(tmpdir, f"{idx}_{Path(object_name).name}")
+                try:
+                    client.fget_object(STORAGE_BUCKET, object_name, local_image)
+                    predictions = run_inference_on_image(
+                        image_path=local_image,
+                        api_key=api_key,
+                        model_id=model_id,
+                        confidence_threshold=confidence_threshold,
+                        iou_threshold=iou_threshold,
+                        crop_size=crop_size,
+                        overlap=overlap,
+                    )
+                except Exception as e:  # noqa: BLE001 — one plot must not sink the run
+                    logger.warning("LOCATE_PLANTS failed for %s: %s", object_name, e)
+                    errors[key] = str(e)
+                    continue
+                finally:
+                    if os.path.exists(local_image):
+                        os.remove(local_image)
+
+                per_class: dict = {}
+                for pred in predictions:
+                    cls = pred.get("class", "")
+                    per_class[cls] = per_class.get(cls, 0) + 1
+                    counts_by_class[cls] = counts_by_class.get(cls, 0) + 1
+
+                total_detections += len(predictions)
+                by_plot[key] = {
+                    "object_name": object_name,
+                    "count": len(predictions),
+                    "counts_by_class": per_class,
+                    "predictions": predictions,
+                }
+
+            # Every image failing is a failed job, not a job that found
+            # nothing. Reporting COMPLETED here would show a green tick for
+            # a run that inferred nothing at all — e.g. a bad API key fails
+            # identically on every image.
+            if errors and not by_plot:
+                raise RuntimeError(
+                    f"LOCATE_PLANTS failed on all {len(image_names)} images "
+                    f"under {images_prefix}. First error: "
+                    f"{next(iter(errors.values()))}"
+                )
+
+            result: dict = {
+                "images_prefix": images_prefix,
+                "model_id": model_id,
+                "plots_processed": len(by_plot),
+                "images_found": len(image_names),
+                "total_detections": total_detections,
+                "counts_by_class": counts_by_class,
+                # Per-plot counts always; the detection boxes only when
+                # they'd fit in job.result without bloating it.
+                "counts_by_plot": {k: v["count"] for k, v in by_plot.items()},
+            }
+            if errors:
+                result["errors"] = errors
+
+            if output_predictions_path:
+                self.report_progress(job_id, 92, {"stage": "uploading"})
+                local_out = os.path.join(tmpdir, "predictions_by_plot.json")
+                with open(local_out, "w") as f:
+                    json.dump(by_plot, f)
+                client.fput_object(
+                    STORAGE_BUCKET, output_predictions_path, local_out
+                )
+                result["output_predictions_path"] = output_predictions_path
+            elif total_detections <= 500:
+                result["predictions_by_plot"] = by_plot
 
             return result
 
