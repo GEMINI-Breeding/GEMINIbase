@@ -39,6 +39,7 @@ import json
 import logging
 import multiprocessing
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -127,9 +128,11 @@ class StitchWorker(BaseWorker):
 
     @property
     def supported_job_types(self) -> Set[JobType]:
-        return {JobType.RUN_STITCH}
+        return {JobType.RUN_STITCH, JobType.ASSOCIATE_BOUNDARIES}
 
     def process(self, job_id: str, job_type: str, parameters: dict) -> dict:
+        if job_type == JobType.ASSOCIATE_BOUNDARIES.value:
+            return self._associate_boundaries(job_id, parameters)
         if job_type != JobType.RUN_STITCH.value:
             raise ValueError(f"Unsupported job type: {job_type}")
         try:
@@ -369,6 +372,103 @@ class StitchWorker(BaseWorker):
             "failed_plots": failed,
             "combined_mosaic": combined,
             "summary": summary,
+        }
+
+
+    # ── ASSOCIATE_BOUNDARIES ─────────────────────────────────────────────
+
+    def _associate_boundaries(self, job_id: str, p: dict) -> dict:
+        """Match each stitched plot of a stitch version to the boundary
+        polygon containing its centre (main's run_associate_boundaries).
+
+        Parameters: stitch_prefix (…/AgRowStitch_v{N}/), boundaries (the
+        plot-boundary FeatureCollection), plot_images_prefix (…/PlotImages/),
+        boundary_version (recorded only).
+
+        Writes each matched plot's mosaic to plot_images_prefix as
+        plot_{n}_accession_{a}.png — the aerial split's naming, so Analyze
+        and inference use ground plots unchanged — replacing what an earlier
+        association put there, plus association.json and
+        plot_boundaries.geojson (footprints with the matched labels) in the
+        stitch version. Fails if no plot lands in any polygon.
+        """
+        from minio.commonconfig import CopySource
+
+        from gemini.workers.stitch import associate, georef
+
+        stitch_prefix = p["stitch_prefix"].rstrip("/") + "/"
+        images_prefix = p["plot_images_prefix"].rstrip("/") + "/"
+        polygons = associate.plot_polygons(p.get("boundaries") or {})
+        if not polygons:
+            raise ValueError("The plot boundary version has no plot polygons.")
+
+        client = _get_minio_client()
+        tifs = sorted(
+            o.object_name for o in client.list_objects(STORAGE_BUCKET, stitch_prefix)
+            if re.fullmatch(r".*/georeferenced_plot_(.+)_utm\.tif", o.object_name)
+        )
+        if not tifs:
+            raise ValueError(
+                "This stitch version has no georeferenced plots to associate."
+            )
+        self._stage(job_id, 10, f"Locating {len(tifs)} stitched plots")
+        centres, footprints = {}, {}
+        with tempfile.TemporaryDirectory(prefix="gemi_assoc_") as tmp:
+            for name in tifs:
+                pid = re.fullmatch(r".*/georeferenced_plot_(.+)_utm\.tif", name).group(1)
+                local = Path(tmp) / f"{pid}.tif"
+                client.fget_object(STORAGE_BUCKET, name, str(local))
+                centres[pid] = georef.center_wgs84(local)
+                footprints[pid] = georef.footprint_wgs84(local)
+
+        matches = associate.match(centres, polygons)
+        matched = {pid: props for pid, props in matches.items() if props is not None}
+        if not matched:
+            raise RuntimeError(
+                f"None of the {len(centres)} stitched plots lies inside a plot "
+                "boundary. Draw the boundaries over this run's ground mosaic."
+            )
+
+        self._stage(job_id, 60, f"Saving {len(matched)} plot images")
+        for o in list(client.list_objects(STORAGE_BUCKET, images_prefix)):
+            client.remove_object(STORAGE_BUCKET, o.object_name)
+        rows, features = [], []
+        for pid in sorted(matches, key=lambda x: (len(x), x)):
+            props = matches[pid]
+            row = {"stitched_plot": pid, "matched": props is not None,
+                   "centre": list(centres[pid])}
+            if props is not None:
+                image = associate.plot_image_name(props, pid)
+                client.copy_object(
+                    STORAGE_BUCKET, images_prefix + image,
+                    CopySource(STORAGE_BUCKET,
+                               f"{stitch_prefix}full_res_mosaic_temp_plot_{pid}.png"),
+                )
+                row.update(plot=associate.plot_label(props, pid),
+                           accession=associate.accession_of(props),
+                           image=images_prefix + image,
+                           properties=props)
+                features.append({
+                    "type": "Feature",
+                    "geometry": {"type": "Polygon", "coordinates": [footprints[pid]]},
+                    "properties": {**props, "stitched_plot": pid},
+                })
+            rows.append(row)
+
+        for name, doc in (
+            ("association.json", {"boundary_version": p.get("boundary_version"),
+                                  "plots": rows}),
+            ("plot_boundaries.geojson", {"type": "FeatureCollection", "features": features}),
+        ):
+            body = json.dumps(doc, indent=2, default=str).encode()
+            client.put_object(STORAGE_BUCKET, stitch_prefix + name, io.BytesIO(body),
+                              len(body), content_type="application/json")
+        unmatched = [r["stitched_plot"] for r in rows if not r["matched"]]
+        return {
+            "matched": len(matched),
+            "unmatched_plots": unmatched,
+            "total": len(rows),
+            "plot_images_prefix": images_prefix,
         }
 
 
