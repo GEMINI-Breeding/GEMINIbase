@@ -82,3 +82,13 @@ def require_superuser(request: Request) -> User:
             status_code=403, detail="The user doesn't have enough privileges."
         )
     return user
+
+
+def provide_superuser(request: Request) -> Optional[User]:
+    """Superuser gate that, like the global JWT guard, is a no-op when auth is
+    disabled (`GEMINI_JWT_SECRET` empty): returns None instead of raising 503.
+    With auth enabled it behaves exactly like `require_superuser`.
+    """
+    if not _settings.GEMINI_JWT_SECRET:
+        return None
+    return require_superuser(request)

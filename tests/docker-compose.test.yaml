@@ -28,7 +28,7 @@ services:
       retries: 10
 
   test-storage:
-    image: minio/minio:latest
+    image: quay.io/minio/minio:latest
     container_name: geminibase-test-storage
     ports:
       - "19000:9000"
@@ -44,7 +44,7 @@ services:
       retries: 10
 
   test-storage-init:
-    image: minio/mc:latest
+    image: quay.io/minio/mc:latest
     depends_on:
       test-storage:
         condition: service_healthy

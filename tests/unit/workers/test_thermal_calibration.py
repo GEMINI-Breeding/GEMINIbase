@@ -326,3 +326,38 @@ class TestThermalPrefixBuilder:
             "sensor": "Thermal",
         })
         assert out == "Raw/2024/GEMINI/2024-07-25/DJI/Thermal/"
+
+
+# ---------------------------------------------------------------------------
+# Input listing on re-run
+# ---------------------------------------------------------------------------
+
+
+def _listing(*names):
+    from unittest.mock import MagicMock
+
+    client = MagicMock()
+    client.list_objects.return_value = [MagicMock(object_name=n) for n in names]
+    return client
+
+
+def test_rerun_skips_own_previews_for_boson_tiffs():
+    """A second run must not treat the first run's `Images/{stem}.jpg`
+    previews as inputs — boson modes reject JPEG inputs outright."""
+    from gemini.workers.thermal.worker import _list_thermal_inputs
+
+    p = "Raw/x/Boson/abc/"
+    client = _listing(
+        f"{p}Images/a.tif", f"{p}Images/a.jpg",   # form layout + preview
+        f"{p}b.tiff", f"{p}Images/b.jpg",         # direct layout + preview
+        f"{p}RawThermal/a.tif", f"{p}RawThermal/a.json",
+    )
+    assert _list_thermal_inputs(client, p) == [f"{p}Images/a.tif", f"{p}b.tiff"]
+
+
+def test_flir_jpeg_uploaded_into_images_is_still_an_input():
+    from gemini.workers.thermal.worker import _list_thermal_inputs
+
+    p = "Raw/x/FLIR/abc/"
+    client = _listing(f"{p}Images/c.jpg", f"{p}RawThermal/c.tif", f"{p}RawThermal/c.json")
+    assert _list_thermal_inputs(client, p) == [f"{p}Images/c.jpg"]

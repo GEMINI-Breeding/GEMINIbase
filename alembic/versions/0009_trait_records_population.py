@@ -45,13 +45,44 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
 
 
 revision: str = "0009_trait_records_population"
 down_revision: Union[str, Sequence[str], None] = "0008_jobs_experiment_fk"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
+
+
+# ─── Backfill trigger guard ───────────────────────────────────────────
+# ``trg_populate_trait_record_ids`` is BEFORE INSERT OR UPDATE on
+# trait_records and RAISEs on inconsistent rows (invalid trait/plot
+# combos, unresolved accession names, plot/accession mismatch). The
+# backfill UPDATEs below deliberately leave such legacy rows behind, so
+# letting the trigger fire on them would abort the whole upgrade. We
+# disable just that trigger (pg_ivm's IMMV-maintenance triggers stay
+# on) around the backfill and re-enable it before the mid-migration
+# COMMIT. The pg_trigger guard makes this a no-op if the trigger is
+# absent (e.g. a test DB built without it).
+_POPULATE_TRIGGER_NAME = "trg_populate_trait_record_ids"
+
+
+def _set_populate_trigger(enabled: bool) -> None:
+    action = "ENABLE" if enabled else "DISABLE"
+    op.execute(
+        f"""
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1 FROM pg_trigger
+                 WHERE tgname = '{_POPULATE_TRIGGER_NAME}'
+                   AND tgrelid = 'gemini.trait_records'::regclass
+            ) THEN
+                ALTER TABLE gemini.trait_records {action} TRIGGER {_POPULATE_TRIGGER_NAME};
+            END IF;
+        END
+        $$
+        """
+    )
 
 
 # ─── Trigger body (post-migration) ────────────────────────────────────
@@ -261,20 +292,27 @@ def upgrade() -> None:
     #    no btree on a post-hoc column (see 0006 for the citus_columnar
     #    rationale). Validation lives in the trigger; the read-side btree
     #    goes on the IMMV in step 4.
-    op.add_column(
-        "trait_records",
-        sa.Column("population_id", postgresql.UUID(as_uuid=True), nullable=True),
-        schema="gemini",
+    #
+    #    ``ADD COLUMN IF NOT EXISTS`` so the revision is re-runnable if it
+    #    dies after the mid-migration COMMIT in step 4.
+    op.execute(
+        "ALTER TABLE gemini.trait_records "
+        "ADD COLUMN IF NOT EXISTS population_id UUID"
     )
-    op.add_column(
-        "trait_records",
-        sa.Column("population_name", sa.Text(), nullable=True),
-        schema="gemini",
+    op.execute(
+        "ALTER TABLE gemini.trait_records "
+        "ADD COLUMN IF NOT EXISTS population_name TEXT"
     )
 
     # 2. Backfill. First the name from record_info (the import wizard
     #    stores the population under the 'population' key), then the id by
     #    name, then — for plot-linked rows — straight from the plot.
+    #
+    #    The populate trigger is disabled for the duration: it would
+    #    otherwise re-validate every touched row and RAISE on the
+    #    unresolved-accession / accession-mismatch rows that 0006
+    #    deliberately left in place. See _set_populate_trigger() above.
+    _set_populate_trigger(False)
     op.execute(
         """
         UPDATE gemini.trait_records
@@ -306,6 +344,9 @@ def upgrade() -> None:
            AND pl.population_id IS NOT NULL;
         """
     )
+    # Re-enable before step 4's COMMIT so the trigger is never left
+    # disabled in committed state.
+    _set_populate_trigger(True)
 
     # 3. Install the population-aware trigger body.
     op.execute(POPULATE_TRIGGER_BODY)
@@ -329,6 +370,15 @@ def upgrade() -> None:
             "ON gemini.trait_records_immv (population_id)"
         )
     )
+    # The DROP ... CASCADE above also took 0006's accession_id btree
+    # with it; recreate it so upgraded DBs match fresh ones
+    # (5_init_views.sql creates both).
+    bind.execute(
+        sa.text(
+            "CREATE INDEX IF NOT EXISTS idx_trait_records_immv_accession_id "
+            "ON gemini.trait_records_immv (accession_id)"
+        )
+    )
     bind.execute(sa.text("BEGIN"))
 
 
@@ -337,17 +387,30 @@ def downgrade() -> None:
     # the population lookup on any in-flight INSERTs.
     op.execute(POPULATE_TRIGGER_BODY_PRE)
 
-    op.drop_column("trait_records", "population_name", schema="gemini")
-    op.drop_column("trait_records", "population_id", schema="gemini")
-
     # IMMV recreate outside alembic's transaction (pg_ivm teardown).
     bind = op.get_bind()
     bind.execute(sa.text("COMMIT"))
     bind.execute(sa.text("DROP TABLE IF EXISTS gemini.trait_records_immv CASCADE"))
+    # Drop the columns only after the IMMV is gone: the IMMV depends on
+    # them, so DROP COLUMN before this point fails with
+    # DependentObjectsStillExist.
+    bind.execute(
+        sa.text("ALTER TABLE gemini.trait_records DROP COLUMN IF EXISTS population_name")
+    )
+    bind.execute(
+        sa.text("ALTER TABLE gemini.trait_records DROP COLUMN IF EXISTS population_id")
+    )
     bind.execute(
         sa.text(
             "SELECT pgivm.create_immv('gemini.trait_records_immv', "
             "'select * from gemini.trait_records')"
+        )
+    )
+    # Restore 0006's accession_id btree (lost with the CASCADE drop).
+    bind.execute(
+        sa.text(
+            "CREATE INDEX IF NOT EXISTS idx_trait_records_immv_accession_id "
+            "ON gemini.trait_records_immv (accession_id)"
         )
     )
     bind.execute(sa.text("BEGIN"))

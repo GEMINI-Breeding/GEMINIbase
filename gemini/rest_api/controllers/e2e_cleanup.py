@@ -13,20 +13,24 @@ Playwright fixture does.
 """
 import logging
 import os
+from typing import Optional
 
 from sqlalchemy import text
 from litestar import Response
 from litestar.controller import Controller
+from litestar.di import Provide
 from litestar.handlers import delete
 from sqlalchemy import select
 
 from gemini.api.experiment import Experiment
 from gemini.api.genotyping_study import GenotypingStudy
+from gemini.api.user import User
 from gemini.db.core.base import db_engine
 from gemini.db.models.accessions import AccessionModel
 from gemini.db.models.experiments import ExperimentModel
 from gemini.db.models.genotyping_studies import GenotypingStudyModel
 from gemini.db.models.lines import LineModel
+from gemini.rest_api.dependencies import provide_superuser
 from gemini.rest_api.models import RESTAPIError
 
 logger = logging.getLogger(__name__)
@@ -36,11 +40,30 @@ def _enabled() -> bool:
     return os.environ.get("GEMINI_E2E_CLEANUP_ENABLED") == "1"
 
 
+def _like_prefix(prefix: str) -> str:
+    """LIKE pattern matching names that start with ``prefix`` literally.
+
+    Escapes the LIKE metacharacters so a prefix such as ``%%%%`` can't
+    pass the length check and then match every row. Use with
+    ``escape="\\"`` (or ``ESCAPE '\\'`` in raw SQL).
+    """
+    escaped = (
+        prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    )
+    return f"{escaped}%"
+
+
 class E2ECleanupController(Controller):
     """Sweep entities whose names start with a given prefix."""
 
+    dependencies = {
+        "superuser": Provide(provide_superuser, sync_to_thread=True),
+    }
+
     @delete(sync_to_thread=True, status_code=200)
-    def cleanup_by_prefix(self, prefix: str) -> dict:
+    def cleanup_by_prefix(
+        self, prefix: str, superuser: Optional[User]
+    ) -> dict:
         if not _enabled():
             # Pretend the route doesn't exist so a stray prod hit looks
             # like a routing typo, not a deliberate access-control denial.
@@ -71,6 +94,7 @@ class E2ECleanupController(Controller):
         # used to look indistinguishable from "no rows matched") can't
         # masquerade as a successful sweep.
         failed: list[dict] = []
+        pattern = _like_prefix(prefix)
 
         # Collect ids first (separate session) so the per-row deletes
         # below can each run in their own transaction without holding
@@ -78,12 +102,12 @@ class E2ECleanupController(Controller):
         with db_engine.get_session() as session:
             exp_ids = list(session.execute(
                 select(ExperimentModel.id).where(
-                    ExperimentModel.experiment_name.like(f"{prefix}%")
+                    ExperimentModel.experiment_name.like(pattern, escape="\\")
                 )
             ).scalars().all())
             study_ids = list(session.execute(
                 select(GenotypingStudyModel.id).where(
-                    GenotypingStudyModel.study_name.like(f"{prefix}%")
+                    GenotypingStudyModel.study_name.like(pattern, escape="\\")
                 )
             ).scalars().all())
 
@@ -155,12 +179,12 @@ class E2ECleanupController(Controller):
         with db_engine.get_session() as session:
             acc_count = session.execute(
                 AccessionModel.__table__.delete().where(
-                    AccessionModel.accession_name.like(f"{prefix}%")
+                    AccessionModel.accession_name.like(pattern, escape="\\")
                 )
             ).rowcount or 0
             line_count = session.execute(
                 LineModel.__table__.delete().where(
-                    LineModel.line_name.like(f"{prefix}%")
+                    LineModel.line_name.like(pattern, escape="\\")
                 )
             ).rowcount or 0
             deleted["accessions"] = int(acc_count)
@@ -173,9 +197,10 @@ class E2ECleanupController(Controller):
             ws_count = session.execute(
                 text(
                     "DELETE FROM gemini.process_entities "
-                    "WHERE kind = 'workspace' AND doc->>'name' LIKE :p"
+                    "WHERE kind = 'workspace' AND doc->>'name' LIKE :p "
+                    "ESCAPE '\\'"
                 ),
-                {"p": f"{prefix}%"},
+                {"p": pattern},
             ).rowcount or 0
             session.commit()
             deleted["process_workspaces"] = int(ws_count)

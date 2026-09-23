@@ -238,3 +238,17 @@ class TestAmigaWorkerOutputPaths:
         relative = "RGB/Metadata/msgs_synced.csv"
         object_name = f"{parent_dir}/{relative}"
         assert object_name == "2024/Exp1/Field1/Pop1/2024-01-15/Amiga/OAK/RGB/Metadata/msgs_synced.csv"
+
+
+def test_failed_bin_names_parses_report(tmp_path):
+    """Only .bin files NOT listed as ERROR in report.txt may be deleted."""
+    from gemini.workers.amiga.worker import _failed_bin_names
+
+    report = tmp_path / "report.txt"
+    report.write_text(
+        "Report of the conversion process:\n"
+        "\n--- File: /tmp/in/a.bin ---\n"
+        "ERROR b.bin: no camera topics: oak0/rgb\n"
+    )
+    assert _failed_bin_names(report) == {"b.bin"}
+    assert _failed_bin_names(tmp_path / "missing.txt") == set()

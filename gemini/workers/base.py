@@ -13,11 +13,12 @@ and access files through MinIO (S3-compatible) storage.
 """
 import json
 import logging
+import math
 import os
 import signal
 import time
 from abc import ABC, abstractmethod
-from typing import Set
+from typing import Any, Set
 
 import redis
 
@@ -25,6 +26,27 @@ from gemini.workers.auth import session_from_env
 from gemini.workers.types import JobType, JobStatus
 
 logger = logging.getLogger(__name__)
+
+
+def _json_safe(value: Any) -> Any:
+    """Recursively replace NaN / +-Inf with None inside a JSON-ish tree.
+
+    Worker results (e.g. GWAS summary stats such as genomic-inflation λ)
+    can legitimately contain NaN / Inf. The status PATCH goes through
+    stdlib json which emits literal ``NaN`` / ``Infinity`` tokens, and
+    Litestar's server-side validator rejects those ("Out of range float
+    values are not JSON compliant"), leaving the job stuck in RUNNING.
+    Coerce at the result boundary so a quirky dataset can't strand a job.
+    """
+    if isinstance(value, float):
+        if math.isnan(value) or math.isinf(value):
+            return None
+        return value
+    if isinstance(value, dict):
+        return {k: _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    return value
 
 
 class BaseWorker(ABC):
@@ -48,7 +70,8 @@ class BaseWorker(ABC):
         # Authenticated HTTP session for REST-API calls. The WorkerSession
         # signs in with GEMINI_FIRST_SUPERUSER_EMAIL/PASSWORD, caches the
         # bearer token, and refreshes on 401 — required because the
-        # REST-API JWT guard rejects unauthenticated /api/* traffic.
+        # REST-API JWT guard rejects unauthenticated /api/* traffic. With
+        # auth disabled (GEMINI_JWT_SECRET unset) it sends no token.
         self._http = session_from_env(api_base_url=self.api_base_url)
 
         # Ship this worker's log lines to the in-app console (see
@@ -279,9 +302,22 @@ class BaseWorker(ABC):
         delayed worker.
         """
         max_outer_attempts = 3
+        # NaN / Inf in the result would make the API reject the PATCH (4xx)
+        # on every attempt; sanitize once up front.
+        payload = _json_safe(payload)
         for attempt in range(max_outer_attempts):
             try:
-                self._http.patch(f"/api/jobs/{job_id}/status", json=payload)
+                resp = self._http.patch(f"/api/jobs/{job_id}/status", json=payload)
+                status_code = getattr(resp, "status_code", None)
+                if isinstance(status_code, int) and not 200 <= status_code < 300:
+                    # A non-2xx response means the terminal write did NOT
+                    # land — treat it like a transport failure and retry.
+                    body = ""
+                    try:
+                        body = (resp.text or "")[:500]
+                    except Exception:
+                        pass
+                    raise RuntimeError(f"HTTP {status_code}: {body}")
                 return
             except Exception as e:
                 if attempt + 1 >= max_outer_attempts:

@@ -433,12 +433,20 @@ class StitchWorker(BaseWorker):
         for o in list(client.list_objects(STORAGE_BUCKET, images_prefix)):
             client.remove_object(STORAGE_BUCKET, o.object_name)
         rows, features = [], []
+        used_images: dict = {}  # image name -> stitched plot that took it
         for pid in sorted(matches, key=lambda x: (len(x), x)):
             props = matches[pid]
             row = {"stitched_plot": pid, "matched": props is not None,
                    "centre": list(centres[pid])}
             if props is not None:
                 image = associate.plot_image_name(props, pid)
+                if image in used_images:
+                    # Two stitched plots fell in the same polygon. Keep both
+                    # images (suffix the later one with its stitched-plot id)
+                    # and flag the collision instead of silently overwriting.
+                    row["collides_with"] = used_images[image]
+                    image = f"{image[:-len('.png')]}_{pid}.png"
+                used_images.setdefault(image, pid)
                 client.copy_object(
                     STORAGE_BUCKET, images_prefix + image,
                     CopySource(STORAGE_BUCKET,

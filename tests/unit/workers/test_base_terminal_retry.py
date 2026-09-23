@@ -130,3 +130,60 @@ def test_exhausted_retries_swallows_exception_and_logs_critical(stub_worker, cap
     msg = critical[0].getMessage()
     assert "job-3" in msg
     assert "completion" in msg
+
+
+def test_non_2xx_response_is_retried(stub_worker):
+    """A 4xx/5xx means the terminal write did not land — retry it rather
+    than returning as if it had succeeded (which leaves the job RUNNING)."""
+    w, http = stub_worker
+    http.patch.side_effect = [
+        MagicMock(status_code=500, text="boom"),
+        MagicMock(status_code=200),
+    ]
+
+    with patch("gemini.workers.base.time.sleep") as sleep:
+        w._report_terminal_status(
+            "job-4",
+            {"status": "COMPLETED", "progress": 100.0, "result": {}, "worker_id": "stub-1"},
+            outcome_label="completion",
+        )
+
+    assert http.patch.call_count == 2
+    sleep.assert_called_once_with(1)
+
+
+def test_persistent_non_2xx_logs_critical(stub_worker, caplog):
+    w, http = stub_worker
+    http.patch.return_value = MagicMock(status_code=422, text="validation failed")
+
+    with patch("gemini.workers.base.time.sleep"), \
+         caplog.at_level(logging.CRITICAL, logger="gemini.workers.base"):
+        w._report_terminal_status(
+            "job-5",
+            {"status": "FAILED", "error_message": "x", "worker_id": "stub-1"},
+            outcome_label="failure",
+        )
+
+    assert http.patch.call_count == 3
+    critical = [r for r in caplog.records if r.levelno == logging.CRITICAL]
+    assert critical
+    assert "job-5" in critical[0].getMessage()
+    assert "422" in critical[0].getMessage()
+
+
+def test_result_nan_and_inf_are_made_json_safe(stub_worker):
+    w, http = stub_worker
+    http.patch.return_value = MagicMock(status_code=200)
+
+    w._report_terminal_status(
+        "job-6",
+        {
+            "status": "COMPLETED",
+            "result": {"lambda": float("nan"), "vals": [1.0, float("inf"), -float("inf")]},
+            "worker_id": "stub-1",
+        },
+        outcome_label="completion",
+    )
+
+    sent = http.patch.call_args.kwargs["json"]
+    assert sent["result"] == {"lambda": None, "vals": [1.0, None, None]}

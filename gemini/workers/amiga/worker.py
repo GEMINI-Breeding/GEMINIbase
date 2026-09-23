@@ -81,6 +81,21 @@ def _get_minio_client():
     )
 
 
+def _failed_bin_names(report_path: Path) -> set[str]:
+    """Basenames of .bin files bin_to_images reported as failed.
+
+    `process_single_binary_file` appends ``ERROR {basename}: {reason}``
+    to report.txt for each file it could not process.
+    """
+    if not report_path.exists():
+        return set()
+    failed: set[str] = set()
+    for line in report_path.read_text().splitlines():
+        if line.startswith("ERROR "):
+            failed.add(line[len("ERROR "):].split(": ", 1)[0].strip())
+    return failed
+
+
 def _extract_timestamp(filename: str) -> str:
     """Extract timestamp from Amiga binary filename for sorting."""
     match = re.match(r"(\d{4}_\d{2}_\d{2}_\d{2}_\d{2}_\d{2}_\d+)", filename)
@@ -434,8 +449,11 @@ class AmigaWorker(BaseWorker):
             extracted = [
                 p for p in (output_dir / "RGB").rglob("*.jpg")
             ] if (output_dir / "RGB").exists() else []
+            report = output_dir / "RGB" / "report.txt"
+            # .bin files bin_to_images recorded as failed — these must be
+            # kept in MinIO (see cleanup below) so they can be retried.
+            failed_bins = _failed_bin_names(report)
             if not extracted:
-                report = output_dir / "RGB" / "report.txt"
                 reasons = []
                 if report.exists():
                     reasons = [
@@ -577,15 +595,28 @@ class AmigaWorker(BaseWorker):
                     object_name=object_name,
                 )
 
+            # Only delete .bin files that extracted successfully; a failed
+            # one is the user's only copy of that log.
+            succeeded_bins = [f for f in bin_files if Path(f).name not in failed_bins]
+            kept_bins = [f for f in bin_files if Path(f).name in failed_bins]
+            if kept_bins:
+                logger.warning(
+                    "Keeping %d .bin file(s) that failed extraction: %s",
+                    len(kept_bins), ", ".join(kept_bins),
+                )
+
             with ThreadPoolExecutor(max_workers=CLEANUP_POOL_SIZE) as pool:
-                for _ in pool.map(_remove_one, bin_files):
+                for _ in pool.map(_remove_one, succeeded_bins):
                     pass
 
-        return {
+        result = {
             "status": "completed",
             "extracted_files": uploaded_count,
-            "bin_files_processed": len(bin_files),
+            "bin_files_processed": len(succeeded_bins),
         }
+        if kept_bins:
+            result["bin_files_failed"] = kept_bins
+        return result
 
 
 if __name__ == "__main__":

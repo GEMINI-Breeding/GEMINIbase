@@ -387,15 +387,18 @@ def _list_thermal_inputs(client, dataset_prefix: str) -> list[str]:
        contract tests). The worker still writes outputs to
        `Images/` + `RawThermal/` under `dataset_prefix`.
 
-    `_process_*` writers never *overwrite* a sidecar JSON, so it's
-    safe to include the `Images/` directory as a candidate input
-    source — the worker only treats `.jpg`/`.tif` inputs there, and
-    its own JPEG previews share that path. The dedupe-via-sidecar
-    contract (the previews and sidecars have matching basenames)
-    means a re-run is idempotent.
+    The worker's own JPEG previews also land in `Images/` as
+    `{basename}.jpg`. A re-run must not pick those up as inputs (in
+    boson modes a JPEG input is rejected outright), so an
+    `Images/{basename}.jpg|.jpeg` is dropped whenever another input with
+    the same basename exists — that other object is the original the
+    preview was rendered from. A FLIR JPEG uploaded straight into
+    `Images/` has no such sibling (its preview is written through to the
+    same key), so it is still picked up.
     """
     out: list[str] = []
     raw_thermal_prefix = f"{dataset_prefix}RawThermal/"
+    images_prefix = f"{dataset_prefix}Images/"
     for obj in client.list_objects(
         STORAGE_BUCKET, prefix=dataset_prefix, recursive=True
     ):
@@ -407,7 +410,20 @@ def _list_thermal_inputs(client, dataset_prefix: str) -> list[str]:
             continue
         if name.lower().endswith(INPUT_EXTS):
             out.append(name)
-    return sorted(out)
+
+    stem_counts: dict[str, int] = {}
+    for name in out:
+        stem = Path(name).stem
+        stem_counts[stem] = stem_counts.get(stem, 0) + 1
+
+    def _is_own_preview(name: str) -> bool:
+        return (
+            name.startswith(images_prefix)
+            and name.lower().endswith((".jpg", ".jpeg"))
+            and stem_counts[Path(name).stem] > 1
+        )
+
+    return sorted(n for n in out if not _is_own_preview(n))
 
 
 def _put_json(client, object_name: str, payload: dict) -> None:
