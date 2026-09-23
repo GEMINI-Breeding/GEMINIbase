@@ -61,6 +61,15 @@ def test_crop_rule_by_marked_direction():
     assert plan.choose_crop_mask(RULES, "left", "south") == [0, 0, 20, 0]
 
 
+def test_a_matching_rule_beats_an_earlier_catch_all():
+    rules = [
+        {"filterMode": "heading", "headings": [], "mask_left": 1},
+        {"filterMode": "heading", "headings": ["north"], "mask_left": 9},
+    ]
+    assert plan.choose_crop_mask(rules, "up", "north") == [9, 0, 0, 0]
+    assert plan.choose_crop_mask(rules, "up", "south") == [1, 0, 0, 0]
+
+
 def test_crop_rule_catch_all_and_none():
     assert plan.choose_crop_mask(RULES, "up", "south") == [0, 0, 0, 5]
     assert plan.choose_crop_mask(RULES[:2], "up", "south") is None
@@ -81,6 +90,21 @@ def test_base_config_layers_settings_then_custom():
     assert cfg["min_inliers"] == 30
     assert cfg["mask"] == [7, 3, 0, 0]
     assert dropped == []
+
+
+def test_base_config_default_mask_is_the_catch_all_rule():
+    cfg, _ = plan.build_base_config(
+        DEFAULTS,
+        {"crop_rules": [
+            {"filterMode": "heading", "headings": ["north"], "mask_left": 9},
+            {"filterMode": "heading", "headings": [], "mask_left": 2},
+        ]},
+    )
+    assert cfg["mask"] == [2, 0, 0, 0]
+    cfg, _ = plan.build_base_config(
+        DEFAULTS, {"crop_rules": [{"filterMode": "heading", "headings": ["north"], "mask_left": 9}]}
+    )
+    assert cfg["mask"] == [0, 0, 0, 0]  # no catch-all: AgRowStitch's default
 
 
 def test_base_config_legacy_flat_mask():

@@ -102,30 +102,42 @@ def dominant_heading(rows: pd.DataFrame) -> str:
 def choose_crop_mask(
     crop_rules: Optional[List[dict]], ui_direction: str, heading: str
 ) -> Optional[List[int]]:
-    """The mask of the first crop rule that matches this plot, as main does.
+    """The mask of the crop rule that applies to this plot.
 
-    A "heading" rule matches the plot's dominant GPS heading (north/east/…);
-    any other rule matches its marked stitching direction. A rule with no
-    headings/directions listed matches every plot.
+    A "heading" rule lists GPS headings (north/east/…) and applies to plots
+    whose dominant heading is one of them; a "plot" rule lists stitching
+    directions (up/down/…) and applies to plots marked with one. A rule
+    listing none is the catch-all.
+
+    A rule that names this plot wins over the catch-all wherever it sits in
+    the list. (Main took the first match, so its default rule — first, and
+    matching everything — shadowed every rule added after it.)
     """
+    catch_all = None
     for rule in crop_rules or []:
         if rule.get("filterMode", "heading") == "heading":
             wanted = [h.lower() for h in (rule.get("headings") or [])]
-            if not wanted or (heading and heading in wanted):
-                return _rule_mask(rule)
+            key = heading
         else:
             wanted = [d.lower() for d in (rule.get("directions") or [])]
-            if not wanted or ui_direction.lower() in wanted:
-                return _rule_mask(rule)
-    return None
+            key = ui_direction.lower()
+        if not wanted:
+            if catch_all is None:
+                catch_all = rule
+        elif key and key in wanted:
+            return _rule_mask(rule)
+    return _rule_mask(catch_all) if catch_all is not None else None
 
 
 def default_mask(params: dict) -> Optional[List[int]]:
-    """Pipeline-wide mask: the rule without directions, or legacy flat keys."""
+    """Pipeline-wide mask: the catch-all crop rule, or legacy flat keys.
+
+    (Main took the first rule without *directions* — in heading mode that
+    could be a rule meant only for, say, northbound plots.)
+    """
     rules = params.get("crop_rules")
     if rules:
-        rule = next((r for r in rules if not r.get("directions")), rules[0])
-        return _rule_mask(rule)
+        return choose_crop_mask(rules, "", "")
     if {"mask_left", "mask_right", "mask_top", "mask_bottom"} & set(params):
         return _rule_mask(params)
     return None
