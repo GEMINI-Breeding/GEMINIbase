@@ -19,6 +19,7 @@ class JobType(str, Enum):
     RUN_GWAS = "RUN_GWAS"
     THERMAL_EXTRACT = "THERMAL_EXTRACT"
     ASSOCIATE_BOUNDARIES = "ASSOCIATE_BOUNDARIES"
+    DATA_SYNC = "DATA_SYNC"
 
 
 class JobStatus(str, Enum):
@@ -47,4 +48,5 @@ JOB_TYPE_WORKER_MAP = {
     JobType.RUN_GWAS: "geminibase-worker-gwas",
     JobType.THERMAL_EXTRACT: "geminibase-worker-thermal",
     JobType.ASSOCIATE_BOUNDARIES: "geminibase-worker-stitch",
+    JobType.DATA_SYNC: "geminibase-worker-geo",
 }

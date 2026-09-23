@@ -104,7 +104,8 @@ class GeoWorker(BaseWorker):
 
     @property
     def supported_job_types(self) -> Set[JobType]:
-        return {JobType.CREATE_COG, JobType.TIF_TO_PNG, JobType.PROCESS_DRONE_TIFF, JobType.SPLIT_ORTHOMOSAIC}
+        return {JobType.CREATE_COG, JobType.TIF_TO_PNG, JobType.PROCESS_DRONE_TIFF,
+                JobType.SPLIT_ORTHOMOSAIC, JobType.DATA_SYNC}
 
     def process(self, job_id: str, job_type: str, parameters: dict) -> dict:
         if job_type == JobType.CREATE_COG.value:
@@ -115,8 +116,152 @@ class GeoWorker(BaseWorker):
             return self._process_drone_tiff_job(job_id, parameters)
         elif job_type == JobType.SPLIT_ORTHOMOSAIC.value:
             return self._split_orthomosaic_job(job_id, parameters)
+        elif job_type == JobType.DATA_SYNC.value:
+            return self._data_sync_job(job_id, parameters)
         else:
             raise ValueError(f"Unsupported job type: {job_type}")
+
+    def _data_sync_job(self, job_id: str, p: dict) -> dict:
+        """Give every image of the run a capture time and position (see
+        gemini/workers/geo/sync.py for the rules; main's run_data_sync /
+        run_cross_sensor_sync).
+
+        Parameters
+            scope_prefix        Raw/…/{sensor}/ — searched for platform logs
+                                under any Metadata/ folder; geo.txt goes here
+            images_prefixes     the run's image folders (…/Images/)
+            mode                "own_metadata" | "cross_sensor"
+            source_track_path   cross_sensor: the reference msgs_synced.csv
+            max_extrapolation_sec  cross_sensor clamp window (default 30)
+            write_geo_txt       write {scope}geo.txt for ODM
+
+        Writes {dataset}/Metadata/msgs_synced.csv per image folder (image,
+        timestamp, lat, lon, alt, gps_source, direction). A folder that
+        already has a track it didn't write — an Amiga extraction's or an
+        uploaded one — keeps it: own_metadata uses it as is, cross_sensor
+        refuses rather than overwrite it.
+        """
+        import io as _io
+
+        import pandas as pd
+
+        from gemini.workers.amiga.headings import add_direction_columns
+        from gemini.workers.geo import sync
+
+        scope = p["scope_prefix"].rstrip("/") + "/"
+        prefixes = [x.rstrip("/") + "/" for x in p.get("images_prefixes") or []]
+        mode = p.get("mode") or "own_metadata"
+        if not prefixes:
+            raise ValueError("No image folders to sync.")
+        client = _get_minio_client()
+
+        def read_csv(obj: str) -> pd.DataFrame:
+            r = client.get_object(STORAGE_BUCKET, obj)
+            try:
+                return pd.read_csv(_io.BytesIO(r.read()), on_bad_lines="skip")
+            finally:
+                r.close()
+                r.release_conn()
+
+        def put(obj: str, text: str, ctype: str) -> None:
+            data = text.encode()
+            client.put_object(STORAGE_BUCKET, obj, _io.BytesIO(data), len(data), content_type=ctype)
+
+        ref = None
+        if mode == "cross_sensor":
+            src = p.get("source_track_path")
+            if not src:
+                raise ValueError("Cross-sensor sync needs a source track.")
+            ref = sync.reference_track(read_csv(src))
+        max_ext = float(p.get("max_extrapolation_sec", 30))
+
+        # Platform logs anywhere under the scope's Metadata/ folders.
+        log_df = pd.DataFrame()
+        if mode == "own_metadata":
+            logs = [
+                o.object_name for o in client.list_objects(STORAGE_BUCKET, scope, recursive=True)
+                if "/Metadata/" in o.object_name and o.object_name.lower().endswith(sync.LOG_EXTS)
+            ]
+            frames = []
+            with tempfile.TemporaryDirectory() as tmp:
+                for i, obj in enumerate(logs):
+                    self.report_progress(job_id, 5, {"stage": f"Reading platform log {i + 1}/{len(logs)}"})
+                    local = os.path.join(tmp, os.path.basename(obj))
+                    client.fget_object(STORAGE_BUCKET, obj, local)
+                    try:
+                        frames.append(sync.parse_platform_log(local))
+                    except Exception as exc:
+                        logger.warning("Couldn't parse platform log %s: %s", obj, exc)
+            frames = [f for f in frames if not f.empty]
+            if frames:
+                log_df = pd.concat(frames).drop_duplicates("timestamp").sort_values("timestamp")
+                put(scope + "drone_msgs.csv", log_df.to_csv(index=False), "text/csv")
+
+        summary, geo_rows = {}, []
+        for n, prefix in enumerate(prefixes):
+            root = prefix[: prefix.rfind("Images/")] if "Images/" in prefix else prefix
+            track_path = root + "Metadata/msgs_synced.csv"
+            existing = None
+            try:
+                existing = read_csv(track_path)
+            except Exception:
+                pass
+            if existing is not None and "gps_source" not in existing.columns:
+                if mode == "cross_sensor":
+                    raise ValueError(
+                        f"{track_path} already holds this data's own track; "
+                        "cross-sensor sync won't overwrite it."
+                    )
+                df = sync.normalise_columns(existing)
+                df["image"] = df["image_path"].astype(str).str.split("/").str[-1]
+                summary[prefix] = {"bundled": int(df["lat"].notna().sum()), "images": len(df)}
+                geo_rows.append(df)
+                continue
+
+            names = [
+                o.object_name for o in client.list_objects(STORAGE_BUCKET, prefix)
+                if o.object_name.lower().endswith((".jpg", ".jpeg", ".png", ".tif", ".tiff"))
+            ]
+            rows = []
+            for i, obj in enumerate(names):
+                if i % 25 == 0:
+                    self.report_progress(
+                        job_id, 10 + 80 * (n + i / max(len(names), 1)) / len(prefixes),
+                        {"stage": f"Reading image metadata {i + 1}/{len(names)}"},
+                    )
+                # EXIF sits in the first few KB; don't pull whole images.
+                r = client.get_object(STORAGE_BUCKET, obj, offset=0, length=256 * 1024)
+                try:
+                    rec = sync.exif_record(r.read())
+                finally:
+                    r.close()
+                    r.release_conn()
+                rows.append({"image": obj.rsplit("/", 1)[-1], **rec,
+                             "gps_source": "exif" if rec["lat"] is not None else "none"})
+            df = pd.DataFrame(rows, columns=["image", "timestamp", "lat", "lon", "alt", "gps_source"])
+            df = df.sort_values(["timestamp", "image"], na_position="last").reset_index(drop=True)
+            if mode == "cross_sensor":
+                df = sync.cross_sensor(df, ref, max_ext)
+            elif not log_df.empty:
+                df = sync.merge_log_gps(df, log_df)
+            if df["lat"].notna().sum() >= 2:
+                add_direction_columns(df)
+            put(track_path, df.to_csv(index=False), "text/csv")
+            summary[prefix] = {"images": len(df), **df["gps_source"].value_counts().to_dict()}
+            geo_rows.append(df)
+
+        if p.get("write_geo_txt"):
+            put(scope + "geo.txt", sync.geo_txt(pd.concat(geo_rows)), "text/plain")
+        total = sum(v.get("images", 0) for v in summary.values())
+        located = sum(int(df["lat"].notna().sum()) for df in geo_rows)
+        if located == 0:
+            raise RuntimeError(
+                f"None of the {total} images has a position: no EXIF GPS"
+                + (", and none fell inside the source track's time span" if mode == "cross_sensor" else "")
+                + "."
+            )
+        return {"mode": mode, "datasets": summary, "images": total, "located": located,
+                "platform_log_fixes": int(len(log_df))}
 
     def _create_cog_job(self, job_id: str, parameters: dict) -> dict:
         """

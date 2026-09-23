@@ -306,6 +306,53 @@ def _extract_image_gps(blob: bytes) -> dict | None:
         return None
 
 
+def _synced_positions(bucket: str, images_prefix: str) -> dict:
+    """{image basename: {lat, lon, alt}} from the image folder's synced
+    track (…/Metadata/msgs_synced.csv beside …/Images/), if there is one.
+
+    That file is written by Data Sync, by the Amiga extractor, or uploaded
+    as Synced Metadata; like main's data sync, it outranks each image's own
+    EXIF GPS.
+    """
+    import csv
+    import io
+
+    idx = images_prefix.rfind("Images/")
+    if idx < 0:
+        return {}
+    track = images_prefix[:idx] + "Metadata/msgs_synced.csv"
+    try:
+        if not minio_storage_provider.file_exists(object_name=track, bucket_name=bucket):
+            return {}
+        stream = minio_storage_provider.download_file_stream(object_name=track, bucket_name=bucket)
+        text = stream.read().decode("utf-8", errors="replace")
+    except Exception:
+        return {}
+    rows = list(csv.DictReader(io.StringIO(text)))
+    if not rows:
+        return {}
+    cols = {c.strip().lower(): c for c in rows[0].keys() if c}
+    pick = lambda *names: next((cols[n] for n in names if n in cols), None)  # noqa: E731
+    img = next((c for k, c in cols.items() if "top" in k and "file" in k), None) or pick(
+        "image", "image_path", "filename", "file", "name", "path")
+    lat, lon = pick("lat", "latitude"), pick("lon", "lng", "longitude")
+    alt = pick("alt", "altitude", "height", "elevation")
+    if not (img and lat and lon):
+        return {}
+    out = {}
+    for r in rows:
+        try:
+            pos = {"lat": float(r[lat]), "lon": float(r[lon])}
+        except (TypeError, ValueError):
+            continue
+        try:
+            pos["alt"] = float(r[alt]) if alt else 0.0
+        except (TypeError, ValueError):
+            pos["alt"] = 0.0
+        out[str(r[img]).replace("\\", "/").rsplit("/", 1)[-1]] = pos
+    return out
+
+
 def _update_experiment_file_metadata(
     bucket: str,
     object_name: str,
@@ -543,11 +590,12 @@ class FileController(Controller):
                 for r in rows
             }
 
+            synced = _synced_positions(bucket_name, prefix)
             out: list[ImageGpsEntry] = []
             for entry in image_entries:
                 obj = entry["object_name"]
                 basename = obj.rsplit("/", 1)[-1]
-                gps = cached.get(obj)
+                gps = synced.get(basename) or cached.get(obj)
                 if gps is None:
                     # Lazy backfill — extract once, persist, return.
                     try:
