@@ -197,7 +197,10 @@ class MlWorker(BaseWorker):
         """
         import re
 
-        from gemini.workers.ml.inference_utils import run_inference_on_image
+        from gemini.workers.ml.inference_utils import (
+            redact_api_key,
+            run_inference_on_image,
+        )
 
         images_prefix = parameters["images_prefix"]
         # Optional: the plot boundaries the images were split with. When
@@ -279,8 +282,11 @@ class MlWorker(BaseWorker):
                         api_url=api_url,
                     )
                 except Exception as e:  # noqa: BLE001 — one plot must not sink the run
-                    logger.warning("LOCATE_PLANTS failed for %s: %s", object_name, e)
-                    errors[key] = str(e)
+                    # A failed image goes to `errors`, never to by_plot, so
+                    # no count (let alone 0) is recorded for it.
+                    err = redact_api_key(e)
+                    logger.warning("LOCATE_PLANTS failed for %s: %s", object_name, err)
+                    errors[key] = err
                     continue
                 finally:
                     if os.path.exists(local_image):

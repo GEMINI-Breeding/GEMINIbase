@@ -72,7 +72,7 @@ class TestHappyPath:
         body = resp.json()
         assert body["deleted"] == {
             "experiments": 0, "genotyping_studies": 0,
-            "accessions": 0, "lines": 0,
+            "accessions": 0, "lines": 0, "process_workspaces": 0,
         }
         assert body["failed"] == []
 

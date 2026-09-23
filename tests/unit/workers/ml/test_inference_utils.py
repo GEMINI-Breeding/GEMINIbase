@@ -104,3 +104,103 @@ def test_crop_temp_dir_is_shared_across_crops(tmp_path: Path):
     crops = crop_image_with_overlap(img, crop_size=640, overlap=32)
     temp_dirs = {c["temp_dir"] for c in crops}
     assert len(temp_dirs) == 1
+
+
+# ---------------------------------------------------------------------------
+# run_inference_on_image failure handling
+# ---------------------------------------------------------------------------
+
+
+def _patch_infer(monkeypatch, fn):
+    import gemini.workers.ml.inference_utils as iu
+
+    monkeypatch.setattr(iu, "_infer_cloud", lambda **kwargs: fn)
+
+
+def test_inference_all_crops_failing_raises(tmp_path: Path, monkeypatch):
+    """A down inference server must fail the image, not return [] (which
+    would be recorded as a count of 0)."""
+    from gemini.workers.ml.inference_utils import (
+        InferenceFailedError,
+        run_inference_on_image,
+    )
+
+    def _down(crop_path):
+        raise ConnectionError("Connection refused")
+
+    _patch_infer(monkeypatch, _down)
+    img = _make_image(tmp_path, width=100, height=100)  # single crop
+
+    with pytest.raises(InferenceFailedError, match="all 1 crops"):
+        run_inference_on_image(img, api_key="k", model_id="w/m/1")
+
+
+def test_inference_consecutive_failure_abort_raises(tmp_path: Path, monkeypatch):
+    from gemini.workers.ml.inference_utils import (
+        InferenceFailedError,
+        run_inference_on_image,
+    )
+
+    calls = {"n": 0}
+
+    def _flaky(crop_path):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return [{"class": "plant", "confidence": 0.9, "x": 5, "y": 5,
+                     "width": 2, "height": 2}]
+        raise ConnectionError("Connection refused")
+
+    _patch_infer(monkeypatch, _flaky)
+    img = _make_image(tmp_path, width=3000, height=3000)  # many crops
+
+    with pytest.raises(InferenceFailedError, match="5 consecutive"):
+        run_inference_on_image(img, api_key="k", model_id="w/m/1")
+    assert calls["n"] == 6
+
+
+def test_inference_isolated_crop_failure_still_returns(tmp_path: Path, monkeypatch):
+    from gemini.workers.ml.inference_utils import run_inference_on_image
+
+    calls = {"n": 0}
+
+    def _one_bad(crop_path):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise ConnectionError("blip")
+        return []
+
+    _patch_infer(monkeypatch, _one_bad)
+    img = _make_image(tmp_path, width=1300, height=600)
+
+    assert run_inference_on_image(img, api_key="k", model_id="w/m/1") == []
+
+
+def test_crop_error_messages_redact_api_key(tmp_path: Path, monkeypatch):
+    from gemini.workers.ml.inference_utils import (
+        InferenceFailedError,
+        run_inference_on_image,
+    )
+
+    def _down(crop_path):
+        raise ConnectionError(
+            "HTTPSConnectionPool(host='detect.roboflow.com', port=443): Max "
+            "retries exceeded with url: /w/m/1?api_key=SECRET123&confidence=0.1"
+        )
+
+    _patch_infer(monkeypatch, _down)
+    img = _make_image(tmp_path, width=100, height=100)
+    warnings: list[str] = []
+
+    with pytest.raises(InferenceFailedError) as excinfo:
+        run_inference_on_image(img, api_key="SECRET123", model_id="w/m/1",
+                               on_warning=warnings.append)
+    assert "SECRET123" not in str(excinfo.value)
+    assert warnings and all("SECRET123" not in w for w in warnings)
+    assert "api_key=***" in str(excinfo.value)
+
+
+def test_redact_api_key():
+    from gemini.workers.ml.inference_utils import redact_api_key
+
+    assert redact_api_key("url: /m?api_key=abc&x=1") == "url: /m?api_key=***&x=1"
+    assert redact_api_key("no key here") == "no key here"

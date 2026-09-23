@@ -47,13 +47,44 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
 
 
 revision: str = "0006_trait_records_accession"
 down_revision: Union[str, Sequence[str], None] = "0005_experiment_files_metadata"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
+
+
+# ─── Backfill trigger guard ───────────────────────────────────────────
+# ``trg_populate_trait_record_ids`` is BEFORE INSERT OR UPDATE on
+# trait_records and RAISEs on inconsistent rows (invalid trait/plot
+# combos, unresolved accession names, plot/accession mismatch). The
+# backfill UPDATEs below deliberately leave such legacy rows behind, so
+# letting the trigger fire on them would abort the whole upgrade. We
+# disable just that trigger (pg_ivm's IMMV-maintenance triggers stay
+# on) around the backfill and re-enable it before the mid-migration
+# COMMIT. The pg_trigger guard makes this a no-op if the trigger is
+# absent (e.g. a test DB built without it).
+_POPULATE_TRIGGER_NAME = "trg_populate_trait_record_ids"
+
+
+def _set_populate_trigger(enabled: bool) -> None:
+    action = "ENABLE" if enabled else "DISABLE"
+    op.execute(
+        f"""
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1 FROM pg_trigger
+                 WHERE tgname = '{_POPULATE_TRIGGER_NAME}'
+                   AND tgrelid = 'gemini.trait_records'::regclass
+            ) THEN
+                ALTER TABLE gemini.trait_records {action} TRIGGER {_POPULATE_TRIGGER_NAME};
+            END IF;
+        END
+        $$
+        """
+    )
 
 
 # ─── Trigger body (post-migration) ────────────────────────────────────
@@ -226,15 +257,18 @@ def upgrade() -> None:
     # populate_trait_record_ids trigger, and read queries hit
     # ``trait_records_immv`` (row store) where we DO put a btree
     # index — see step 4.
-    op.add_column(
-        "trait_records",
-        sa.Column("accession_id", postgresql.UUID(as_uuid=True), nullable=True),
-        schema="gemini",
+    #
+    # ``ADD COLUMN IF NOT EXISTS`` (rather than op.add_column) so the
+    # revision can be re-run if it dies after the mid-migration COMMIT
+    # in step 4 — at that point the columns are already committed but
+    # alembic_version still points at 0005.
+    op.execute(
+        "ALTER TABLE gemini.trait_records "
+        "ADD COLUMN IF NOT EXISTS accession_id UUID"
     )
-    op.add_column(
-        "trait_records",
-        sa.Column("accession_name", sa.Text(), nullable=True),
-        schema="gemini",
+    op.execute(
+        "ALTER TABLE gemini.trait_records "
+        "ADD COLUMN IF NOT EXISTS accession_name TEXT"
     )
 
     # 2. Backfill from record_info JSONB. We split this into two
@@ -243,6 +277,10 @@ def upgrade() -> None:
     #    label for diagnostics), then resolve accession_id where the
     #    name maps to a known accession. Pre-existing rows that have
     #    no `accession_name` key in record_info simply stay NULL.
+    #
+    #    The populate trigger is disabled for the duration — see
+    #    _set_populate_trigger() above.
+    _set_populate_trigger(False)
     op.execute(
         """
         UPDATE gemini.trait_records
@@ -275,6 +313,9 @@ def upgrade() -> None:
            AND p.accession_id IS NOT NULL;
         """
     )
+    # Re-enable before step 4's COMMIT so the trigger is never left
+    # disabled in committed state.
+    _set_populate_trigger(True)
 
     # 3. Replace the populate_trait_record_ids trigger function with
     #    the version that resolves accession_name → accession_id and
@@ -323,15 +364,21 @@ def downgrade() -> None:
     # the new function's accession lookup on any in-flight INSERTs.
     op.execute(POPULATE_TRIGGER_BODY_PRE)
 
-    op.drop_column("trait_records", "accession_name", schema="gemini")
-    op.drop_column("trait_records", "accession_id", schema="gemini")
-
     # IMMV recreate happens outside alembic's transaction for the
     # same reason as in upgrade() — pg_ivm teardown segfaults inside
     # a wrapped transaction.
     bind = op.get_bind()
     bind.execute(sa.text("COMMIT"))
     bind.execute(sa.text("DROP TABLE IF EXISTS gemini.trait_records_immv CASCADE"))
+    # Drop the columns only after the IMMV is gone: the IMMV depends on
+    # them, so DROP COLUMN before this point fails with
+    # DependentObjectsStillExist.
+    bind.execute(
+        sa.text("ALTER TABLE gemini.trait_records DROP COLUMN IF EXISTS accession_name")
+    )
+    bind.execute(
+        sa.text("ALTER TABLE gemini.trait_records DROP COLUMN IF EXISTS accession_id")
+    )
     bind.execute(
         sa.text(
             "SELECT pgivm.create_immv('gemini.trait_records_immv', "

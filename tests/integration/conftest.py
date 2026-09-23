@@ -108,7 +108,6 @@ def clean_db(setup_real_db):
     #  data_type_formats) since they contain seed data that FK defaults depend on.
     tables = [
         "gemini.jobs",
-        "gemini.genotype_records",
         "gemini.sensor_records", "gemini.trait_records", "gemini.dataset_records",
         "gemini.model_records", "gemini.procedure_records", "gemini.script_records",
         "gemini.population_accessions",

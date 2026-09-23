@@ -14,13 +14,12 @@ from __future__ import annotations
 import io
 import json
 import logging
-import math
 import os
 import tempfile
 from pathlib import Path
 from typing import Any, Set
 
-from gemini.workers.base import BaseWorker
+from gemini.workers.base import BaseWorker, _json_safe
 from gemini.workers.gwas import extract, gemma_runner, plink_runner, plots
 from gemini.workers.types import JobType
 
@@ -31,28 +30,6 @@ from gemini.workers.types import JobType
 ASSOC_PROGRESS_START = 15.0
 ASSOC_PROGRESS_END = 85.0
 
-
-def _json_safe(value: Any) -> Any:
-    """Recursively replace NaN / +-Inf with None inside a JSON-ish tree.
-
-    GWAS summary stats (genomic-inflation λ, Bonferroni threshold) can
-    legitimately come back as NaN — e.g. when GEMMA returns zero rows
-    after QC, or every p-value is exactly 0 (chi^2 -> +Inf). The job
-    completion POST goes through stdlib json which emits literal
-    ``NaN`` / ``Infinity`` tokens. Litestar's server-side validator
-    rejects those ("Out of range float values are not JSON compliant"),
-    leaving the job stuck in RUNNING. Coerce here at the result
-    boundary so a quirky dataset can't strand the worker.
-    """
-    if isinstance(value, float):
-        if math.isnan(value) or math.isinf(value):
-            return None
-        return value
-    if isinstance(value, dict):
-        return {k: _json_safe(v) for k, v in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_json_safe(v) for v in value]
-    return value
 
 logger = logging.getLogger(__name__)
 

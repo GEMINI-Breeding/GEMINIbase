@@ -659,6 +659,12 @@ SELECT pgivm.create_immv('gemini.sensor_records_immv', 'select * from gemini.sen
 -- Trait Records IMMV
 -------------------------------------------------------------------------------
 SELECT pgivm.create_immv('gemini.trait_records_immv', 'select * from gemini.trait_records');
+-- Btree indexes for the GWAS accession join and the analyze map's
+-- population-scoped reads. Must match what alembic 0006/0009 create on
+-- upgraded DBs (idx_trait_records_immv_accession_id /
+-- idx_trait_records_immv_population_id).
+CREATE INDEX IF NOT EXISTS idx_trait_records_immv_accession_id ON gemini.trait_records_immv (accession_id);
+CREATE INDEX IF NOT EXISTS idx_trait_records_immv_population_id ON gemini.trait_records_immv (population_id);
 
 -------------------------------------------------------------------------------
 -- Procedure Records IMMV

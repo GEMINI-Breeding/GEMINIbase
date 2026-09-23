@@ -8,6 +8,12 @@ attribute their requests to, so they sign in at startup as the
 bootstrap superuser using credentials provided via env, cache the
 token, and refresh it on 401.
 
+When per-user auth is disabled on the REST API (``GEMINI_JWT_SECRET``
+empty — the documented default) the worker runs unauthenticated: either
+because no superuser credentials are configured, or because the login
+endpoint answers 503 "Auth disabled". In that mode no Authorization
+header is sent.
+
 The same `WorkerSession` is used by every BaseWorker subclass — it's a
 thin wrapper around `requests.Session` that injects an `Authorization:
 Bearer …` header and re-authenticates transparently when the token
@@ -68,6 +74,10 @@ class WorkerSession:
     superuser credentials. The token is cached and reused until the next
     401, at which point it's refreshed and the original request is
     retried exactly once.
+
+    If credentials are empty, or the login endpoint returns 503 (auth
+    disabled server-side because GEMINI_JWT_SECRET is unset), the session
+    switches to unauthenticated mode and sends no Authorization header.
     """
 
     def __init__(
@@ -77,12 +87,6 @@ class WorkerSession:
         password: str,
         timeout: float = 10.0,
     ) -> None:
-        if not email or not password:
-            raise WorkerAuthError(
-                "Worker login credentials are missing. Set "
-                "GEMINI_FIRST_SUPERUSER_EMAIL and "
-                "GEMINI_FIRST_SUPERUSER_PASSWORD on the worker container."
-            )
         self._api_base_url = api_base_url.rstrip("/")
         self._email = email
         self._password = password
@@ -98,6 +102,17 @@ class WorkerSession:
         # race entirely.
         self._session.headers["Connection"] = "close"
         self._token: str | None = None
+        # True when requests go out without an Authorization header —
+        # either no credentials were configured, or the REST API reported
+        # that per-user auth is disabled (login → 503).
+        self._auth_disabled = not (email and password)
+        if self._auth_disabled:
+            logger.warning(
+                "Worker login credentials are not set "
+                "(GEMINI_FIRST_SUPERUSER_EMAIL / GEMINI_FIRST_SUPERUSER_PASSWORD); "
+                "sending unauthenticated requests. This only works when "
+                "REST-API auth is disabled (GEMINI_JWT_SECRET unset)."
+            )
         self._lock = threading.Lock()
         # `requests.Session` is documented as not thread-safe for
         # write operations — its underlying urllib3 PoolManager is
@@ -114,7 +129,8 @@ class WorkerSession:
     # Auth
     # ------------------------------------------------------------------
 
-    def _login(self) -> str:
+    def _login(self) -> str | None:
+        """Log in and return a bearer token, or None if auth is disabled server-side."""
         url = f"{self._api_base_url}/api/users/login/access-token"
         # `_login` runs under `self._lock` (the token lock); take
         # `_send_lock` too so we don't issue the login POST while
@@ -125,6 +141,11 @@ class WorkerSession:
                 json={"email": self._email, "password": self._password},
                 timeout=self._timeout,
             )
+        if resp.status_code == 503:
+            # The REST API answers 503 "Auth disabled" when
+            # GEMINI_JWT_SECRET is unset — there is no token to get and
+            # the JWT guard is not enforcing, so go unauthenticated.
+            return None
         if resp.status_code >= 400:
             # The REST API returns RESTAPIError {error, error_description}
             # on failure. Pull the structured description rather than
@@ -143,14 +164,30 @@ class WorkerSession:
             raise WorkerAuthError("Worker login response missing access_token.")
         return token
 
-    def _ensure_token(self) -> str:
+    def _adopt_login_result(self, token: str | None) -> str | None:
+        """Store a `_login()` result, switching auth mode as needed. Call under `_lock`."""
+        self._token = token
+        if token is None:
+            if not self._auth_disabled:
+                logger.warning(
+                    "REST API reports per-user auth is disabled "
+                    "(GEMINI_JWT_SECRET unset); worker will send "
+                    "unauthenticated requests."
+                )
+            self._auth_disabled = True
+        else:
+            self._auth_disabled = False
+        return token
+
+    def _ensure_token(self) -> str | None:
+        """Return the cached bearer token, logging in if needed. None => unauthenticated."""
         with self._lock:
-            if self._token is None:
-                self._token = self._login()
-                logger.info("Worker authenticated as %s.", self._email)
+            if self._token is None and not self._auth_disabled:
+                if self._adopt_login_result(self._login()) is not None:
+                    logger.info("Worker authenticated as %s.", self._email)
             return self._token
 
-    def _refresh_token(self, stale_token: str) -> str:
+    def _refresh_token(self, stale_token: str | None) -> str | None:
         """Re-login only if `self._token` still matches `stale_token`.
 
         Multiple threads hitting a 401 simultaneously would otherwise each
@@ -160,8 +197,8 @@ class WorkerSession:
         with self._lock:
             if self._token is not None and self._token != stale_token:
                 return self._token
-            self._token = self._login()
-            logger.info("Worker token refreshed for %s.", self._email)
+            if self._adopt_login_result(self._login()) is not None:
+                logger.info("Worker token refreshed for %s.", self._email)
             return self._token
 
     # ------------------------------------------------------------------
@@ -197,10 +234,20 @@ class WorkerSession:
 
         headers = dict(kwargs.pop("headers", {}) or {})
         token = self._ensure_token()
-        headers["Authorization"] = f"Bearer {token}"
+        if token is not None:
+            headers["Authorization"] = f"Bearer {token}"
         resp = self._send_with_transport_retry(method, url, headers, kwargs)
         if resp.status_code != 401:
             return resp
+
+        if not (self._email and self._password):
+            # Unauthenticated mode because no credentials were configured,
+            # but the API does enforce auth — nothing to refresh with.
+            raise WorkerAuthError(
+                "REST API returned 401 and worker login credentials are "
+                "missing. Set GEMINI_FIRST_SUPERUSER_EMAIL and "
+                "GEMINI_FIRST_SUPERUSER_PASSWORD on the worker container."
+            )
 
         # Refuse retry for body shapes we can't safely rewind. Today no
         # worker callsite sends streaming bodies; this guard exists so the
@@ -212,8 +259,15 @@ class WorkerSession:
                 "retryable (streaming/file-like). Refusing to re-send."
             )
 
-        # One-shot refresh-and-retry on 401 (token expired or revoked).
-        headers["Authorization"] = f"Bearer {self._refresh_token(token)}"
+        # One-shot refresh-and-retry on 401 (token expired or revoked, or
+        # auth was re-enabled server-side after we went unauthenticated).
+        new_token = self._refresh_token(token)
+        if new_token is None:
+            raise WorkerAuthError(
+                "Worker request returned 401 but the REST API reports auth "
+                "is disabled (login returned 503)."
+            )
+        headers["Authorization"] = f"Bearer {new_token}"
         retry_resp = self._send_with_transport_retry(method, url, headers, kwargs)
         if retry_resp.status_code == 401:
             raise WorkerAuthError(

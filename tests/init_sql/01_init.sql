@@ -828,29 +828,6 @@ CREATE TABLE IF NOT EXISTS gemini.model_records_immv AS TABLE gemini.model_recor
 CREATE TABLE IF NOT EXISTS gemini.procedure_records_immv AS TABLE gemini.procedure_records WITH NO DATA;
 CREATE TABLE IF NOT EXISTS gemini.script_records_immv AS TABLE gemini.script_records WITH NO DATA;
 
-CREATE TABLE IF NOT EXISTS gemini.genotype_records (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    study_id UUID,
-    study_name TEXT,
-    variant_id UUID,
-    variant_name TEXT,
-    chromosome INTEGER,
-    position FLOAT,
-    accession_id UUID,
-    accession_name TEXT,
-    call_value VARCHAR(10),
-    record_info JSONB NOT NULL DEFAULT '{}'
-);
-ALTER TABLE gemini.genotype_records ADD CONSTRAINT genotype_records_unique UNIQUE (
-    study_id,
-    variant_id,
-    accession_id
-);
-CREATE INDEX genotype_records_study_variant_idx ON gemini.genotype_records (study_id, variant_id);
-CREATE INDEX genotype_records_study_accession_idx ON gemini.genotype_records (study_id, accession_id);
-CREATE INDEX genotype_records_chromosome_idx ON gemini.genotype_records (chromosome);
-CREATE INDEX genotype_records_record_info_idx ON gemini.genotype_records USING GIN (record_info);
-
 -- Resources table (referenced by some models)
 CREATE TABLE IF NOT EXISTS gemini.resources (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

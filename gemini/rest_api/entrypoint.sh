@@ -22,9 +22,15 @@
 #   # Fresh volume (init_sql/ just ran with current code):
 #   docker exec geminibase-rest-api alembic stamp head
 #
-#   # Legacy volume (init_sql/ ran before some migration was added):
-#   docker exec geminibase-rest-api alembic stamp <last-revision-in-DB>
+#   # Legacy volume bootstrapped from main's pre-Alembic init_sql/:
+#   docker exec geminibase-rest-api alembic stamp 0001_baseline
 #   #   then re-start the container so `upgrade head` applies the rest.
+#   #   (0002 carries an idempotent bridge that creates the five tables
+#   #   main's init_sql lacked: users, user_experiments,
+#   #   reference_datasets, reference_plots, plot_geometry_versions.)
+#
+#   # Volume bootstrapped from some intermediate branch init_sql/:
+#   docker exec geminibase-rest-api alembic stamp <last-revision-in-DB>
 
 set -euo pipefail
 
@@ -50,10 +56,12 @@ Stamp manually, then restart this container:
   # Fresh volume bootstrapped from CURRENT init_sql/:
   docker exec <this-container> alembic stamp head
 
-  # Legacy volume bootstrapped from an older init_sql/:
-  #   pick the last migration whose effects are already in your DB
-  #   (see backend/alembic/versions/) and stamp there, e.g.:
-  docker exec <this-container> alembic stamp 0005_experiment_files_metadata
+  # Legacy volume bootstrapped from main's pre-Alembic init_sql/:
+  docker exec <this-container> alembic stamp 0001_baseline
+
+  # Volume bootstrapped from an intermediate init_sql/: pick the last
+  #   migration whose effects are already in your DB (see
+  #   alembic/versions/) and stamp there instead.
 
 Then a subsequent start with GEMINI_RUN_MIGRATIONS=1 will `upgrade head`
 the rest of the way.

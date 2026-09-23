@@ -10,7 +10,8 @@ The Option-A change inserts a dataset's 8-char short-id between
 For uploads that landed before the change, the experiment_files row
 points at the legacy key. Walk every row, skip those already in the
 new shape, copy the legacy MinIO object to the new key, update the
-``object_name`` column, and remove the old object.
+``object_name`` column, and only then remove the old object (so a DB
+failure never leaves the row pointing at a deleted key).
 
 Idempotent: re-running is safe — already-migrated rows are detected
 and skipped.
@@ -23,14 +24,16 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any
+from typing import Any, Optional
 
 from litestar import Response
 from litestar.controller import Controller
+from litestar.di import Provide
 from litestar.handlers import post
 from sqlalchemy import select, update
 
 from gemini.api.base import minio_storage_config, minio_storage_provider
+from gemini.api.user import User
 from gemini.api._dataset_path_migration import (
     new_key_for as _new_key_for,
     short_id_from_uuid as _short_id_from_uuid,
@@ -38,6 +41,7 @@ from gemini.api._dataset_path_migration import (
 from gemini.db.core.base import db_engine
 from gemini.db.models.datasets import DatasetModel
 from gemini.db.models.experiment_files import ExperimentFileModel
+from gemini.rest_api.dependencies import provide_superuser
 from gemini.rest_api.models import RESTAPIError
 
 logger = logging.getLogger(__name__)
@@ -50,8 +54,14 @@ def _enabled() -> bool:
 class MigrateDatasetPathsController(Controller):
     """POST /api/migrate_dataset_paths — run-once migration."""
 
+    dependencies = {
+        "superuser": Provide(provide_superuser, sync_to_thread=True),
+    }
+
     @post(sync_to_thread=True, status_code=200)
-    def run_migration(self) -> dict[str, Any] | Response:
+    def run_migration(
+        self, superuser: Optional[User]
+    ) -> dict[str, Any] | Response:
         if not _enabled():
             return Response(
                 content=RESTAPIError(
@@ -107,7 +117,10 @@ class MigrateDatasetPathsController(Controller):
                     new_key,
                     CopySource(file_bucket or bucket, object_name),
                 )
-                client.remove_object(file_bucket or bucket, object_name)
+                # Point the row at the new key before removing the old
+                # object: if the DB update fails, the legacy object is
+                # still there and the row stays valid (a stray copy at
+                # the new key is harmless and re-copied on retry).
                 with db_engine.get_session() as session:
                     session.execute(
                         update(ExperimentFileModel)
@@ -115,6 +128,7 @@ class MigrateDatasetPathsController(Controller):
                         .values(object_name=new_key)
                     )
                     session.commit()
+                client.remove_object(file_bucket or bucket, object_name)
                 migrated += 1
             except Exception as exc:  # noqa: BLE001
                 errors.append(

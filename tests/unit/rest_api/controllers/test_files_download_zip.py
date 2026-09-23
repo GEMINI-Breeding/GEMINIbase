@@ -46,9 +46,8 @@ def test_keeps_relative_paths_so_names_dont_collide(mock_minio, test_client):
 
 @patch(MINIO)
 def test_prefix_mode_is_relative_to_the_prefix(mock_minio, test_client):
-    mock_minio.list_files.return_value = [
-        MagicMock(object_name=n) for n in BODIES
-    ]
+    # The real provider returns plain object-name strings.
+    mock_minio.list_files.return_value = list(BODIES)
     mock_minio.download_file_stream.side_effect = _stream
     res = test_client.post(
         "/api/files/download_zip",
@@ -75,3 +74,11 @@ def test_nothing_to_zip_is_a_400(mock_minio, test_client):
     mock_minio.list_files.return_value = []
     res = test_client.post("/api/files/download_zip", json={"prefix": "nope/"})
     assert res.status_code == 400
+
+
+@patch(MINIO)
+def test_list_nested_processed_builds_tree_from_names(mock_minio, test_client):
+    mock_minio.list_files.return_value = list(BODIES)
+    res = test_client.get("/api/files/list_nested_processed")
+    assert res.status_code == 200, res.text
+    assert res.json() == {"S": {"E": {"D": {"P": ["2024-06-01", "2024-07-01"]}}}}

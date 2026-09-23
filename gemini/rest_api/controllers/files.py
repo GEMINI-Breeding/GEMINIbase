@@ -1169,8 +1169,8 @@ class FileController(Controller):
                 bucket_name=bucket, prefix="Processed/"
             )
             tree = {}
-            for item in items:
-                parts = item.object_name.split("/")
+            for object_name in items:
+                parts = object_name.split("/")
                 if len(parts) >= 6:
                     year = parts[1]
                     experiment = parts[2]
@@ -1217,7 +1217,7 @@ class FileController(Controller):
                 items = minio_storage_provider.list_files(
                     bucket_name=bucket, prefix=prefix
                 )
-                files = [item.object_name for item in items]
+                files = list(items)
 
             if not files:
                 return Response(

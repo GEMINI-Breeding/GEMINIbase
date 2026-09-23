@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import base64
 import logging
+import re
 import shutil
 import tempfile
 from pathlib import Path
@@ -32,6 +33,28 @@ class InferenceConfigError(RuntimeError):
     The worker surfaces this as a FAILED job with a user-readable error message
     rather than a crash loop.
     """
+
+
+class InferenceFailedError(RuntimeError):
+    """Raised when inference on an image did not actually run.
+
+    E.g. the inference server is down so every crop failed, or the
+    consecutive-failure abort fired. Distinct from "ran and found nothing":
+    callers must not record a detection count of 0 for such an image.
+    """
+
+
+_API_KEY_RE = re.compile(r"(api_key=)[^&\s'\"]+", re.IGNORECASE)
+
+
+def redact_api_key(text: Any) -> str:
+    """Mask ``api_key=...`` query values in an error message.
+
+    The Roboflow API takes the key as a query parameter, and `requests`
+    exception messages embed the full URL — so without this the key ends
+    up in worker logs and in job.result["errors"].
+    """
+    return _API_KEY_RE.sub(r"\1***", str(text))
 
 
 def crop_image_with_overlap(
@@ -255,6 +278,7 @@ def run_inference_on_image(
     all_predictions: List[dict] = []
     crop_errors = 0
     consecutive_failures = 0
+    last_error = ""
     temp_dir = crops[0]["temp_dir"]
 
     try:
@@ -270,20 +294,29 @@ def run_inference_on_image(
             except Exception as exc:
                 crop_errors += 1
                 consecutive_failures += 1
+                last_error = redact_api_key(exc)
                 msg = (
-                    f"Crop {crop_info['crop_id']}/{len(crops)} failed: {exc}"
+                    f"Crop {crop_info['crop_id']}/{len(crops)} failed: {last_error}"
                 )
                 logger.warning(msg)
                 if on_warning:
                     on_warning(msg)
                 if consecutive_failures >= 5:
-                    logger.warning(
-                        "5 consecutive crop failures on %s — aborting.",
-                        Path(image_path).name,
+                    # Partial results would be recorded as a (too low)
+                    # detection count — fail the image instead.
+                    raise InferenceFailedError(
+                        f"Inference aborted on {Path(image_path).name} after "
+                        f"5 consecutive crop failures ({idx + 1}/{len(crops)} "
+                        f"crops attempted). Last error: {last_error}"
                     )
-                    break
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
+
+    if crop_errors and crop_errors == len(crops):
+        raise InferenceFailedError(
+            f"Inference failed on all {len(crops)} crops of "
+            f"{Path(image_path).name}. Last error: {last_error}"
+        )
 
     after_nms = apply_nms(all_predictions, iou_threshold=iou_threshold)
     logger.info(
