@@ -27,6 +27,13 @@ if TYPE_CHECKING:  # pragma: no cover
 
 logger = logging.getLogger(__name__)
 
+# A fixed bcrypt hash of an unguessable string, used to equalize the
+# response time when a username doesn't exist. Prevents "user exists?"
+# timing oracle. Module-level: as an underscore attribute of the pydantic
+# model it became a ModelPrivateAttr, and every unknown-user login raised
+# (and skipped the bcrypt compare) instead of spending the same time.
+_DUMMY_HASH = "$2b$12$p60tjXVAUaPm1fZf0ZL/G.UDFMwgjZy9T0rGhQOEwdLI2j96zJzRG"
+
 
 class User(APIBase):
     """Represents an application user with authentication credentials."""
@@ -225,13 +232,6 @@ class User(APIBase):
 
     # --- Auth ---
 
-    # A fixed bcrypt hash of an unguessable string, used to equalize the
-    # response time when a username doesn't exist. Prevents "user exists?"
-    # timing oracle.
-    _DUMMY_HASH = (
-        "$2b$12$p60tjXVAUaPm1fZf0ZL/G.UDFMwgjZy9T0rGhQOEwdLI2j96zJzRG"
-    )
-
     @classmethod
     def authenticate(cls, email: str, password: str) -> Optional["User"]:
         """Return the user if credentials match, else None.
@@ -244,7 +244,7 @@ class User(APIBase):
             db_instance = UserModel.get_by_parameters(email=email)
             if not db_instance:
                 # Intentional: run a bcrypt compare to equalize timing.
-                verify_password(password, cls._DUMMY_HASH)
+                verify_password(password, _DUMMY_HASH)
                 return None
             if not verify_password(password, db_instance.hashed_password):
                 return None

@@ -1,0 +1,227 @@
+name: Images
+
+# Builds every GEMINIbase image natively for linux/amd64 and linux/arm64
+# (no emulation: each architecture on its own runner), publishes them to
+# ghcr.io/gemini-breeding/<image> as multi-arch manifests, then starts the
+# published set with gemini/pipeline/docker-compose.prod.yaml on both
+# architectures to prove it comes up.
+#
+# Tags:
+#   v1.2.3 git tag   → 1.2.3        (what the desktop app pins, GEMINI_VERSION)
+#   push to main     → edge, main, sha-<short>
+#   other push / run → <branch> (slashes → dashes), sha-<short>
+#
+# dev/gemini-app-migration publishes too, so the app can pin a real image
+# build before that branch merges into main (then drop it from `branches`).
+#
+# One-time GitHub setup (org admin):
+#   - Org Settings → Packages: allow public packages.
+#   - Org + this repo Settings → Actions → Workflow permissions: read and write.
+#   - After the first publish, set each ghcr.io/gemini-breeding/geminibase-*
+#     package to Public so installs can pull without logging in.
+
+on:
+  push:
+    branches: [main, dev/gemini-app-migration]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: images-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io/gemini-breeding
+
+jobs:
+  build:
+    name: ${{ matrix.image.name }} (${{ matrix.arch }})
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+        image:
+          - { name: geminibase-db, context: gemini/db, file: gemini/db/Dockerfile }
+          - { name: geminibase-storage, context: gemini/storage, file: gemini/storage/Dockerfile }
+          - { name: geminibase-storage-init, context: gemini/storage, file: gemini/storage/init/Dockerfile }
+          - { name: geminibase-logger, context: gemini/logger, file: gemini/logger/Dockerfile }
+          - { name: geminibase-rest-api, context: ., file: gemini/rest_api/Dockerfile }
+          - { name: geminibase-worker-ml, context: ., file: gemini/workers/ml/Dockerfile }
+          - { name: geminibase-worker-geo, context: ., file: gemini/workers/geo/Dockerfile }
+          - { name: geminibase-worker-amiga, context: ., file: gemini/workers/amiga/Dockerfile }
+          - { name: geminibase-worker-stitch, context: ., file: gemini/workers/stitch/Dockerfile }
+          - { name: geminibase-worker-thermal, context: ., file: gemini/workers/thermal/Dockerfile }
+          - { name: geminibase-worker-gwas, context: ., file: gemini/workers/gwas/Dockerfile }
+          - { name: geminibase-worker-odm, context: ., file: gemini/workers/odm/Dockerfile }
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.image.context }}
+          file: ${{ matrix.image.file }}
+          platforms: linux/${{ matrix.arch }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ matrix.image.name }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=${{ matrix.image.name }}-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image.name }}-${{ matrix.arch }}
+
+      - name: Record digest
+        run: |
+          mkdir -p digests
+          echo "${{ steps.build.outputs.digest }}" > "digests/${{ matrix.arch }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ matrix.image.name }}-${{ matrix.arch }}
+          path: digests/${{ matrix.arch }}
+          retention-days: 1
+
+  manifest:
+    name: publish ${{ matrix.image }}
+    needs: build
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - geminibase-db
+          - geminibase-storage
+          - geminibase-storage-init
+          - geminibase-logger
+          - geminibase-rest-api
+          - geminibase-worker-ml
+          - geminibase-worker-geo
+          - geminibase-worker-amiga
+          - geminibase-worker-stitch
+          - geminibase-worker-thermal
+          - geminibase-worker-gwas
+          - geminibase-worker-odm
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: digest-${{ matrix.image }}-*
+          path: digests
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ matrix.image }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=edge,branch=main
+            type=ref,event=branch
+            type=sha,prefix=sha-
+
+      - name: Create multi-arch manifest
+        env:
+          IMAGE: ${{ env.REGISTRY }}/${{ matrix.image }}
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          set -euo pipefail
+          sources=()
+          for arch in amd64 arm64; do
+            sources+=("$IMAGE@$(cat "digests/$arch")")
+          done
+          args=()
+          while IFS= read -r tag; do
+            [ -n "$tag" ] && args+=(-t "$tag")
+          done <<< "$TAGS"
+          docker buildx imagetools create "${args[@]}" "${sources[@]}"
+          docker buildx imagetools inspect "$(head -n1 <<< "$TAGS")"
+
+  smoke:
+    # The published set, started exactly the way the desktop app starts it.
+    name: prod stack (${{ matrix.arch }})
+    needs: manifest
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Write an install's env file
+        run: |
+          set -euo pipefail
+          secret() { openssl rand -hex 24; }
+          env_file="$RUNNER_TEMP/gemini.env"
+          sed -e "s#^GEMINI_VERSION=.*#GEMINI_VERSION=sha-${GITHUB_SHA::7}#" \
+              -e "s#^GEMINI_ENV_FILE=.*#GEMINI_ENV_FILE=$env_file#" \
+              -e "s#^GEMINI_DATA_DIR=.*#GEMINI_DATA_DIR=$RUNNER_TEMP/stack#" \
+              -e "s#^GEMINI_DB_PASSWORD=.*#GEMINI_DB_PASSWORD=$(secret)#" \
+              -e "s#^GEMINI_LOGGER_PASSWORD=.*#GEMINI_LOGGER_PASSWORD=$(secret)#" \
+              -e "s#^GEMINI_STORAGE_ROOT_PASSWORD=.*#GEMINI_STORAGE_ROOT_PASSWORD=$(secret)#" \
+              -e "s#^GEMINI_STORAGE_SECRET_KEY=.*#GEMINI_STORAGE_SECRET_KEY=$(secret)#" \
+              -e "s#^GEMINI_JWT_SECRET=.*#GEMINI_JWT_SECRET=$(secret)#" \
+              -e "s#^GEMINI_FIRST_SUPERUSER_EMAIL=.*#GEMINI_FIRST_SUPERUSER_EMAIL=smoke@example.com#" \
+              -e "s#^GEMINI_FIRST_SUPERUSER_PASSWORD=.*#GEMINI_FIRST_SUPERUSER_PASSWORD=$(secret)#" \
+              gemini/pipeline/.env.prod.example > "$env_file"
+          echo "ENV_FILE=$env_file" >> "$GITHUB_ENV"
+
+      - name: Start
+        run: |
+          docker compose -f gemini/pipeline/docker-compose.prod.yaml \
+            --env-file "$ENV_FILE" up -d --wait --wait-timeout 600
+
+      - name: Every worker claims jobs; nothing restarts
+        run: |
+          set -euo pipefail
+          curl -fsS http://127.0.0.1:7777/healthz
+          # Workers poll for jobs every few seconds; give each a chance.
+          sleep 45
+          caps=$(curl -fsS http://127.0.0.1:7777/api/utils/capabilities)
+          echo "$caps" | python3 -m json.tool
+          # One job type only that worker claims, per worker.
+          echo "$caps" | python3 -c '
+          import json, sys
+          c = json.load(sys.stdin)
+          owners = {"TRAIN_MODEL": "ml", "DATA_SYNC": "geo", "EXTRACT_BINARY": "amiga",
+                    "RUN_STITCH": "stitch", "THERMAL_EXTRACT": "thermal",
+                    "RUN_GWAS": "gwas", "RUN_ODM": "odm"}
+          silent = [w for t, w in owners.items() if t not in c["workers"]]
+          assert not silent, f"workers never polled for jobs: {silent}"
+          assert c["odm"]["nodeodm"], "NodeODM not answering"
+          '
+          restarts=$(docker ps -a --filter label=com.docker.compose.project=gemini \
+            --format '{{.Names}}' | xargs docker inspect --format '{{.Name}} {{.RestartCount}}' \
+            | awk '$2 > 0')
+          if [ -n "$restarts" ]; then echo "restarted: $restarts"; exit 1; fi
+
+      - name: Logs
+        if: always()
+        run: |
+          docker compose -f gemini/pipeline/docker-compose.prod.yaml \
+            --env-file "$ENV_FILE" logs --no-color --tail 200 || true

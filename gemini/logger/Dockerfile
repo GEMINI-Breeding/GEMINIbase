@@ -43,3 +43,6 @@ FROM redis:7.2-alpine
 #     --requirepass "${REDIS_PASSWORD}" \
 #     --port ${REDIS_PORT} \
 #     --maxmemory ${REDIS_MAX_MEMORY}
+# Baked in so the production stack needs no source checkout (the dev stack
+# bind-mounts the same file over it).
+COPY redis.conf /usr/local/etc/redis/redis.conf

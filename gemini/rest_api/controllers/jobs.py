@@ -88,6 +88,21 @@ def _sweep_gwas_artifacts(job_id: str) -> int:
         logger.warning("GWAS artifact sweep failed for %s: %s", job_id, exc)
         return 0
 
+# When a worker last polled for each job type (epoch seconds). Workers poll
+# /claim every few seconds per type they handle, so this says which job
+# types have a live worker — see /api/utils/capabilities. In memory: after
+# an API restart it refills on the workers' next poll.
+_worker_seen: dict[str, float] = {}
+
+
+def workers_seen() -> dict[str, float]:
+    """{job_type: seconds since a worker last polled for it}."""
+    import time as _time
+
+    now = _time.time()
+    return {t: round(now - ts, 1) for t, ts in _worker_seen.items()}
+
+
 # Valid job types that workers can process
 VALID_JOB_TYPES = {
     "TRAIN_MODEL",
@@ -162,6 +177,9 @@ class JobController(Controller):
                     ),
                     status_code=400,
                 )
+            import time as _time
+
+            _worker_seen[data.job_type] = _time.time()
             job = Job.claim(job_type=data.job_type, worker_id=data.worker_id)
             if job is None:
                 return Response(

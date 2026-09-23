@@ -1,0 +1,26 @@
+# Build context for the rest-api and worker images (context: repo root).
+#
+# Secrets first: gemini/pipeline/.env holds the database, storage and JWT
+# secrets and the first superuser's password. `COPY gemini ./gemini` used
+# to bake it into every image, so a published image would have shipped the
+# build machine's secrets. Settings reach containers at run time instead
+# (compose `env_file:` / `environment:`; pydantic-settings reads the
+# environment before any .env file).
+**/.env
+**/.env.*
+!**/.env.example
+
+# Not needed in any image.
+.git
+.github
+.venv
+**/__pycache__
+**/*.pyc
+.pytest_cache
+tests
+test-results
+playwright
+docs
+scratchpad
+MagicMock
+gemini-ui/node_modules

@@ -1,14 +1,13 @@
 """
 Utility endpoints used by the GEMINI-App frontend.
 
-- GET /api/utils/capabilities — advertise optional-dependency availability
-  (AgRowStitch, torch/CUDA/MPS, CPU count) so the frontend can warn before
-  launching steps that need them.
+- GET /api/utils/capabilities — which job types have a live worker (from
+  when each was last polled for), whether stitching and ODM can run, and
+  torch/CPU facts, so the frontend can warn before launching a step whose
+  job would only wait in the queue.
 - GET /api/utils/logs — recent backend log lines from an in-memory ring
   buffer, consumed by the frontend console tab.
 - GET /api/utils/health-check — simple boolean liveness probe.
-- GET /api/utils/docker-check — docker-daemon availability (so the UI can
-  surface setup errors, e.g., "Docker isn't running").
 
 This controller deliberately does not depend on the full stack (db, redis,
 minio), so it responds reliably even when those backends are unhealthy.
@@ -16,7 +15,6 @@ minio), so it responds reliably even when those backends are unhealthy.
 from __future__ import annotations
 
 import collections
-import importlib.util
 import logging
 import os
 import shutil
@@ -99,39 +97,42 @@ def _worker_log_lines() -> List[dict]:
     return read_worker_logs(client) if client is not None else []
 
 
+# A job type counts as served if a worker polled for it this recently.
+WORKER_LIVE_SECONDS = 60
+
+
+def _live(job_type: str) -> bool:
+    from gemini.rest_api.controllers.jobs import workers_seen
+
+    age = workers_seen().get(job_type)
+    return age is not None and age <= WORKER_LIVE_SECONDS
+
+
 def _agrowstitch_status() -> dict:
-    """Report whether AgRowStitch is importable in this environment."""
-    available = False
-    path: Optional[str] = None
-    env_path = os.environ.get("AGROWSTITCH_PATH")
+    """Whether stitching can run: a stitch worker (whose image carries
+    AgRowStitch) is polling for RUN_STITCH. The old check looked for
+    AgRowStitch inside the API container, where it never is."""
+    return {"available": _live("RUN_STITCH"), "path": None}
 
-    # Candidate locations: AGROWSTITCH_PATH env var, a sibling repo clone, or
-    # a vendored copy under the stitch worker (Phase 3 landing zone).
-    candidates: List[Path] = []
-    if env_path:
-        candidates.append(Path(env_path))
-    # Sibling-repo checkout next to GEMINIbase (mirrors the old backend's convention).
-    candidates.append(Path(__file__).resolve().parents[4] / "AgRowStitch" / "AgRowStitch.py")
-    # Phase 3 vendor location (won't exist yet; try anyway).
-    candidates.append(Path(__file__).resolve().parents[2] / "workers" / "stitch" / "AgRowStitch.py")
 
-    for candidate in candidates:
-        if not candidate.exists():
-            continue
-        try:
-            spec = importlib.util.spec_from_file_location("_agrowstitch_check", candidate)
-            if spec is None or spec.loader is None:
-                continue
-            mod = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(mod)
-            if hasattr(mod, "run"):
-                available = True
-                path = str(candidate)
-                break
-        except Exception:
-            continue
+def _nodeodm_status() -> dict:
+    """Whether orthomosaics can run: an ODM worker is polling for RUN_ODM
+    and NodeODM answers."""
+    import urllib.request
 
-    return {"available": available, "path": path}
+    url = os.environ.get("GEMINI_NODEODM_URL", "http://geminibase-nodeodm:3000")
+    try:
+        with urllib.request.urlopen(f"{url}/info", timeout=2) as r:
+            reachable = r.status == 200
+    except Exception:
+        reachable = False
+    return {"worker": _live("RUN_ODM"), "nodeodm": reachable}
+
+
+def _workers_seen_public() -> dict:
+    from gemini.rest_api.controllers.jobs import workers_seen
+
+    return workers_seen()
 
 
 def _torch_status() -> dict:
@@ -150,47 +151,6 @@ def _torch_status() -> dict:
     }
 
 
-def _docker_status() -> dict:
-    """Check whether a Docker daemon is reachable from inside this process."""
-    extra_paths = [
-        "/usr/local/bin/docker",
-        "/opt/homebrew/bin/docker",
-        "/usr/bin/docker",
-        os.path.expanduser("~/.docker/bin/docker"),
-    ]
-    docker_bin = shutil.which("docker")
-    if docker_bin is None:
-        for p in extra_paths:
-            if os.path.isfile(p) and os.access(p, os.X_OK):
-                docker_bin = p
-                break
-    if docker_bin is None:
-        return {"available": False, "reason": "not_installed"}
-
-    env = os.environ.copy()
-    user_socket = os.path.expanduser("~/.docker/run/docker.sock")
-    if os.path.exists(user_socket) and "DOCKER_HOST" not in env:
-        env["DOCKER_HOST"] = f"unix://{user_socket}"
-
-    try:
-        result = subprocess.run(
-            [docker_bin, "info"],
-            capture_output=True,
-            timeout=10,
-            env=env,
-        )
-        if result.returncode == 0:
-            return {"available": True}
-        stderr = (result.stderr or b"").decode(errors="replace")
-        if "permission denied" in stderr.lower():
-            return {"available": False, "reason": "permission_denied"}
-        return {"available": False, "reason": stderr[:200]}
-    except Exception as e:
-        return {"available": False, "reason": str(e)}
-
-
-# ────────────────────────────────────────────────────────────────────────────
-
 class UtilsController(Controller):
 
     dependencies = {
@@ -206,6 +166,8 @@ class UtilsController(Controller):
         torch = _torch_status()
         return {
             "agrowstitch": _agrowstitch_status(),
+            "odm": _nodeodm_status(),
+            "workers": _workers_seen_public(),
             "torch_version": torch["torch_version"],
             "cuda_available": torch["cuda_available"],
             "mps_available": torch["mps_available"],
@@ -233,6 +195,3 @@ class UtilsController(Controller):
             source=source,
         )
 
-    @get(path="/docker-check", sync_to_thread=True)
-    def docker_check(self) -> dict:
-        return _docker_status()

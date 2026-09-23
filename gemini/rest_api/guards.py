@@ -30,7 +30,6 @@ _OPEN_PATHS = {
     "/api/users/signup",
     "/api/utils/health-check",
     "/api/utils/capabilities",
-    "/api/utils/docker-check",
 }
 
 

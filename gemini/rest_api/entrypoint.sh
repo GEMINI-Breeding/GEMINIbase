@@ -66,6 +66,14 @@ else
     echo "[entrypoint] GEMINI_RUN_MIGRATIONS unset; skipping alembic (day-0 schema handled by init_sql/)"
 fi
 
+# The install's own account (the desktop app signs in with it; workers use
+# it to reach the API). Idempotent: an existing account is left untouched.
+if [[ -n "${GEMINI_FIRST_SUPERUSER_EMAIL:-}" && -n "${GEMINI_FIRST_SUPERUSER_PASSWORD:-}" ]]; then
+    python -m gemini.cli bootstrap-superuser
+else
+    echo "[entrypoint] GEMINI_FIRST_SUPERUSER_EMAIL/PASSWORD unset; not creating a superuser"
+fi
+
 # If compose/Docker passed a command, exec it (lets compose.yaml override CMD
 # with the --reload dev-watcher). Otherwise fall back to the production CMD.
 if [[ $# -gt 0 ]]; then

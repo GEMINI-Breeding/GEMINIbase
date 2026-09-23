@@ -935,3 +935,10 @@ BEGIN
         AND (p_chromosomes IS NULL OR array_length(p_chromosomes, 1) IS NULL OR gr.chromosome = ANY(p_chromosomes));
 END;
 $$;
+
+-- Day-0 Alembic stamp (mirrors gemini/db/init_sql/scripts/7_alembic_version.sql).
+CREATE TABLE IF NOT EXISTS gemini.alembic_version (
+    version_num VARCHAR(32) NOT NULL,
+    CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num)
+);
+INSERT INTO gemini.alembic_version (version_num) VALUES ('0011_process_entities');

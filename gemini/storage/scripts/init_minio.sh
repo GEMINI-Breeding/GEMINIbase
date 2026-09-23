@@ -2,22 +2,23 @@
 # !/bin/bash
 set -e
 
-# Print environment variables
-echo "Environment Variables:"
-echo "MINIO_SERVER_HOST: ${MINIO_SERVER_HOST}"
-echo "MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}"
-echo "MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}"
-echo "GEMINI_STORAGE_ACCESS_KEY: ${GEMINI_STORAGE_ACCESS_KEY}"
-echo "GEMINI_STORAGE_SECRET_KEY: ${GEMINI_STORAGE_SECRET_KEY}"
-echo "GEMINI_STORAGE_BUCKET_NAME: ${GEMINI_STORAGE_BUCKET_NAME}"
-
-# Get environment variables
-echo "Connect to MinIO server..."
-mc alias set local http://${MINIO_SERVER_HOST}:9000 "${MINIO_ACCESS_KEY}" "${MINIO_SECRET_KEY}"
+# Runs on every stack start, so every step must be safe to repeat.
+# Never echo the keys: this output lands in the container log.
+echo "Connecting to MinIO at ${MINIO_SERVER_HOST}:9000 ..."
+for i in $(seq 1 60); do
+    if mc alias set local "http://${MINIO_SERVER_HOST}:9000" "${MINIO_ACCESS_KEY}" "${MINIO_SECRET_KEY}" >/dev/null 2>&1; then
+        break
+    fi
+    if [ "$i" -eq 60 ]; then
+        echo "MinIO did not come up within 60 s" >&2
+        exit 1
+    fi
+    sleep 1
+done
 
 # Create a service account
 echo "Creating service account..."
-mc admin user add local "${GEMINI_STORAGE_ACCESS_KEY}" "${GEMINI_STORAGE_SECRET_KEY}"
+mc admin user add local "${GEMINI_STORAGE_ACCESS_KEY}" "${GEMINI_STORAGE_SECRET_KEY}" >/dev/null
 
 # Create a policy file
 echo "Creating policy file..."
@@ -52,7 +53,7 @@ EOF
 
 # Add policy with verbose output
 echo "Adding policy..."
-mc admin policy create local gemini-service-policy "${POLICY_FILE}" --debug
+mc admin policy create local gemini-service-policy "${POLICY_FILE}"
 
 # Show policy
 echo "Showing policy info..."
@@ -63,11 +64,12 @@ rm -f "${POLICY_FILE}"
 
 # Assign policy to service account
 echo "Assigning policy to service account..."
-mc admin policy attach local gemini-service-policy --user "${GEMINI_STORAGE_ACCESS_KEY}"
+mc admin policy attach local gemini-service-policy --user "${GEMINI_STORAGE_ACCESS_KEY}" \
+    || echo "(policy already attached)"
 
 # Create bucket if it doesn't exist
 echo "Creating bucket..."
-mc mb local/"${GEMINI_STORAGE_BUCKET_NAME}"
+mc mb --ignore-existing local/"${GEMINI_STORAGE_BUCKET_NAME}"
 
 # Create 'staged-downloads' bucket if it doesn't exist
 if ! mc ls local/"staged-downloads" >/dev/null 2>&1; then
@@ -87,15 +89,12 @@ fi
 
 
 
-# Set bucket to private
-# echo "Setting bucket to private..."
-# mc policy set download local/"${GEMINI_STORAGE_BUCKET_NAME}"
-# mc policy set download local/"staged-downloads"
-# mc policy set download local/"staged-uploads"
-
-mc anonymous set download local/"${GEMINI_STORAGE_BUCKET_NAME}"
-mc anonymous set download local/"staged-downloads"
-mc anonymous set download local/"staged-uploads"
+# No anonymous access. Everything reads with credentials (the API, the
+# workers, TiTiler); an anonymous "download" policy let anyone who could
+# reach MinIO's port read every file without a password.
+mc anonymous set none local/"${GEMINI_STORAGE_BUCKET_NAME}"
+mc anonymous set none local/"staged-downloads"
+mc anonymous set none local/"staged-uploads"
 
 
 echo "MinIO initialization completed successfully"

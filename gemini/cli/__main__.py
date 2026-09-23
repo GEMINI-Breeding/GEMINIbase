@@ -173,3 +173,9 @@ def bootstrap_superuser(
 
 # Add the settings command group to the main CLI
 cli.add_command(settings_group)
+
+
+if __name__ == "__main__":
+    # `python -m gemini.cli …` (images install dependencies only, so the
+    # `geminibase` console script isn't on PATH there).
+    cli(prog_name="geminibase")

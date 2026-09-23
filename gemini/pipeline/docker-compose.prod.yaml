@@ -1,0 +1,210 @@
+# GEMINIbase — production stack (what an installed GEMINI app runs).
+#
+# Differences from the development stack (docker-compose.yaml):
+#   - published images only (ghcr.io/gemini-breeding/*), pinned to one
+#     release; no builds, no source bind-mounts, no --reload, no debugpy
+#   - settings and secrets come from the env file at run time
+#     (GEMINI_ENV_FILE); nothing secret is inside an image
+#   - data lives in GEMINI_DATA_DIR on the host, not in Docker's disk image;
+#     Postgres may instead use the named volume `gemini_db` (Windows: NTFS
+#     bind mounts break Postgres's permission checks) — see GEMINI_DB_MOUNT
+#   - only the REST API and TiTiler are published, and only on 127.0.0.1;
+#     the database, Redis, MinIO and NodeODM are reachable only inside the
+#     stack's network
+#   - migrations run on every start (a new database is stamped at head)
+#
+# Run (the desktop app does this):
+#   docker compose -p gemini -f docker-compose.prod.yaml \
+#       --env-file <env file> up -d
+#
+# Required in the env file (see .env.prod.example):
+#   GEMINI_VERSION, GEMINI_ENV_FILE, GEMINI_DATA_DIR, and every secret.
+
+name: gemini
+
+x-app-env: &app-env
+  env_file:
+    - ${GEMINI_ENV_FILE:?set GEMINI_ENV_FILE to this file's path}
+  restart: unless-stopped
+  networks:
+    - gemini
+
+x-worker: &worker
+  <<: *app-env
+  environment:
+    GEMINI_REST_API_URL: http://geminibase-rest-api:7777
+  depends_on:
+    geminibase-rest-api:
+      condition: service_healthy
+
+services:
+  geminibase-db:
+    image: ${GEMINI_IMAGE_REGISTRY:-ghcr.io/gemini-breeding}/geminibase-db:${GEMINI_VERSION:?}
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${GEMINI_DB_USER:?}
+      POSTGRES_PASSWORD: ${GEMINI_DB_PASSWORD:?}
+      POSTGRES_DB: ${GEMINI_DB_NAME:?}
+      POSTGRESQL_USERNAME: ${GEMINI_DB_USER}
+      POSTGRESQL_PASSWORD: ${GEMINI_DB_PASSWORD}
+      POSTGRESQL_DATABASE: ${GEMINI_DB_NAME}
+    volumes:
+      # A host path (…/postgres) or the named volume `gemini_db`.
+      - ${GEMINI_DB_MOUNT:-${GEMINI_DATA_DIR:?}/postgres}:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${GEMINI_DB_USER} -d ${GEMINI_DB_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+    networks:
+      - gemini
+
+  geminibase-storage:
+    image: ${GEMINI_IMAGE_REGISTRY:-ghcr.io/gemini-breeding}/geminibase-storage:${GEMINI_VERSION:?}
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${GEMINI_STORAGE_ROOT_USER:?}
+      MINIO_ROOT_PASSWORD: ${GEMINI_STORAGE_ROOT_PASSWORD:?}
+    command: server /data
+    volumes:
+      - ${GEMINI_DATA_DIR:?}/minio:/data
+    networks:
+      - gemini
+
+  storage-init:
+    image: ${GEMINI_IMAGE_REGISTRY:-ghcr.io/gemini-breeding}/geminibase-storage-init:${GEMINI_VERSION:?}
+    restart: "no"
+    environment:
+      MINIO_ACCESS_KEY: ${GEMINI_STORAGE_ROOT_USER}
+      MINIO_SECRET_KEY: ${GEMINI_STORAGE_ROOT_PASSWORD}
+      MINIO_SERVER_HOST: geminibase-storage
+      GEMINI_STORAGE_ACCESS_KEY: ${GEMINI_STORAGE_ACCESS_KEY:?}
+      GEMINI_STORAGE_SECRET_KEY: ${GEMINI_STORAGE_SECRET_KEY:?}
+      GEMINI_STORAGE_BUCKET_NAME: ${GEMINI_STORAGE_BUCKET_NAME:-gemini}
+    depends_on:
+      - geminibase-storage
+    networks:
+      - gemini
+
+  geminibase-logger:
+    image: ${GEMINI_IMAGE_REGISTRY:-ghcr.io/gemini-breeding}/geminibase-logger:${GEMINI_VERSION:?}
+    restart: unless-stopped
+    command: >
+      redis-server /usr/local/etc/redis/redis.conf
+      --requirepass "${GEMINI_LOGGER_PASSWORD:?}"
+      --port 6379
+      --maxmemory ${GEMINI_LOGGER_MAX_MEMORY:-256mb}
+    volumes:
+      - ${GEMINI_DATA_DIR:?}/redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${GEMINI_LOGGER_PASSWORD}", "--no-auth-warning", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    networks:
+      - gemini
+
+  geminibase-rest-api:
+    <<: *app-env
+    image: ${GEMINI_IMAGE_REGISTRY:-ghcr.io/gemini-breeding}/geminibase-rest-api:${GEMINI_VERSION:?}
+    environment:
+      GEMINI_DB_URL: postgresql://${GEMINI_DB_USER}:${GEMINI_DB_PASSWORD}@geminibase-db:5432/${GEMINI_DB_NAME}
+      GEMINI_RUN_MIGRATIONS: "1"
+    ports:
+      - "127.0.0.1:${GEMINI_REST_API_HOST_PORT:-7777}:7777"
+    depends_on:
+      geminibase-db:
+        condition: service_healthy
+      geminibase-logger:
+        condition: service_healthy
+      storage-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:7777/healthz')"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 20s
+
+  geminibase-titiler:
+    image: ghcr.io/developmentseed/titiler:2.0.1
+    restart: unless-stopped
+    environment:
+      AWS_ACCESS_KEY_ID: ${GEMINI_STORAGE_ACCESS_KEY}
+      AWS_SECRET_ACCESS_KEY: ${GEMINI_STORAGE_SECRET_KEY}
+      AWS_S3_ENDPOINT: http://geminibase-storage:9000
+      AWS_HTTPS: "NO"
+      AWS_VIRTUAL_HOSTING: "FALSE"
+      GDAL_DISABLE_READDIR_ON_OPEN: EMPTY_DIR
+      GDAL_HTTP_MERGE_CONSECUTIVE_RANGES: "YES"
+      VSI_CACHE: "TRUE"
+      VSI_CACHE_SIZE: "5000000"
+    ports:
+      - "127.0.0.1:${GEMINI_TITILER_HOST_PORT:-8091}:80"
+    depends_on:
+      - geminibase-storage
+    networks:
+      - gemini
+
+  geminibase-nodeodm:
+    # No version tags upstream (only latest/stable): pinned by digest.
+    image: opendronemap/nodeodm@sha256:cb07d06e21fd6189cfad287c6fedfa0b72568100355635cd9035cb86eed42ee2
+    restart: unless-stopped
+    volumes:
+      - ${GEMINI_DATA_DIR:?}/nodeodm:/var/www/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/info"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    networks:
+      - gemini
+
+  geminibase-worker-ml:
+    <<: *worker
+    image: ${GEMINI_IMAGE_REGISTRY:-ghcr.io/gemini-breeding}/geminibase-worker-ml:${GEMINI_VERSION:?}
+    # A local inference server on the host is reached as
+    # host.docker.internal (Docker Desktop provides it; this is for Linux).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  geminibase-worker-geo:
+    <<: *worker
+    image: ${GEMINI_IMAGE_REGISTRY:-ghcr.io/gemini-breeding}/geminibase-worker-geo:${GEMINI_VERSION:?}
+
+  geminibase-worker-amiga:
+    <<: *worker
+    image: ${GEMINI_IMAGE_REGISTRY:-ghcr.io/gemini-breeding}/geminibase-worker-amiga:${GEMINI_VERSION:?}
+
+  geminibase-worker-stitch:
+    <<: *worker
+    image: ${GEMINI_IMAGE_REGISTRY:-ghcr.io/gemini-breeding}/geminibase-worker-stitch:${GEMINI_VERSION:?}
+
+  geminibase-worker-thermal:
+    <<: *worker
+    image: ${GEMINI_IMAGE_REGISTRY:-ghcr.io/gemini-breeding}/geminibase-worker-thermal:${GEMINI_VERSION:?}
+
+  geminibase-worker-gwas:
+    <<: *worker
+    image: ${GEMINI_IMAGE_REGISTRY:-ghcr.io/gemini-breeding}/geminibase-worker-gwas:${GEMINI_VERSION:?}
+
+  geminibase-worker-odm:
+    <<: *worker
+    image: ${GEMINI_IMAGE_REGISTRY:-ghcr.io/gemini-breeding}/geminibase-worker-odm:${GEMINI_VERSION:?}
+    environment:
+      GEMINI_REST_API_URL: http://geminibase-rest-api:7777
+      GEMINI_NODEODM_URL: http://geminibase-nodeodm:3000
+    depends_on:
+      geminibase-rest-api:
+        condition: service_healthy
+      geminibase-nodeodm:
+        condition: service_healthy
+
+networks:
+  gemini:
+    name: gemini_network
+
+volumes:
+  # Used only when GEMINI_DB_MOUNT=gemini_db (Windows).
+  gemini_db:

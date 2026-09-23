@@ -1,4 +1,11 @@
 name: geminibase
+# Development stack (source bind-mounts, --reload, debugpy). Installed
+# copies of the app use docker-compose.prod.yaml instead.
+#
+# Ports: GEMINI_*_PORT is the port a service listens on inside the Docker
+# network (other containers connect to it); GEMINI_*_HOST_PORT is where it
+# is published on this machine. Only the host ports should be changed to
+# avoid clashes with other software.
 services:
   db:
     container_name: ${GEMINI_DB_HOSTNAME}
@@ -9,7 +16,7 @@ services:
       dockerfile: Dockerfile
     # image: ${GEMINI_DB_IMAGE_NAME}:latest
     ports:
-      - "${GEMINI_DB_PORT}:5432"
+      - "${GEMINI_DB_HOST_PORT:-5432}:5432"
     environment:
       # Official postgres image env vars
       - "POSTGRES_USER=${GEMINI_DB_USER}"
@@ -33,8 +40,8 @@ services:
       dockerfile: Dockerfile
     # image: ${GEMINI_STORAGE_IMAGE_NAME}:latest
     ports:
-      - "${GEMINI_STORAGE_PORT}:9000"
-      - "${GEMINI_STORAGE_API_PORT}:9001"
+      - "${GEMINI_STORAGE_HOST_PORT:-9000}:9000"
+      - "${GEMINI_STORAGE_CONSOLE_HOST_PORT:-9001}:9001"
     environment:
       - "MINIO_ROOT_USER=${GEMINI_STORAGE_ROOT_USER}"
       - "MINIO_ROOT_PASSWORD=${GEMINI_STORAGE_ROOT_PASSWORD}"
@@ -49,13 +56,11 @@ services:
       - db
     
   storage-init:
-    # quay.io, not Docker Hub: the docker.io/minio/mc and
-    # docker.io/minio/minio repositories were removed upstream, so
-    # `docker pull minio/mc` now fails with "pull access denied /
-    # repository does not exist". quay.io/minio is MinIO's own registry
-    # and still carries both. Machines with a cached copy kept working,
-    # which is why this only surfaced in CI.
-    image: quay.io/minio/mc:latest
+    # One-shot: service account, policy and buckets (safe to repeat). The
+    # script is baked into the image — same image the production stack uses.
+    build:
+      context: ../storage
+      dockerfile: init/Dockerfile
     networks:
       - geminibase_network
     depends_on:
@@ -67,10 +72,6 @@ services:
       - "GEMINI_STORAGE_ACCESS_KEY=${GEMINI_STORAGE_ACCESS_KEY}"
       - "GEMINI_STORAGE_SECRET_KEY=${GEMINI_STORAGE_SECRET_KEY}"
       - "GEMINI_STORAGE_BUCKET_NAME=${GEMINI_STORAGE_BUCKET_NAME}"
-    volumes:
-      - ../storage/scripts/init_minio.sh:/usr/local/bin/init_minio.sh
-    entrypoint: >
-      /bin/sh -c "sleep 10 && /usr/local/bin/init_minio.sh"
 
   logger:
     container_name: ${GEMINI_LOGGER_HOSTNAME}
@@ -81,7 +82,7 @@ services:
       dockerfile: Dockerfile
     # image: ${GEMINI_LOGGER_IMAGE_NAME}:latest
     ports:
-      - "${GEMINI_LOGGER_PORT}:6379"
+      - "${GEMINI_LOGGER_HOST_PORT:-6379}:${GEMINI_LOGGER_PORT}"
     environment:
       - "REDIS_PASSWORD=${GEMINI_LOGGER_PASSWORD}"
       - "REDIS_PORT=${GEMINI_LOGGER_PORT}"
@@ -111,7 +112,7 @@ services:
       dockerfile: ./gemini/rest_api/Dockerfile  # Specify the path to the Dockerfile relative to the context
     # image: ${GEMINI_REST_API_IMAGE_NAME}:latest
     ports:
-      - "${GEMINI_REST_API_PORT}:7777"
+      - "${GEMINI_REST_API_HOST_PORT:-7777}:7777"
       - "5678:5678"
     environment:
       - "GEMINI_DB_URL=postgresql://${GEMINI_DB_USER}:${GEMINI_DB_PASSWORD}@${GEMINI_DB_HOSTNAME}:${GEMINI_DB_PORT}/${GEMINI_DB_NAME}"
@@ -120,6 +121,9 @@ services:
       - "GEMINI_STORAGE_BUCKET_NAME=${GEMINI_STORAGE_BUCKET_NAME}"
       - "GEMINI_STORAGE_PORT=${GEMINI_STORAGE_PORT}"
       - "GEMINI_STORAGE_API_PORT=${GEMINI_STORAGE_API_PORT}"
+      # The entrypoint creates this account on start if it doesn't exist.
+      - "GEMINI_FIRST_SUPERUSER_EMAIL=${GEMINI_FIRST_SUPERUSER_EMAIL}"
+      - "GEMINI_FIRST_SUPERUSER_PASSWORD=${GEMINI_FIRST_SUPERUSER_PASSWORD}"
       # Test-only: enables DELETE /api/e2e_cleanup so the Playwright
       # afterEach can sweep entities created during a single test run.
       # Production deployments leave this unset → endpoint 404s.
@@ -128,12 +132,25 @@ services:
       # Option-A legacy-key migration. Operator sets to 1, runs the
       # endpoint, then unsets and restarts.
       - "GEMINI_ADMIN_MIGRATIONS_ENABLED=${GEMINI_ADMIN_MIGRATIONS_ENABLED:-0}"
+      # Apply pending Alembic migrations on start. A new database is stamped
+      # at head by init_sql (7_alembic_version.sql), so this is safe on day 0.
+      - "GEMINI_RUN_MIGRATIONS=${GEMINI_RUN_MIGRATIONS:-1}"
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
       # Live-reload dev mount: edits to gemini/* on the host take effect immediately.
       # Without this, the image's April-built copy of gemini/ drifts from the source
       # and you get stale-code bugs that are invisible until something goes wrong.
       - ../../gemini:/geminibase/gemini:ro
+      # Migrations too, so a new one runs on restart without a rebuild.
+      - ../../alembic:/geminibase/alembic:ro
+    # As in production: buckets exist before the API serves (and
+    # `up --wait` accepts storage-init's exit because the API waits on it).
+    depends_on:
+      db:
+        condition: service_started
+      logger:
+        condition: service_healthy
+      storage-init:
+        condition: service_completed_successfully
     command: >
       poetry run litestar --app gemini.rest_api.app:app run
       --host 0.0.0.0 --port 7777 --reload --reload-dir /geminibase/gemini
@@ -152,7 +169,7 @@ services:
     restart: always
     image: ghcr.io/developmentseed/titiler:2.0.1
     ports:
-      - "${GEMINI_TITILER_PORT:-8091}:80"
+      - "${GEMINI_TITILER_HOST_PORT:-8091}:80"
     environment:
       # Point GDAL/rasterio at MinIO via S3 protocol
       - "AWS_ACCESS_KEY_ID=${GEMINI_STORAGE_ACCESS_KEY}"
@@ -239,7 +256,7 @@ services:
     hostname: geminibase-nodeodm
     image: opendronemap/nodeodm:latest
     ports:
-      - "${GEMINI_NODEODM_PORT:-13000}:3000"
+      - "${GEMINI_NODEODM_HOST_PORT:-13000}:3000"
     volumes:
       - nodeodm_data:/var/www/data
     networks:
