@@ -27,5 +27,8 @@ RUN /scripts/setup.sh
 # Copy SQL scripts to initialize the database
 COPY ./init_sql /docker-entrypoint-initdb.d/
 
-# Switch back to PostgreSQL user
-USER postgres
+# No `USER postgres` here: the official entrypoint starts as root, makes
+# the data directory the postgres user's, then drops to postgres itself.
+# Starting as postgres broke host-folder data directories on Linux
+# ("could not change permissions of directory"), which the desktop app
+# uses (GEMINI_DATA_DIR/postgres).
