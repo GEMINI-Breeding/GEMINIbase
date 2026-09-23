@@ -180,8 +180,14 @@ class TestAmigaWorkerExtractionFlow:
         # Verify MinIO download was streamed for the .bin file.
         # The worker uses get_object(...).stream(...) so it can report
         # download progress on big files.
-        mock_client.get_object.assert_called_once()
-        download_call = mock_client.get_object.call_args
+        # (Other reads are the metadata merge looking for an earlier log's
+        # track.)
+        bin_reads = [
+            c for c in mock_client.get_object.call_args_list
+            if str(c.args[1]).endswith(".bin")
+        ]
+        assert len(bin_reads) == 1
+        download_call = bin_reads[0]
         assert download_call[0][1] == "2024/Exp1/Field1/Pop1/2024-01-15/Amiga/OAK/Amiga/2024_01_15_001.bin"
 
         # Verify extract_binary was called

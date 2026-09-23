@@ -87,6 +87,62 @@ def _extract_timestamp(filename: str) -> str:
     return match.group(1) if match else filename
 
 
+def merge_with_existing(client, output_dir, parent_dir: str) -> None:
+    """Merge this extraction's metadata with the dataset's existing copy.
+
+    One upload of several .bin logs runs one EXTRACT_BINARY job per log, all
+    writing {dataset}/RGB/Metadata/*.csv and report.txt. Uploading each job's
+    files as they are replaced the earlier log's track — its frames were
+    left without GPS. Main extracted a batch and merged the logs; here each
+    job merges with what is already there: CSV rows concatenated,
+    de-duplicated and put in time order (the track's direction recomputed
+    across the join), report text appended.
+    """
+    import io
+
+    import pandas as pd
+
+    from gemini.workers.amiga.headings import add_direction_columns
+
+    def existing(obj: str):
+        try:
+            r = client.get_object(STORAGE_BUCKET, obj)
+        except Exception:
+            return None
+        try:
+            data = r.read()
+            return data if isinstance(data, (bytes, bytearray)) else None
+        finally:
+            r.close()
+            r.release_conn()
+
+    out = Path(output_dir)
+    for local in sorted(out.rglob("*.csv")) + sorted(out.glob("report.txt")):
+        obj = f"{parent_dir}/{local.relative_to(out).as_posix()}"
+        prior = existing(obj)
+        if not prior:
+            continue
+        if local.suffix == ".txt":
+            local.write_bytes(prior.rstrip(b"\n") + b"\n" + local.read_bytes())
+            continue
+        try:
+            old = pd.read_csv(io.BytesIO(prior))
+            new = pd.read_csv(local)
+        except Exception as exc:
+            logger.warning("Couldn't merge %s with the existing copy: %s", obj, exc)
+            continue
+        merged = pd.concat([old, new], ignore_index=True)
+        key = next((c for c in merged.columns if c.endswith("_file")), None)
+        merged = merged.drop_duplicates(subset=[key] if key else None, keep="last")
+        order = "stamp" if "stamp" in merged.columns else merged.columns[0]
+        merged = merged.sort_values(order, kind="stable").reset_index(drop=True)
+        if local.name == "msgs_synced.csv":
+            merged = merged.drop(columns=["direction", "direction_raw"], errors="ignore")
+            add_direction_columns(merged)
+        merged.to_csv(local, index=False)
+        logger.info("Merged %s: %d existing + %d new rows → %d", obj, len(old), len(new), len(merged))
+
+
 class AmigaWorker(BaseWorker):
     """Worker for farm-ng Amiga OAK binary extraction."""
 
@@ -408,6 +464,11 @@ class AmigaWorker(BaseWorker):
             #     Images/{camera}/ (JPEGs)
             #   Disparity/{camera}/ (NPY)
             #   progress.txt, report.txt
+            # Several .bin logs of one upload are extracted by one job each
+            # into the same dataset folder: fold this log's metadata into
+            # what an earlier job already wrote, instead of replacing it.
+            merge_with_existing(client, output_dir, str(Path(dir_path).parent))
+
             files_to_upload = []
             for root, _dirs, filenames in os.walk(str(output_dir)):
                 for fname in filenames:

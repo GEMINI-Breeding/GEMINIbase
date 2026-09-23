@@ -498,56 +498,116 @@ class DatasetController(Controller):
             )
             return Response(content=error, status_code=500)
 
-    @post(path="/update_metadata", sync_to_thread=True)
-    def update_metadata(self, data: dict) -> dict:
-        """
-        Rename/move a dataset by copying all files from the old path to the
-        new path in MinIO, then deleting the originals.
+    @get(path="/id/{dataset_id:str}/location", sync_to_thread=True)
+    def upload_location(self, dataset_id: str) -> dict:
+        """Where an upload's files are: its folder and the scope that folder
+        encodes (season, site, …) — what "Edit metadata" starts from."""
+        from sqlalchemy import select
 
-        Expects: { oldData: {year, experiment, location, population, date, platform, sensor},
-                   updatedData: {year, experiment, location, population, date, platform, sensor} }
-        """
+        from gemini.db.core.base import db_engine
+        from gemini.db.models.experiment_files import ExperimentFileModel
+        from gemini.rest_api import dataset_move as dm
+
+        with db_engine.get_session() as session:
+            names = session.execute(
+                select(ExperimentFileModel.object_name).where(
+                    ExperimentFileModel.dataset_id == dataset_id
+                )
+            ).scalars().all()
         try:
-            from gemini.rest_api.controllers.files import minio_storage_provider, minio_storage_config
-
-            old = data.get("oldData", {})
-            new = data.get("updatedData", {})
-
-            def build_prefix(d):
-                parts = [d.get("year",""), d.get("experiment",""), d.get("location",""),
-                         d.get("population",""), d.get("date",""), d.get("platform",""),
-                         d.get("sensor","")]
-                return "/".join(p for p in parts if p)
-
-            old_prefix = build_prefix(old)
-            new_prefix = build_prefix(new)
-
-            if old_prefix == new_prefix:
-                return {"status": "no_change"}
-
-            bucket = minio_storage_config.bucket_name
-            objects = minio_storage_provider.list_files(
-                prefix=old_prefix + "/", recursive=True, bucket_name=bucket
+            folder = dm.source_folder(list(names), {})
+        except dm.MoveError as e:
+            return Response(
+                content=RESTAPIError(error=str(e), error_description="No movable folder"),
+                status_code=e.status if e.status != 400 else 422,
             )
-            if not objects:
-                return {"status": "no_files", "files_moved": 0}
+        return {"folder": folder, "scope": dm.scope_of(folder)}
 
-            from minio.commonconfig import CopySource
+    @post(path="/id/{dataset_id:str}/move", sync_to_thread=True)
+    def move_upload(self, dataset_id: str, data: dict) -> dict:
+        """Edit an upload's season / site / population / date / platform /
+        sensor — which, here, is its storage path — by moving its folder.
+        See gemini/rest_api/dataset_move.py for the rules (no overwrite,
+        rows follow the files, resumable, Processed/ outputs left in place).
+
+        Body: {season, site, population, date, platform, sensor}
+        Replaces the Flask-era update_metadata, which built paths without
+        Raw/, moved every upload in a scope, overwrote, and left the file
+        rows pointing at deleted objects.
+        """
+        from datetime import date as _date
+
+        from minio.commonconfig import CopySource
+        from sqlalchemy import select, update
+
+        from gemini.db.core.base import db_engine
+        from gemini.db.models.datasets import DatasetModel
+        from gemini.db.models.experiment_files import ExperimentFileModel
+        from gemini.rest_api import dataset_move as dm
+        from gemini.rest_api.controllers.files import (
+            minio_storage_config,
+            minio_storage_provider,
+        )
+
+        bucket = minio_storage_config.bucket_name
+        to = {f: str(data.get(f) or "") for f in dm.FIELDS}
+        try:
+            with db_engine.get_session() as session:
+                names = session.execute(
+                    select(ExperimentFileModel.object_name).where(
+                        ExperimentFileModel.dataset_id == dataset_id,
+                        ExperimentFileModel.bucket == bucket,
+                    )
+                ).scalars().all()
+            folder = dm.source_folder(list(names), to)
+            dm.ensure_entities(dm.scope_of(folder)["experiment"], to)
+
+            def repoint(old: str, new: str) -> None:
+                with db_engine.get_session() as session:
+                    session.execute(
+                        update(ExperimentFileModel)
+                        .where(ExperimentFileModel.bucket == bucket,
+                               ExperimentFileModel.object_name == old)
+                        .values(object_name=new)
+                    )
+                    session.commit()
 
             client = minio_storage_provider.client
-            moved = 0
-            for obj_name in objects:
-                new_obj_name = new_prefix + obj_name[len(old_prefix):]
-                client.copy_object(
-                    bucket, new_obj_name,
-                    CopySource(bucket, obj_name),
-                )
-                client.remove_object(bucket, obj_name)
-                moved += 1
-
-            return {"status": "updated", "files_moved": moved}
+            result = dm.move_upload(
+                folder=folder,
+                to=to,
+                list_objects=lambda p: minio_storage_provider.list_files(
+                    prefix=p, recursive=True, bucket_name=bucket),
+                exists=lambda o: minio_storage_provider.file_exists(
+                    object_name=o, bucket_name=bucket),
+                copy=lambda a, b: client.copy_object(bucket, b, CopySource(bucket, a)),
+                remove=lambda o: client.remove_object(bucket, o),
+                repoint=repoint,
+            )
+            try:
+                new_date = _date.fromisoformat(to["date"])
+                with db_engine.get_session() as session:
+                    session.execute(
+                        update(DatasetModel)
+                        .where(DatasetModel.id == dataset_id)
+                        .values(collection_date=new_date)
+                    )
+                    session.commit()
+            except ValueError:
+                pass  # a date folder that isn't ISO: leave the record's date
+            return {
+                "source": result.source,
+                "target": result.target,
+                "moved": result.moved,
+                "processed_outputs_left": result.processed_outputs_left,
+            }
+        except dm.MoveError as e:
+            return Response(
+                content=RESTAPIError(error=str(e), error_description="Upload not moved"),
+                status_code=e.status,
+            )
         except Exception as e:
             return Response(
-                content=RESTAPIError(error=str(e), error_description="Failed to update metadata"),
+                content=RESTAPIError(error=str(e), error_description="Upload not moved"),
                 status_code=500,
             )
