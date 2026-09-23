@@ -1,0 +1,40 @@
+Fix for OpenCV >= 4.13, copied from GEMINI-App main (backend/patches/AgRowStitch.py).
+
+OpenCV 4.13 segfaults when a cv2.detail.MatchesInfo gets H = None or
+tuple() inliers/matches. Give it empty arrays of the right types instead.
+Applied by the Dockerfile on top of AgRowStitch @ 25cf015.
+
+diff --git a/AgRowStitch.py b/AgRowStitch.py
+index 837ce26..3452ff9 100644
+--- a/AgRowStitch.py
++++ b/AgRowStitch.py
+@@ -394,11 +394,11 @@ def OpenCV_match(cv_features, config):
+                 match.src_img_idx, match.dst_img_idx = -1, -1
+             else:
+                 match.src_img_idx, match.dst_img_idx = i, j
+-            match.H = None
++            match.H = np.zeros((0, 0), dtype=np.float64)
+             match.confidence = 0.0
+-            match.inliers_mask = ()
++            match.inliers_mask = np.array([], dtype=np.uint8)
+             match.num_inliers = 0
+-            match.matches = ()
++            match.matches = []
+         else:
+             #One issue is that the OpenCV matcher is not as good as the LightGlue one, so even though
+             #we handpick keypoints and features that we know are good matches, it will not always
+@@ -1261,11 +1261,11 @@ def build_panorama_opencv_objects(images, img_matches):
+                 match.src_img_idx, match.dst_img_idx = -1, -1
+             else:
+                 match.src_img_idx, match.dst_img_idx = i, j
+-            match.H = None
++            match.H = np.zeros((0, 0), dtype=np.float64)
+             match.confidence = 0.0
+-            match.inliers_mask = ()
++            match.inliers_mask = np.array([], dtype=np.uint8)
+             match.num_inliers = 0
+-            match.matches = ()
++            match.matches = []
+         else:
+             matcher = cv2.detail_AffineBestOf2NearestMatcher(full_affine = False, try_use_gpu = False, match_conf = 0.1, num_matches_thresh1 = 6)
+             #apply2 finds all pairwise matches and is accelerated by TBB, but we can beat that performance

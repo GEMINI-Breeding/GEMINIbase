@@ -4,6 +4,7 @@ import os
 import json
 import torch
 import kornia as K
+from gemini.workers.amiga.headings import add_direction_columns
 import numpy as np
 import pandas as pd
 import torch.nn.functional as F
@@ -123,22 +124,6 @@ def process_disparity(
     
     return points_xyz.numpy()
 
-def heading_to_direction(heading):
-    if heading is not None:
-        # Convert radians to degrees
-        heading_deg = np.degrees(heading) % 360  # Ensure 0-360 range
-        
-        if (heading_deg > 315 or heading_deg <= 45):
-            return 'North'
-        elif (heading_deg > 45 and heading_deg <= 135):
-            return 'East'
-        elif (heading_deg > 135 and heading_deg <= 225):
-            return 'South'
-        elif (heading_deg > 225 and heading_deg <= 315):
-            return 'West'
-    else:
-        return None
-
 def postprocessing(
     msgs_df: pd.DataFrame, 
     images_cols: List[str]
@@ -157,15 +142,27 @@ def postprocessing(
             msgs_df[new_col] = col + '-' + msgs_df[col].astype(str) + '.jpg'
         images_cols_new += [col, new_col]
 
-    # convert heading motion to direction
-    if 'heading_motion' in msgs_df.columns:
-        msgs_df['direction'] = msgs_df['heading_motion'].apply(heading_to_direction)
+    # direction of travel from lat/lon (preferred) or heading_motion
+    add_direction_columns(msgs_df)
 
     # rename lat/lon columns if they exist
     if 'longitude' in msgs_df.columns:
         msgs_df.rename(columns={'longitude': 'lon'}, inplace=True)
     if 'latitude' in msgs_df.columns:
         msgs_df.rename(columns={'latitude': 'lat'}, inplace=True)
+
+    # Add timestamp column (Unix seconds float) for cross-sensor sync.
+    # gps_time is GPS epoch in microseconds; use it when positive, fall back to
+    # the device clock (stamp, also in microseconds) otherwise.
+    if 'gps_time' in msgs_df.columns:
+        gps_sec = pd.to_numeric(msgs_df['gps_time'], errors='coerce') / 1e6
+        if 'stamp' in msgs_df.columns:
+            stamp_sec = pd.to_numeric(msgs_df['stamp'], errors='coerce') / 1e6
+            msgs_df['timestamp'] = gps_sec.where(gps_sec > 0, stamp_sec)
+        else:
+            msgs_df['timestamp'] = gps_sec.where(gps_sec > 0)
+    elif 'stamp' in msgs_df.columns:
+        msgs_df['timestamp'] = pd.to_numeric(msgs_df['stamp'], errors='coerce') / 1e6
 
     return msgs_df
 
@@ -622,6 +619,10 @@ def process_single_binary_file(args):
         calib_topics = [t for t in topics if 'calibration' in t.lower()]
         gps_topics = [t for t in topics if any(g in t.lower() for g in GPS_TYPES)]
         image_topics = [t for t in topics if any(i in t.lower() for i in IMAGE_TYPES)]
+        # Only extract the top camera (oak0). Left (oak1) and right (oak2) cameras
+        # are not currently used downstream, so skip them to save time and disk space.
+        _top_cams = {k for k, v in CAMERA_POSITIONS.items() if v == "top"}
+        image_topics = [t for t in image_topics if any(cam in t for cam in _top_cams)]
         # count events for progress granularity (only in sequential mode where progress_meta present)
         progress_tracker = None
         if progress_meta:

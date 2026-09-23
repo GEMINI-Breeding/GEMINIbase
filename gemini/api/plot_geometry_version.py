@@ -434,6 +434,45 @@ class PlotGeometryVersion(APIBase):
             return None
 
     @classmethod
+    def overwrite(
+        cls,
+        directory: str,
+        version: int,
+        state_snapshot: dict,
+        name: Optional[str] = None,
+    ) -> Optional["PlotGeometryVersion"]:
+        """Replace an existing version's snapshot in place ("Save", as
+        opposed to "Save As") and make it the active one. The name is kept
+        unless a new one is given. None if the version doesn't exist."""
+        try:
+            with db_engine.get_session() as session:
+                target = session.execute(
+                    select(PlotGeometryVersionModel)
+                    .where(PlotGeometryVersionModel.directory == directory)
+                    .where(PlotGeometryVersionModel.version == version)
+                ).scalar_one_or_none()
+                if target is None:
+                    return None
+                session.execute(
+                    update(PlotGeometryVersionModel)
+                    .where(PlotGeometryVersionModel.directory == directory)
+                    .where(PlotGeometryVersionModel.is_active.is_(True))
+                    .values(is_active=False)
+                )
+                target.state_snapshot = state_snapshot or {}
+                if name is not None:
+                    target.name = name
+                target.is_active = True
+                session.flush()
+                session.refresh(target)
+                saved = cls.model_validate(target)
+            _materialize_plots_from_snapshot(directory, state_snapshot or {})
+            return saved
+        except Exception as e:
+            logger.error(f"Error overwriting plot-geometry version: {e}")
+            return None
+
+    @classmethod
     def delete_version(cls, directory: str, version: int) -> bool:
         """Delete a version; if it was active, activate the next-most-recent remaining version."""
         try:

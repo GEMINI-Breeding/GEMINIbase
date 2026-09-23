@@ -209,33 +209,31 @@ services:
     networks:
       - geminibase_network
 
-  # geminibase-worker-stitch: commented out until the AgRowStitch submodule
-  # has been added at gemini/workers/stitch/vendor/AgRowStitch/. Without it,
-  # the image build succeeds but the worker raises a clear error at job time.
-  # See gemini/workers/stitch/README.md for the one-time setup.
-  #
-  # geminibase-worker-stitch:
-  #   container_name: geminibase-worker-stitch
-  #   restart: always
-  #   build:
-  #     context: ../../
-  #     dockerfile: ./gemini/workers/stitch/Dockerfile
-  #   environment:
-  #     - "GEMINI_REST_API_URL=http://${GEMINI_REST_API_HOSTNAME}:7777"
-  #     - "GEMINI_LOGGER_HOSTNAME=${GEMINI_LOGGER_HOSTNAME}"
-  #     - "GEMINI_LOGGER_PORT=${GEMINI_LOGGER_PORT}"
-  #     - "GEMINI_LOGGER_PASSWORD=${GEMINI_LOGGER_PASSWORD}"
-  #     - "GEMINI_STORAGE_HOSTNAME=${GEMINI_STORAGE_HOSTNAME}"
-  #     - "GEMINI_STORAGE_PORT=${GEMINI_STORAGE_PORT}"
-  #     - "GEMINI_STORAGE_ACCESS_KEY=${GEMINI_STORAGE_ACCESS_KEY}"
-  #     - "GEMINI_STORAGE_SECRET_KEY=${GEMINI_STORAGE_SECRET_KEY}"
-  #     - "GEMINI_STORAGE_BUCKET_NAME=${GEMINI_STORAGE_BUCKET_NAME}"
-  #   depends_on:
-  #     rest-api:
-  #       condition: service_healthy
-  #   networks:
-  #     - geminibase_network
-  #
+  # Ground-image stitching (AgRowStitch, pinned in the Dockerfile).
+  geminibase-worker-stitch:
+    container_name: geminibase-worker-stitch
+    restart: always
+    build:
+      context: ../../
+      dockerfile: ./gemini/workers/stitch/Dockerfile
+    environment:
+      - "GEMINI_REST_API_URL=http://${GEMINI_REST_API_HOSTNAME}:7777"
+      - "GEMINI_LOGGER_HOSTNAME=${GEMINI_LOGGER_HOSTNAME}"
+      - "GEMINI_LOGGER_PORT=${GEMINI_LOGGER_PORT}"
+      - "GEMINI_LOGGER_PASSWORD=${GEMINI_LOGGER_PASSWORD}"
+      - "GEMINI_STORAGE_HOSTNAME=${GEMINI_STORAGE_HOSTNAME}"
+      - "GEMINI_STORAGE_PORT=${GEMINI_STORAGE_PORT}"
+      - "GEMINI_STORAGE_ACCESS_KEY=${GEMINI_STORAGE_ACCESS_KEY}"
+      - "GEMINI_STORAGE_SECRET_KEY=${GEMINI_STORAGE_SECRET_KEY}"
+      - "GEMINI_STORAGE_BUCKET_NAME=${GEMINI_STORAGE_BUCKET_NAME}"
+      - "GEMINI_FIRST_SUPERUSER_EMAIL=${GEMINI_FIRST_SUPERUSER_EMAIL}"
+      - "GEMINI_FIRST_SUPERUSER_PASSWORD=${GEMINI_FIRST_SUPERUSER_PASSWORD}"
+    depends_on:
+      rest-api:
+        condition: service_healthy
+    networks:
+      - geminibase_network
+
   geminibase-nodeodm:
     container_name: geminibase-nodeodm
     hostname: geminibase-nodeodm

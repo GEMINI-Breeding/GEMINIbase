@@ -44,6 +44,8 @@ class VersionSaveRequest(BaseModel):
     state_snapshot: dict
     name: Optional[str] = None
     created_by: Optional[str] = None
+    # Set to overwrite that version in place; omit to add a new version.
+    version: Optional[int] = Field(default=None, ge=1)
 
 class VersionLoadRequest(BaseModel):
     directory: str
@@ -747,12 +749,28 @@ class PlotGeometryController(Controller):
 
     @post(path="/versions/save", sync_to_thread=True)
     def save_version(self, data: VersionSaveRequest) -> dict:
-        version = PlotGeometryVersion.save(
-            directory=data.directory,
-            state_snapshot=data.state_snapshot,
-            name=data.name,
-            created_by=data.created_by,
-        )
+        if data.version is not None:
+            version = PlotGeometryVersion.overwrite(
+                directory=data.directory,
+                version=data.version,
+                state_snapshot=data.state_snapshot,
+                name=data.name,
+            )
+            if version is None:
+                return Response(
+                    content=RESTAPIError(
+                        error="Version not found",
+                        error_description=f"No version {data.version} to overwrite.",
+                    ),
+                    status_code=404,
+                )
+        else:
+            version = PlotGeometryVersion.save(
+                directory=data.directory,
+                state_snapshot=data.state_snapshot,
+                name=data.name,
+                created_by=data.created_by,
+            )
         if version is None:
             return Response(
                 content=RESTAPIError(

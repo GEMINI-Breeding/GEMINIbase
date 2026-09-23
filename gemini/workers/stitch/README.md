@@ -1,40 +1,56 @@
 # `gemini/workers/stitch/` — RUN_STITCH worker
 
-Drives [AgRowStitch](https://github.com/GEMINI-Breeding/AgRowStitch) in
-process for ground-level image stitching. Replaces the pre-migration
-FastAPI backend's PyInstaller-subprocess channel with a direct
-in-process call to `AgRowStitch.run(config_path, cpu_count)`.
+Per-plot ground-image stitching with
+[AgRowStitch](https://github.com/GEMINI-Breeding/AgRowStitch), then
+georeferencing of each plot along the rover's GPS track and a combined
+mosaic. A port of GEMINI-App main's `ground.run_stitching` /
+`run_georeferencing` (`geo_utils.py`).
 
-## One-time setup
+## Pinned dependencies
 
-AgRowStitch is not on PyPI and lives in its own repo, so it is vendored
-as a nested git submodule:
+AgRowStitch is not on PyPI. The Dockerfile clones the exact commit
+GEMINI-App main vendors (`backend/vendor/AgRowStitch` @ `25cf015`, branch
+`opencv`) and applies `agrowstitch-opencv413.patch` — main's fix for the
+OpenCV ≥ 4.13 segfault (`match.H = None`). LightGlue is pinned to main's
+vendored commit (`eb42fee`) in `requirements.txt`; its SuperPoint and
+LightGlue weights are downloaded at build time, not per job.
 
-```bash
-cd backend   # the GEMINIbase submodule of GEMINI-App
-git submodule add \
-    https://github.com/GEMINI-Breeding/AgRowStitch.git \
-    gemini/workers/stitch/vendor/AgRowStitch
-git commit -m "Vendor AgRowStitch into the stitch worker"
-```
-
-Then uncomment the `geminibase-worker-stitch` service in
-`gemini/pipeline/docker-compose.yaml` and rebuild:
+To move to a newer AgRowStitch, change `AGROWSTITCH_REF` in the
+Dockerfile, check the patch still applies (the build fails if not), and
+rebuild:
 
 ```bash
-docker compose -f gemini/pipeline/docker-compose.yaml up -d --build geminibase-worker-stitch
+docker compose up -d --build geminibase-worker-stitch
 ```
 
-The Dockerfile puts `gemini/workers/stitch/vendor/AgRowStitch` on
-`PYTHONPATH` so `import AgRowStitch` resolves at runtime.
+Torch is the CPU build. `device: gpu` falls back to CPU unless the image
+is rebuilt with CUDA torch and the container is given a GPU.
 
-## Runtime knobs
+## Job parameters
 
-The worker reads a `parameters` dict with:
+| key | |
+|---|---|
+| `images_prefix` | MinIO prefix of the track's top-camera frames (`…/RGB/Images/top/`) |
+| `msgs_synced_path` | the track's `msgs_synced.csv` (frame names, lat/lon, direction) |
+| `plots` | `[{plot_id, start_image, end_image, direction}]` from Plot Marking; `direction` is `up`/`down`/`left`/`right` |
+| `output_prefix` | where this stitch version goes (`…/AgRowStitch_v{N}/`) |
+| `settings` | `forward_limit`, `max_reprojection_error`, `batch_size`, `min_inliers`, `crop_rules` |
+| `custom_options` | raw AgRowStitch options, applied last (unknown keys are dropped and listed in the manifest) |
+| `device`, `num_cpu` | `cpu` / `gpu` / `multiprocessing`; `num_cpu` 0 = all but one |
 
-- `image_paths: List[str]` — MinIO object paths, in stitch order
-- `output_mosaic_path: str` — MinIO object path to write the mosaic
-- `config: dict` — AgRowStitch knobs (device, direction, mask, batch_size, …)
-- `cpu_count: int` — parallelism (defaults to CPU count minus 1)
+Crop rules are chosen per plot as in main: the first rule whose headings
+include the plot's dominant GPS heading (or, for a direction rule, whose
+directions include the plot's marked direction); a rule listing none
+matches every plot.
 
-Submit via `POST /api/jobs/submit` with `job_type=RUN_STITCH`.
+## Outputs (under `output_prefix`)
+
+- `full_res_mosaic_temp_plot_{id}.png` — each stitched plot
+- `georeferenced_plot_{id}_utm.tif` — each plot as a UTM GeoTIFF
+- `combined_mosaic_utm.tif`, `combined_mosaic.tif` (WGS84, nodata 0)
+- `plot_borders.csv` — the markings used, with start/end GPS
+- `stitch_manifest.json` — settings, per-plot result and footprint
+
+A failed plot is recorded in the manifest and skipped; the job fails if
+no plot stitches. Each plot's AgRowStitch run is a child process, so a
+cancel kills it and a native crash fails only that plot.
