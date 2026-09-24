@@ -75,6 +75,12 @@ class GEMINISettings(BaseSettings):
     GEMINI_FIRST_SUPERUSER_PASSWORD : str = ""
     GEMINI_FIRST_SUPERUSER_FULL_NAME : str = "GEMINI Admin"
 
+    # Self-registration via POST /api/users/signup. Off by default: with it
+    # off, accounts are created only by a superuser. When on, self-registered
+    # accounts start inactive and can't log in until a superuser approves
+    # them (PATCH /api/users/id/{id} with is_active=true).
+    GEMINI_SIGNUP_ENABLED : bool = False
+
     # Test-only: when "1", enables DELETE /api/e2e_cleanup so the
     # Playwright afterEach hook can sweep entities a single test run
     # created. Read directly from os.environ in the controller; left

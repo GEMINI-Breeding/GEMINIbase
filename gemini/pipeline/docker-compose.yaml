@@ -124,6 +124,8 @@ services:
       # The entrypoint creates this account on start if it doesn't exist.
       - "GEMINI_FIRST_SUPERUSER_EMAIL=${GEMINI_FIRST_SUPERUSER_EMAIL}"
       - "GEMINI_FIRST_SUPERUSER_PASSWORD=${GEMINI_FIRST_SUPERUSER_PASSWORD}"
+      # Self-registration; off unless set. New accounts need superuser approval.
+      - "GEMINI_SIGNUP_ENABLED=${GEMINI_SIGNUP_ENABLED:-false}"
       # Test-only: enables DELETE /api/e2e_cleanup so the Playwright
       # afterEach can sweep entities created during a single test run.
       # Production deployments leave this unset → endpoint 404s.

@@ -4,7 +4,8 @@ Users / auth controller.
 Provides:
 - /login/access-token         POST  — exchange email+password for a JWT
 - /login/test-token           POST  — return the caller identified by the token
-- /signup                     POST  — self-registration (no auth required)
+- /signup                     POST  — self-registration (off unless GEMINI_SIGNUP_ENABLED;
+                                      accounts start inactive until a superuser approves)
 - /me                         GET   — get current user
 - /me                         PATCH — update current user
 - /me/password                PATCH — change own password
@@ -88,7 +89,7 @@ class UsersController(Controller):
             if not user.is_active:
                 error = RESTAPIError(
                     error="Inactive user",
-                    error_description="This user account is inactive.",
+                    error_description="This account is inactive or awaiting administrator approval.",
                 )
                 return Response(content=error, status_code=400)
             expires = timedelta(minutes=_settings.GEMINI_JWT_ACCESS_TOKEN_EXPIRE_MINUTES)
@@ -224,6 +225,15 @@ class UsersController(Controller):
 
     @post(path="/signup", sync_to_thread=True)
     def signup(self, data: Annotated[UserRegister, Body]) -> UserOutput:
+        # Off by default: an open signup would hand every authenticated
+        # permission to anyone who can reach the API. When enabled, the new
+        # account is inactive until a superuser sets is_active=true.
+        if not _settings.GEMINI_SIGNUP_ENABLED:
+            error = RESTAPIError(
+                error="Signup disabled",
+                error_description="Self-registration is disabled. Ask an administrator for an account.",
+            )
+            return Response(content=error, status_code=403)
         try:
             if User.exists(email=data.email):
                 error = RESTAPIError(
@@ -235,6 +245,8 @@ class UsersController(Controller):
                 email=data.email,
                 password=data.password,
                 full_name=data.full_name,
+                is_active=False,
+                is_superuser=False,
             )
             if user is None:
                 error = RESTAPIError(
