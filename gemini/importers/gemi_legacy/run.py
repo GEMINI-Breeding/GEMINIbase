@@ -96,7 +96,9 @@ class Api:
         key = ("/api/datasets", name, experiment)
         if key in self._cache:
             return self._cache[key]
-        row = self._find("/api/datasets", {"dataset_name": name}, "dataset_name", name)
+        # By name alone the search finds nothing; it needs the experiment.
+        row = self._find("/api/datasets", {"dataset_name": name, "experiment_name": experiment},
+                         "dataset_name", name)
         if row is None:
             body = {"dataset_name": name, "experiment_name": experiment, "dataset_info": info}
             if collection_date:

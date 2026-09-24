@@ -31,6 +31,9 @@ class FakeApi:
         self.fail_route = fail_route
 
     def get(self, route, params=None):
+        # Like the real API: a dataset search by name alone finds nothing.
+        if route == "/api/datasets" and "experiment_name" not in (params or {}):
+            return FakeResponse(200, [], "GET", route)
         name_key = next((k for k in (params or {}) if k.endswith("_name") and k != "experiment_name"), None)
         if name_key is None:
             name_key = "experiment_name"

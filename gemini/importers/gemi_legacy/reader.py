@@ -175,3 +175,170 @@ class LegacyDatabase:
                 created_at=r["created_at"],
             ))
         return out
+
+
+    # ── Tiers 2–3: workspaces, pipelines, runs, results, reference data ─
+
+    def workspaces(self) -> list[LegacyWorkspace]:
+        return [
+            LegacyWorkspace(norm_uuid(r["id"]) or "", r["name"] or "", r["description"], r["created_at"])
+            for r in self.rows("workspace", ["id", "name", "description", "created_at"])
+        ]
+
+    def pipelines(self) -> list[LegacyPipeline]:
+        return [
+            LegacyPipeline(
+                norm_uuid(r["id"]) or "", norm_uuid(r["workspace_id"]) or "", r["name"] or "",
+                (r["type"] or "").lower(), r["config"] if isinstance(r["config"], dict) else {},
+                r["created_at"],
+            )
+            for r in self.rows("pipeline", ["id", "workspace_id", "name", "type", "config", "created_at"])
+        ]
+
+    def runs(self) -> list[LegacyRun]:
+        return [
+            LegacyRun(
+                norm_uuid(r["id"]) or "", norm_uuid(r["pipeline_id"]) or "",
+                norm_uuid(r["file_upload_id"]), r["date"] or "", r["experiment"] or "",
+                r["location"] or "", r["population"] or "", r["platform"] or "",
+                r["sensor"] or "", r["status"] or "",
+                r["steps_completed"] if isinstance(r["steps_completed"], dict) else {},
+                r["outputs"] if isinstance(r["outputs"], dict) else {},
+                r["created_at"], r["completed_at"],
+            )
+            for r in self.rows("pipelinerun", [
+                "id", "pipeline_id", "file_upload_id", "date", "experiment", "location",
+                "population", "platform", "sensor", "status", "steps_completed", "outputs",
+                "created_at", "completed_at",
+            ])
+        ]
+
+    def trait_records(self) -> list[LegacyTraitRecord]:
+        out = []
+        for r in self.rows("traitrecord", [
+            "id", "run_id", "version", "trait_columns", "boundary_version", "ortho_version", "created_at",
+        ]):
+            out.append(LegacyTraitRecord(
+                norm_uuid(r["id"]) or "", norm_uuid(r["run_id"]) or "", int(r["version"] or 1),
+                r["trait_columns"] if isinstance(r["trait_columns"], list) else [],
+                r["boundary_version"], r["ortho_version"], r["created_at"],
+            ))
+        return out
+
+    def plot_records(self) -> list[LegacyPlotRecord]:
+        out = []
+        for r in self.rows("plotrecord", ["trait_record_id", "plot_id", "accession", "row", "col", "traits"]):
+            out.append(LegacyPlotRecord(
+                norm_uuid(r["trait_record_id"]) or "", str(r["plot_id"] or ""),
+                r["accession"] or None, r["row"], r["col"],
+                r["traits"] if isinstance(r["traits"], dict) else {},
+            ))
+        return out
+
+    def reference_datasets(self) -> list[LegacyReferenceDataset]:
+        return [
+            LegacyReferenceDataset(
+                norm_uuid(r["id"]) or "", r["name"] or "", r["experiment"] or "",
+                r["location"] or "", r["population"] or "", r["date"] or "",
+                r["column_mapping"] if isinstance(r["column_mapping"], dict) else {},
+                r["trait_columns"] if isinstance(r["trait_columns"], list) else [],
+                r["original_filename"], r["created_at"],
+            )
+            for r in self.rows("referencedataset", [
+                "id", "name", "experiment", "location", "population", "date",
+                "column_mapping", "trait_columns", "original_filename", "created_at",
+            ])
+        ]
+
+    def reference_plots(self) -> list[LegacyReferencePlot]:
+        return [
+            LegacyReferencePlot(
+                norm_uuid(r["dataset_id"]) or "", str(r["plot_id"] or ""), r["col"], r["row"],
+                r["accession"] or None, r["traits"] if isinstance(r["traits"], dict) else {},
+            )
+            for r in self.rows("referenceplot", ["dataset_id", "plot_id", "col", "row", "accession", "traits"])
+        ]
+
+
+# ── Workspaces, pipelines, runs, results (tiers 2–3) ───────────────────────
+
+
+@dataclass
+class LegacyWorkspace:
+    id: str
+    name: str
+    description: Optional[str]
+    created_at: Optional[str]
+
+
+@dataclass
+class LegacyPipeline:
+    id: str
+    workspace_id: str
+    name: str
+    type: str  # "aerial" | "ground"
+    config: dict
+    created_at: Optional[str]
+
+
+@dataclass
+class LegacyRun:
+    id: str
+    pipeline_id: str
+    file_upload_id: Optional[str]
+    date: str
+    experiment: str
+    location: str
+    population: str
+    platform: str
+    sensor: str
+    status: str
+    steps_completed: dict
+    outputs: dict
+    created_at: Optional[str]
+    completed_at: Optional[str]
+
+
+@dataclass
+class LegacyTraitRecord:
+    id: str
+    run_id: str
+    version: int
+    trait_columns: list
+    boundary_version: Optional[int]
+    ortho_version: Optional[int]
+    created_at: Optional[str]
+
+
+@dataclass
+class LegacyPlotRecord:
+    trait_record_id: str
+    plot_id: str
+    accession: Optional[str]
+    row: Optional[str]
+    col: Optional[str]
+    traits: dict
+
+
+@dataclass
+class LegacyReferenceDataset:
+    id: str
+    name: str
+    experiment: str
+    location: str
+    population: str
+    date: str
+    column_mapping: dict
+    trait_columns: list
+    original_filename: Optional[str]
+    created_at: Optional[str]
+
+
+@dataclass
+class LegacyReferencePlot:
+    dataset_id: str
+    plot_id: str
+    col: Optional[str]
+    row: Optional[str]
+    accession: Optional[str]
+    traits: dict

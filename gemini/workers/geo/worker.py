@@ -290,12 +290,24 @@ class GeoWorker(BaseWorker):
         self.report_progress(job_id, 0, {"stage": "Reading the previous GEMI install"})
         with LegacyDatabase(db_path) as db:
             plan = plan_import(db, legacy_data_dir())
+        client = _get_minio_client()
+        # Uploads first (80% of the bar): runs point at the datasets they create.
         result = run_import(
-            plan, legacy_data_dir(), self._http, _get_minio_client(), STORAGE_BUCKET,
-            progress=lambda pct, msg: self.report_progress(job_id, pct, {"stage": msg}),
+            plan, legacy_data_dir(), self._http, client, STORAGE_BUCKET,
+            progress=lambda pct, msg: self.report_progress(job_id, 0.8 * pct, {"stage": msg}),
             cancelled=lambda: self.is_cancelled(job_id),
         )
-        if result["failed"] and not result["imported"]:
+        if not self.is_cancelled(job_id):
+            from gemini.importers.gemi_legacy.processing import Importer
+
+            with LegacyDatabase(db_path) as db:
+                processing = Importer(
+                    db, legacy_data_dir(), self._http, client, STORAGE_BUCKET,
+                    progress=lambda msg: self.report_progress(job_id, 85, {"stage": msg}),
+                ).all(cancelled=lambda: self.is_cancelled(job_id))
+            result["processing"] = processing
+            result["failed"] += processing.pop("failed")
+        if result["failed"] and not result["imported"] and not result.get("processing", {}).get("runs"):
             raise RuntimeError(
                 "Nothing could be imported: " + "; ".join(f"{f['path']}: {f['error']}" for f in result["failed"])
             )

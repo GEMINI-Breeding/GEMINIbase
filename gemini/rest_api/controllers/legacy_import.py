@@ -23,6 +23,7 @@ from gemini.api.dataset import Dataset
 from gemini.api.job import Job
 from gemini.api.user import User
 from gemini.importers.gemi_legacy.plan import plan_import
+from gemini.importers.gemi_legacy.processing import plan_processing
 from gemini.importers.gemi_legacy.reader import LegacyDatabase
 from gemini.importers.gemi_legacy.run import dataset_name
 from gemini.importers.gemi_legacy.source import legacy_data_dir, legacy_database
@@ -41,8 +42,10 @@ def current_plan() -> dict[str, Any]:
         return {"available": False}
     with LegacyDatabase(db_path) as db:
         plan = plan_import(db, legacy_data_dir())
+        processing = plan_processing(db, legacy_data_dir())
     done = [u.upload_id for u in plan.to_import if Dataset.exists(dataset_name=dataset_name(u))]
-    return {"available": True, **plan.summary(), "already_imported": len(done)}
+    return {"available": True, **plan.summary(), "already_imported": len(done),
+            "processing": processing.summary()}
 
 
 class LegacyImportController(Controller):
