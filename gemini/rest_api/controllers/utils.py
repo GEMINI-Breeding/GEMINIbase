@@ -27,7 +27,10 @@ from litestar.di import Provide
 from litestar.handlers import get
 
 from gemini.api.user import User
+from gemini.config.settings import GEMINISettings
 from gemini.rest_api.dependencies import require_superuser
+
+_settings = GEMINISettings()
 
 # ────────────────────────────────────────────────────────────────────────────
 # In-memory log ring buffer — attached to the root logger at import time so
@@ -172,6 +175,8 @@ class UtilsController(Controller):
             "cuda_available": torch["cuda_available"],
             "mps_available": torch["mps_available"],
             "cpu_count": os.cpu_count() or 1,
+            # Lets the frontend hide its signup form when self-registration is off.
+            "signup_enabled": _settings.GEMINI_SIGNUP_ENABLED,
         }
 
     @get(path="/logs", sync_to_thread=True)
