@@ -159,7 +159,7 @@ class SensorRecord(APIBase, FileHandlerMixin):
     @classmethod
     def create(
         cls,
-        timestamp: datetime = datetime.now(),
+        timestamp: datetime = None,
         collection_date: date = None,
         dataset_name: str = None,
         sensor_name: str = None,
@@ -222,7 +222,8 @@ class SensorRecord(APIBase, FileHandlerMixin):
                 raise ValueError("Sensor name is required.")
             if not dataset_name:
                 raise ValueError("Dataset name is required.")
-            if not all([plot_number, plot_row_number, plot_column_number]):
+            plot_coordinates = (plot_number, plot_row_number, plot_column_number)
+            if any(c is None for c in plot_coordinates) and not all(c is None for c in plot_coordinates):
                 raise ValueError("Plot number, plot row number, and plot column number are required if a plot is specified.")
             if not timestamp:
                 timestamp = datetime.now()
@@ -345,7 +346,8 @@ class SensorRecord(APIBase, FileHandlerMixin):
             if not experiment_name and not site_name and not season_name:
                 logger.warning("At least one of experiment_name, site_name, or season_name is required to get a sensor record.")
                 return None
-            if not all([plot_number, plot_row_number, plot_column_number]):
+            plot_coordinates = (plot_number, plot_row_number, plot_column_number)
+            if any(c is None for c in plot_coordinates) and not all(c is None for c in plot_coordinates):
                 logger.info("Plot number, plot row number, and plot column number are required if a plot is specified.")
                 return None
             sensor_record = SensorRecordsIMMVModel.get_by_parameters(

@@ -15,6 +15,7 @@ from litestar.params import Body
 from litestar.controller import Controller
 
 from gemini.api.job import Job
+from gemini.api.job_reaper import touch_running_job
 from gemini.rest_api.models import (
     JobSubmitInput,
     JobClaimInput,
@@ -342,6 +343,21 @@ class JobController(Controller):
         except Exception as e:
             return Response(
                 content=RESTAPIError(error=str(e), error_description="Failed to update job status"),
+                status_code=500,
+            )
+
+    @post(path="/{job_id:str}/heartbeat", sync_to_thread=True, status_code=200)
+    def job_heartbeat(self, job_id: str) -> dict:
+        """Worker keep-alive for a RUNNING job, so the reaper leaves it alone.
+
+        Never changes the job's status. ``alive`` is False when the job is no
+        longer RUNNING (cancelled, reaped, finished).
+        """
+        try:
+            return {"alive": touch_running_job(job_id)}
+        except Exception as e:
+            return Response(
+                content=RESTAPIError(error=str(e), error_description="Failed to record heartbeat"),
                 status_code=500,
             )
 

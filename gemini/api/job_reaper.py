@@ -7,14 +7,13 @@ PENDING/RUNNING with no one to drive it. The frontend's ProcessContext
 rehydration query then picks it up on every mount, opens a WebSocket to
 `/api/jobs/{id}/progress` for the ghost, and the row never disappears.
 
-The reaper sweeps these on REST-API startup. The signal is `updated_at`:
-workers' `report_progress` PATCH bumps it on every progress event, and a
-worker that's actually running will always have a fresh value. Anything
+The REST API runs the reaper on startup and then every
+GEMINI_JOB_REAPER_INTERVAL_SECONDS, since a worker can die at any time,
+not only when the whole stack restarts. The signal is `updated_at`:
+workers bump it on every progress event and, while process() runs, with a
+heartbeat (`touch_running_job`), so a job whose worker is alive always has
+a fresh value even during a long step that reports no progress. Anything
 older than the threshold cannot have a live worker behind it.
-
-This is a single-shot pass on startup, not a periodic background sweeper —
-the compose stack restarts together, so by the time the REST-API is up,
-any "live" worker would have heartbeat-PATCHed within seconds.
 """
 from typing import List, Tuple
 
@@ -24,6 +23,31 @@ from sqlalchemy import text
 from gemini.db.core.base import db_engine
 
 logger = logging.getLogger(__name__)
+
+
+def touch_running_job(job_id: str) -> bool:
+    """Record that a RUNNING job's worker is still alive.
+
+    Only bumps updated_at; the status is never changed, so a heartbeat that
+    arrives after a cancel (or after the reaper gave up on the job) can't
+    bring the job back.
+
+    Returns:
+        True if the job is RUNNING and was touched, False otherwise.
+    """
+    with db_engine.get_session() as session:
+        touched = session.execute(
+            text(
+                """
+                UPDATE gemini.jobs
+                SET updated_at = NOW()
+                WHERE id = :job_id AND status = 'RUNNING'
+                RETURNING id
+                """
+            ),
+            {"job_id": job_id},
+        ).first()
+    return touched is not None
 
 
 def reap_orphaned_jobs(stale_after_seconds: int) -> List[Tuple[str, str]]:
@@ -41,7 +65,7 @@ def reap_orphaned_jobs(stale_after_seconds: int) -> List[Tuple[str, str]]:
 
     error_message = (
         f"Orphaned: no worker activity for {stale_after_seconds}s; "
-        "reaped on REST-API startup"
+        "reaped by the REST API"
     )
 
     with db_engine.get_session() as session:

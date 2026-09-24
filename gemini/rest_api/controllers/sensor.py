@@ -24,13 +24,7 @@ from gemini.rest_api.models import (
 )
 
 from gemini.rest_api.file_handler import api_file_handler
-
-
-async def sensor_records_bytes_generator(sensor_record_generator: Generator[SensorRecord, None, None]) -> AsyncGenerator[bytes, None]:
-    for record in sensor_record_generator:
-        record = record.model_dump(exclude_none=True)
-        record = encode_json(record) + b'\n'
-        yield record
+from gemini.rest_api.ndjson import ndjson_stream
 
 
 class SensorDatasetInput(BaseModel):
@@ -259,8 +253,8 @@ class SensorController(Controller):
 
         
     # Add Sensor Record
-    @post(path="/id/{sensor_id:str}/records")
-    async def add_sensor_record(
+    @post(path="/id/{sensor_id:str}/records", sync_to_thread=True)
+    def add_sensor_record(
         self,
         sensor_id: str,
         data: Annotated[SensorRecordInput, Body(media_type=RequestEncodingType.MULTI_PART)]
@@ -274,23 +268,21 @@ class SensorController(Controller):
                 )
                 return Response(content=error, status_code=404)
             
-            if data.record_file:
-                record_file_path = await api_file_handler.create_file(data.record_file)
-
-            add_success, inserted_record_ids = sensor.insert_record(
-                timestamp=data.timestamp,
-                collection_date=data.collection_date,
-                sensor_data=data.sensor_data,
-                dataset_name=data.dataset_name,
-                experiment_name=data.experiment_name,
-                season_name=data.season_name,
-                site_name=data.site_name,
-                plot_number=data.plot_number,
-                plot_row_number=data.plot_row_number,
-                plot_column_number=data.plot_column_number,
-                record_file=record_file_path if data.record_file else None,
-                record_info=data.record_info
-            )
+            with api_file_handler.saved_upload(data.record_file) as record_file_path:
+                add_success, inserted_record_ids = sensor.insert_record(
+                    timestamp=data.timestamp,
+                    collection_date=data.collection_date,
+                    sensor_data=data.sensor_data,
+                    dataset_name=data.dataset_name,
+                    experiment_name=data.experiment_name,
+                    season_name=data.season_name,
+                    site_name=data.site_name,
+                    plot_number=data.plot_number,
+                    plot_row_number=data.plot_row_number,
+                    plot_column_number=data.plot_column_number,
+                    record_file=record_file_path,
+                    record_info=data.record_info
+                )
             if not add_success:
                 error = RESTAPIError(
                     error="Failed to add sensor record",
@@ -343,7 +335,7 @@ class SensorController(Controller):
                 plot_row_number=plot_row_number,
                 plot_column_number=plot_column_number
             )
-            return Stream(sensor_records_bytes_generator(sensor_record_generator), media_type="application/ndjson")
+            return ndjson_stream(sensor_record_generator)
         except Exception as e:
             error_message = RESTAPIError(
                 error=str(e),
@@ -378,7 +370,7 @@ class SensorController(Controller):
                 season_names=season_names,
                 site_names=site_names
             )
-            return Stream(sensor_records_bytes_generator(sensor_records), media_type="application/ndjson")
+            return ndjson_stream(sensor_records)
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),

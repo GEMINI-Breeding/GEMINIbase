@@ -30,15 +30,9 @@ from gemini.rest_api.models import (
 )
 
 from gemini.rest_api.file_handler import api_file_handler
+from gemini.rest_api.ndjson import ndjson_stream
 
 from typing import List, Annotated, Optional
-
-
-async def procedure_records_bytes_generator(procedure_record_generator : Generator[ProcedureRecord, None, None]) -> AsyncGenerator[bytes, None]:
-    for record in procedure_record_generator:
-        record = record.model_dump(exclude_none=True)
-        record = encode_json(record) + b'\n'
-        yield record
 
 
 class ProcedureProcedureRunInput(BaseModel):
@@ -332,8 +326,8 @@ class ProcedureController(Controller):
             return Response(content=error, status_code=500)
         
     # Add a Procedure Record
-    @post(path="/id/{procedure_id:str}/records")
-    async def add_procedure_record(
+    @post(path="/id/{procedure_id:str}/records", sync_to_thread=True)
+    def add_procedure_record(
         self,
         procedure_id: str,
         data: Annotated[ProcedureRecordInput, Body(media_type=RequestEncodingType.MULTI_PART)]
@@ -346,20 +340,18 @@ class ProcedureController(Controller):
                     error_description="No procedure found with the given ID"
                 )
                 return Response(content=error, status_code=404)
-            if data.record_file:
-                record_file_path = await api_file_handler.create_file(data.record_file)
-
-            add_success, inserted_record_ids = procedure.insert_record(
-                timestamp=data.timestamp,
-                collection_date=data.collection_date,
-                procedure_data=data.procedure_data,
-                dataset_name=data.dataset_name,
-                experiment_name=data.experiment_name,
-                season_name=data.season_name,
-                site_name=data.site_name,
-                record_file=record_file_path if data.record_file else None,
-                record_info=data.record_info
-            )
+            with api_file_handler.saved_upload(data.record_file) as record_file_path:
+                add_success, inserted_record_ids = procedure.insert_record(
+                    timestamp=data.timestamp,
+                    collection_date=data.collection_date,
+                    procedure_data=data.procedure_data,
+                    dataset_name=data.dataset_name,
+                    experiment_name=data.experiment_name,
+                    season_name=data.season_name,
+                    site_name=data.site_name,
+                    record_file=record_file_path,
+                    record_info=data.record_info
+                )
             if not add_success:
                 error = RESTAPIError(
                     error="Procedure Record Addition Failed",
@@ -406,7 +398,7 @@ class ProcedureController(Controller):
                 season_name=season_name,
                 site_name=site_name
             )
-            return Stream(procedure_records_bytes_generator(records), media_type="application/ndjson")
+            return ndjson_stream(records)
         except Exception as e:
             error = RESTAPIError(
                 error="Internal Server Error",
@@ -441,7 +433,7 @@ class ProcedureController(Controller):
                 season_names=season_names,
                 site_names=site_names
             )
-            return Stream(procedure_records_bytes_generator(procedure_records), media_type="application/ndjson")
+            return ndjson_stream(procedure_records)
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),

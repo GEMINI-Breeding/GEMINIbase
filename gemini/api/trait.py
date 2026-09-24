@@ -870,10 +870,10 @@ class Trait(APIBase):
             if len(timestamps) == 0:
                 raise ValueError("At least one timestamp must be provided.")
             
+            collection_date = collection_date if collection_date else timestamps[0].date()
             if not dataset_name:
                 dataset_name = f"{self.trait_name} Dataset {collection_date}"
-            
-            collection_date = collection_date if collection_date else timestamps[0].date()
+
             trait_records = []
             timestamps_length = len(timestamps)
 

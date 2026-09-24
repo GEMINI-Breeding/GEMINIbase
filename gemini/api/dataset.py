@@ -436,6 +436,10 @@ class Dataset(APIBase):
             #    helper opens its own transaction (Dataset.delete doesn't
             #    use an outer-session pattern), so wrap each individually:
             #    a partial failure in one helper must not stop the others.
+            #    If any failed, stop before removing the dataset row and its
+            #    files: the columnar tables have no FK to the dataset, so
+            #    their rows would be orphaned, and keeping the row lets a
+            #    retry finish the job.
             from gemini.db.models.columnar.sensor_records import (
                 SensorRecordModel,
             )
@@ -452,6 +456,7 @@ class Dataset(APIBase):
                 ModelRecordModel,
             )
 
+            failed_sweeps = []
             for label, helper in (
                 ("trait_records", lambda: TraitRecordModel.delete_by_dataset(self.dataset_name)),
                 ("sensor_records", lambda: SensorRecordModel.delete_by_dataset(self.dataset_name)),
@@ -463,14 +468,23 @@ class Dataset(APIBase):
                 try:
                     helper()
                 except Exception as exc:
+                    failed_sweeps.append(label)
                     logger.warning(
                         "%s sweep for dataset %s failed: %s",
                         label, self.dataset_name, exc,
                     )
+            if failed_sweeps:
+                logger.error(
+                    "Not deleting dataset %s: record sweeps failed for %s",
+                    self.dataset_name, ", ".join(failed_sweeps),
+                )
+                return False
 
             # 3. Remove the dataset row. The FK on experiment_files is
             #    ON DELETE SET NULL so the file rows survive temporarily
             #    with dataset_id=NULL — we drop them by id list next.
+            #    Raises on failure, so the files below are only removed
+            #    once the row is gone.
             DatasetModel.delete(dataset)
 
             # 4. Row-targeted MinIO sweep + cleanup of the orphaned

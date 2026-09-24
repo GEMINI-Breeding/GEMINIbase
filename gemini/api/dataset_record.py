@@ -127,7 +127,7 @@ class DatasetRecord(APIBase, FileHandlerMixin):
     @classmethod
     def create(
         cls,
-        timestamp: datetime = datetime.now(),
+        timestamp: datetime = None,
         collection_date: date = None,
         dataset_name: str = None,
         dataset_data: dict = None,
@@ -177,7 +177,7 @@ class DatasetRecord(APIBase, FileHandlerMixin):
             if not dataset_name:
                 raise ValueError("dataset_name is required.")
             if not timestamp:
-                raise ValueError("timestamp is required.")
+                timestamp = datetime.now()
             if not collection_date:
                 collection_date = timestamp.date()
             if not dataset_data and not record_file:
@@ -392,7 +392,8 @@ class DatasetRecord(APIBase, FileHandlerMixin):
         """
         try:
             if not any([dataset_name, dataset_data, experiment_name, season_name, site_name, collection_date, record_info]):
-                raise ValueError("At least one parameter must be provided.")
+                logger.warning("At least one parameter must be provided for search.")
+                return
             records = DatasetRecordsIMMVModel.stream(
                 dataset_name=dataset_name,
                 experiment_name=experiment_name,
@@ -407,7 +408,8 @@ class DatasetRecord(APIBase, FileHandlerMixin):
                 yield record
         except Exception as e:
             logger.error(f"Error searching DatasetRecords: {e}")
-            yield None
+            # Re-raise: a yielded None hid the real error from every consumer.
+            raise
 
     @classmethod
     def filter(
@@ -448,7 +450,8 @@ class DatasetRecord(APIBase, FileHandlerMixin):
         """
         try:
             if not any([dataset_names, start_timestamp, end_timestamp, experiment_names, season_names, site_names]):
-                raise ValueError("At least one parameter must be provided.")
+                logger.warning("At least one parameter must be provided for filter.")
+                return
             records = DatasetRecordModel.filter_records(
                 dataset_names=dataset_names,
                 start_timestamp=start_timestamp,
@@ -462,7 +465,8 @@ class DatasetRecord(APIBase, FileHandlerMixin):
                 yield record
         except Exception as e:
             logger.error(f"Error filtering DatasetRecords: {e}")
-            yield None
+            # Re-raise: a yielded None hid the real error from every consumer.
+            raise
 
     
     def update(

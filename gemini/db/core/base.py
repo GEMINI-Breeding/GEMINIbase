@@ -11,6 +11,7 @@ from typing import Any, List, Optional, Dict
 from uuid import UUID
 
 from sqlalchemy import select, delete
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy import TIMESTAMP, JSON, DATE
 from sqlalchemy import MetaData, text
 from sqlalchemy.schema import UniqueConstraint
@@ -33,6 +34,22 @@ db_engine = DatabaseEngine(db_config)
 
 
 logger = logging.getLogger(__name__)
+
+
+def _group_rows_by_columns(data: List[dict]) -> List[List[dict]]:
+    """Split bulk-insert rows into runs that share the same set of keys.
+
+    A multi-row execute builds its single INSERT from the first row's keys,
+    so a column missing from row 0 is silently dropped for every row, and a
+    column missing from a later row raises. Callers leave a key out to get
+    the column's DB default, so padding with NULL isn't an option either
+    (several columns are NOT NULL DEFAULT ...). One execute per key set
+    keeps every value and every default.
+    """
+    groups: dict = {}
+    for row in data:
+        groups.setdefault(frozenset(row), []).append(row)
+    return list(groups.values())
 
 class BaseModel(DeclarativeBase, SerializeMixin):
     """
@@ -217,6 +234,26 @@ class BaseModel(DeclarativeBase, SerializeMixin):
     
 
     @classmethod
+    def get_by_exact_parameters(cls, **kwargs: Any) -> BaseModel | None:
+        """
+        Like get_by_parameters(), but a None value matches NULL instead of
+        being dropped from the filter.
+
+        Use this to look a row up by its full unique key when part of that key
+        may legitimately be NULL; get_by_parameters() would ignore those
+        columns and could return a row with a different key.
+        """
+        columns = cls.__table__.columns.keys()
+        query = select(cls)
+        for key, value in kwargs.items():
+            if key not in columns:
+                raise ValueError(f"{key} is not a column of {cls.__tablename__}")
+            attribute = getattr(cls, key)
+            query = query.where(attribute.is_(None) if value is None else attribute == value)
+        with db_engine.get_session() as session:
+            return session.execute(query).scalars().first()
+
+    @classmethod
     def update(cls, instance, **kwargs: Any) -> BaseModel:
         """
         Updates an existing instance of the model with new values.
@@ -286,8 +323,15 @@ class BaseModel(DeclarativeBase, SerializeMixin):
         instance = cls.get_by_parameters(**unique_kwargs)
         if instance:
             return instance
-        else:
-            instance = cls.create(**kwargs)
+        try:
+            return cls.create(**kwargs)
+        except IntegrityError:
+            # Another writer inserted the same key between our lookup and
+            # our insert; return its row. Anything else (an FK violation,
+            # say) leaves nothing to find, so re-raise.
+            instance = cls.get_by_parameters(**unique_kwargs)
+            if instance is None:
+                raise
             return instance
         
     @classmethod
@@ -299,7 +343,12 @@ class BaseModel(DeclarativeBase, SerializeMixin):
             instance (BaseModel): The instance to delete.
 
         Returns:
-            bool: True if deletion was successful, False otherwise.
+            bool: True once the row is deleted.
+
+        Raises:
+            Exception: Whatever the database raised. Most callers don't check
+                the return value, so a failure has to propagate rather than
+                come back as False.
         """
         try:
             with db_engine.get_session() as session:
@@ -308,7 +357,7 @@ class BaseModel(DeclarativeBase, SerializeMixin):
             return True
         except Exception as e:
             logger.error(f"Error deleting instance: {e}")
-            return False
+            raise
     
     @classmethod
     def get_model_from_table_name(cls, table_name) -> Optional[BaseModel]:
@@ -339,8 +388,10 @@ class BaseModel(DeclarativeBase, SerializeMixin):
         with db_engine.get_session() as session:
             table = cls.__table__
             stmt = pg_insert(table).on_conflict_do_nothing(constraint=constraint).returning(table.c.id)
-            inserted_records = session.execute(stmt, data, execution_options={"populate_existing": True})
-            inserted_ids = [record.id for record in inserted_records]
+            inserted_ids = []
+            for rows in _group_rows_by_columns(data):
+                inserted_records = session.execute(stmt, rows, execution_options={"populate_existing": True})
+                inserted_ids.extend(record.id for record in inserted_records)
             return inserted_ids
         
         
@@ -364,8 +415,10 @@ class BaseModel(DeclarativeBase, SerializeMixin):
                 constraint=constraint,
                 set_={upsert_on: insert_stmt.excluded[upsert_on]}
             ).returning(table.c.id)
-            inserted_records = session.execute(stmt, data, execution_options={"populate_existing": True})
-            inserted_ids = [record.id for record in inserted_records]
+            inserted_ids = []
+            for rows in _group_rows_by_columns(data):
+                inserted_records = session.execute(stmt, rows, execution_options={"populate_existing": True})
+                inserted_ids.extend(record.id for record in inserted_records)
             return inserted_ids
         
 
@@ -656,7 +709,7 @@ class BaseModel(DeclarativeBase, SerializeMixin):
             return True
         except Exception as e:
             logger.error(f"Error deleting instance: {e}")
-            return False
+            raise
 
     @classmethod
     async def async_exists(cls, **kwargs: Any) -> bool:
@@ -678,7 +731,14 @@ class BaseModel(DeclarativeBase, SerializeMixin):
         instance = await cls.async_get_by_parameters(**unique_kwargs)
         if instance:
             return instance
-        return await cls.async_create(**kwargs)
+        try:
+            return await cls.async_create(**kwargs)
+        except IntegrityError:
+            # See get_or_create(): lost the race to a concurrent insert.
+            instance = await cls.async_get_by_parameters(**unique_kwargs)
+            if instance is None:
+                raise
+            return instance
 
     @classmethod
     async def async_count(cls) -> int:
@@ -695,8 +755,11 @@ class BaseModel(DeclarativeBase, SerializeMixin):
         async with db_engine.get_async_session() as session:
             table = cls.__table__
             stmt = pg_insert(table).on_conflict_do_nothing(constraint=constraint).returning(table.c.id)
-            inserted_records = await session.execute(stmt, data, execution_options={"populate_existing": True})
-            return [record.id for record in inserted_records]
+            inserted_ids = []
+            for rows in _group_rows_by_columns(data):
+                inserted_records = await session.execute(stmt, rows, execution_options={"populate_existing": True})
+                inserted_ids.extend(record.id for record in inserted_records)
+            return inserted_ids
 
 
 class ViewBaseModel(BaseModel):

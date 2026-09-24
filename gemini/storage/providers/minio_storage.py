@@ -97,36 +97,35 @@ class MinioStorageProvider(StorageProvider):
         max_retries = 5
         base_delay = 1.0 # seconds
 
+        # Bad input can't succeed on a retry, so reject it up front.
+        if input_file_path:
+            input_file_path = Path(input_file_path)
+            if not input_file_path.is_file():
+                raise StorageUploadError(f"Input file not found: {input_file_path}")
+        elif not data_stream:
+            raise ValueError("Either data_stream or input_file_path must be provided")
+
+        target_bucket_name = bucket_name if bucket_name is not None else self.bucket_name
+        tags = metadata.copy() if metadata else {}
+        if content_type:
+            tags['Content-Type'] = content_type
+
         for attempt in range(max_retries):
             try:
-                target_bucket_name = bucket_name if bucket_name is not None else self.bucket_name
-                tags = metadata.copy() if metadata else {}
-                if content_type:
-                    tags['Content-Type'] = content_type
-                
-                # Note: part_size was removed in the base file content, keeping it removed here.
-                # part_size = 5 * 1024 * 1024 # 5MB part size
-
                 if input_file_path:
-                    input_file_path = Path(input_file_path)
-                    if not input_file_path.is_file():
-                         raise FileNotFoundError(f"Input file path not found: {input_file_path}")
                     self.client.fput_object(
                         bucket_name=target_bucket_name,
                         object_name=object_name,
                         file_path=str(input_file_path),
                         content_type=content_type,
                         metadata=tags,
-                        # part_size=part_size # Removed based on base file
                     )
-                elif data_stream:
-                    # Ensure stream is at the beginning before each attempt
-                    current_pos = data_stream.tell()
-                    data_stream.seek(0)
-                    # Get file size - necessary for put_object
+                else:
+                    # Get file size - necessary for put_object - and rewind
+                    # so every attempt sends the whole stream.
                     data_stream.seek(0, os.SEEK_END)
                     file_size = data_stream.tell()
-                    data_stream.seek(0) # Reset stream position for upload
+                    data_stream.seek(0)
 
                     self.client.put_object(
                         bucket_name=target_bucket_name,
@@ -135,15 +134,8 @@ class MinioStorageProvider(StorageProvider):
                         length=file_size, # MinIO requires length for streams
                         content_type=content_type,
                         metadata=tags,
-                        # part_size=part_size # Removed based on base file
                     )
-                    # Restore original stream position if needed after successful upload?
-                    # data_stream.seek(current_pos) # Maybe not necessary depending on caller
-                else:
-                     raise ValueError("Either data_stream or input_file_path must be provided")
-
-                # If successful, get URL and return
-                return self.get_download_url(object_name, bucket_name=target_bucket_name)
+                break
 
             except Exception as e: # Catch any exception for retry
                 if attempt == max_retries - 1: # Last attempt failed
@@ -152,16 +144,16 @@ class MinioStorageProvider(StorageProvider):
                          raise StorageAuthError(f"Access denied after {max_retries} attempts: {e}")
                     elif isinstance(e, ConnectionError): # Catch direct ConnectionError if it occurs outside S3Error
                          raise StorageConnectionError(f"Connection failed after {max_retries} attempts: {e}")
-                    elif isinstance(e, FileNotFoundError): # Don't retry if file not found
-                         raise StorageUploadError(f"Input file not found: {e}")
-                    elif isinstance(e, ValueError): # Don't retry on bad input
-                         raise e
                     else: # General upload error (includes S3Error other than AccessDenied, and other Exceptions)
                          raise StorageUploadError(f"Failed to upload file '{object_name}' after {max_retries} attempts: {e}")
                 else:
                     # Wait before retrying
                     delay = base_delay * (2 ** attempt) # Exponential backoff
                     time.sleep(delay)
+
+        # Outside the retry loop: the object is stored, so a failure here
+        # must not trigger another upload.
+        return self.get_download_url(object_name, bucket_name=target_bucket_name)
 
         # Fallback if loop finishes without success or raising (should not happen with current logic)
         raise StorageUploadError(f"Upload failed definitively for {object_name} after {max_retries} attempts.")
@@ -498,7 +490,7 @@ class MinioStorageProvider(StorageProvider):
         """
         try:
             # Ensure file exists
-            if not self.file_exists(object_name):
+            if not self.file_exists(object_name, bucket_name=bucket_name):
                 raise StorageFileNotFoundError(f"File not found: {object_name}")
             
             # Default expiration of 7 days if not specified

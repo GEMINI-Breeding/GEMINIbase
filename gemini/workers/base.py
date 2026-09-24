@@ -16,7 +16,9 @@ import logging
 import math
 import os
 import signal
+import threading
 import time
+from contextlib import contextmanager
 from abc import ABC, abstractmethod
 from typing import Any, Set
 
@@ -65,6 +67,9 @@ class BaseWorker(ABC):
         self.redis_port = int(os.environ.get("GEMINI_LOGGER_PORT", "6379"))
         self.redis_password = os.environ.get("GEMINI_LOGGER_PASSWORD", "gemini")
         self.poll_interval = int(os.environ.get("GEMINI_WORKER_POLL_INTERVAL", "5"))
+        # How often a running job tells the API it's still alive. Must stay
+        # well under GEMINI_JOB_REAPER_STALE_AFTER_SECONDS.
+        self.heartbeat_interval = float(os.environ.get("GEMINI_WORKER_HEARTBEAT_SECONDS", "60"))
         self._running = True
         self._redis_client = None
         # Authenticated HTTP session for REST-API calls. The WorkerSession
@@ -232,7 +237,8 @@ class BaseWorker(ABC):
         result: dict | None = None
         process_error: Exception | None = None
         try:
-            result = self.process(job_id, job_type, parameters)
+            with self._heartbeat(job_id):
+                result = self.process(job_id, job_type, parameters)
         except Exception as e:
             process_failed = True
             process_error = e
@@ -343,6 +349,31 @@ class BaseWorker(ABC):
                     delay,
                 )
                 time.sleep(delay)
+
+    @contextmanager
+    def _heartbeat(self, job_id: str):
+        """Keep the job's updated_at fresh while the block runs.
+
+        process() can go a long time without reporting progress; without a
+        heartbeat the reaper would take the job for orphaned and fail it.
+        Heartbeat errors are only logged: they must never fail the job.
+        """
+        stop = threading.Event()
+
+        def beat():
+            while not stop.wait(self.heartbeat_interval):
+                try:
+                    self._http.post(f"/api/jobs/{job_id}/heartbeat")
+                except Exception as e:
+                    logger.warning(f"Heartbeat for job {job_id} failed: {e}")
+
+        thread = threading.Thread(target=beat, name=f"job-heartbeat-{job_id}", daemon=True)
+        thread.start()
+        try:
+            yield
+        finally:
+            stop.set()
+            thread.join()
 
     def _handle_shutdown(self, signum, frame):
         """Handle graceful shutdown."""

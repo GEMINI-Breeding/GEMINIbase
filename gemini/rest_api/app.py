@@ -1,3 +1,4 @@
+import asyncio
 import logging
 
 from litestar import Litestar, Router, get, Response
@@ -111,7 +112,7 @@ for key, value in controllers.items():
         route_handlers=[value],
         tags=[key.replace("_", " ").title()],
         # Every controller router inherits the JWT-bearer guard. The guard
-        # is a no-op when GEMINI_JWT_SECRET is empty, and its own path
+        # is a no-op only when GEMINI_AUTH_DISABLED is set, and its own path
         # whitelist keeps /login, /signup, and health checks open so
         # unauthenticated clients can bootstrap.
         guards=[authenticated_guard],
@@ -119,17 +120,48 @@ for key, value in controllers.items():
     routers.append(router)
 
 
-def _reap_orphaned_jobs_on_startup(_app: Litestar) -> None:
-    """Sweep stale PENDING/RUNNING jobs once on boot.
+def _reap_orphaned_jobs_once() -> None:
+    """Sweep stale PENDING/RUNNING jobs.
 
-    Wrapped so a reaper failure can never prevent the REST-API from starting —
-    a stale job left RUNNING is annoying, but a REST-API that won't boot is
-    catastrophic.
+    Wrapped so a reaper failure can never prevent the REST-API from starting
+    or stop later sweeps — a stale job left RUNNING is annoying, but a
+    REST-API that won't boot is catastrophic.
     """
     try:
         reap_orphaned_jobs(settings.GEMINI_JOB_REAPER_STALE_AFTER_SECONDS)
     except Exception as exc:
-        logger.warning("Orphaned-job reaper failed on startup: %s", exc)
+        logger.warning("Orphaned-job reaper failed: %s", exc)
+
+
+async def _reap_orphaned_jobs_periodically(interval: float) -> None:
+    while True:
+        await asyncio.sleep(interval)
+        await asyncio.to_thread(_reap_orphaned_jobs_once)
+
+
+def _start_job_reaper(app: Litestar) -> None:
+    """Sweep on boot, then keep sweeping: a worker can die at any time.
+
+    The boot sweep finishes before the app serves requests; later sweeps
+    run in the background.
+    """
+    _reap_orphaned_jobs_once()
+    interval = settings.GEMINI_JOB_REAPER_INTERVAL_SECONDS
+    if interval > 0:
+        app.state.job_reaper_task = asyncio.get_running_loop().create_task(
+            _reap_orphaned_jobs_periodically(interval)
+        )
+
+
+async def _stop_job_reaper(app: Litestar) -> None:
+    task = getattr(app.state, "job_reaper_task", None)
+    if task is None:
+        return
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
 
 
 # Entry point for the application
@@ -140,7 +172,8 @@ app = Litestar(
     middleware=middleware,
     before_request=infrastructure_gate,
     exception_handlers=infra_exception_handlers,
-    on_startup=[_reap_orphaned_jobs_on_startup],
+    on_startup=[_start_job_reaper],
+    on_shutdown=[_stop_job_reaper],
     # Genomic ingest (Phase 9d') accepts whole xlsx/HapMap/VCF files
     # in a single multipart upload. Litestar's default
     # ``request_max_body_size`` is 10 MB; the user's tpj13827 supplement

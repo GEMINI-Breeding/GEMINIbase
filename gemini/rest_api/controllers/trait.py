@@ -12,6 +12,7 @@ from collections.abc import AsyncGenerator, Generator
 
 from sqlalchemy.exc import DBAPIError
 
+from gemini.rest_api.ndjson import ndjson_stream
 from gemini.api.trait import Trait, GEMINITraitLevel
 from gemini.api.trait_record import TraitRecord
 from gemini.rest_api.models import TraitInput, TraitOutput, TraitUpdate, JSONB, str_to_dict
@@ -26,13 +27,6 @@ from gemini.rest_api.models import (
     TraitRecordOutput,
     TraitRecordUpdate
 )
-
-
-async def trait_records_bytes_generator(trait_record_generator: Generator[TraitRecord, None, None]) -> AsyncGenerator[bytes, None]:
-    for record in trait_record_generator:
-        record = record.model_dump(exclude_none=True)
-        record = encode_json(record) + b'\n'
-        yield record
 
 
 class TraitDatasetInput(BaseModel):
@@ -410,7 +404,7 @@ class TraitController(Controller):
                 plot_column_number=plot_column_number,
                 collection_date=collection_date
             )
-            return Stream(trait_records_bytes_generator(trait_records), media_type="application/ndjson")
+            return ndjson_stream(trait_records)
         except Exception as e:
             error_message = RESTAPIError(
                 error=str(e),
@@ -445,7 +439,7 @@ class TraitController(Controller):
                 season_names=season_names,
                 site_names=site_names
             )
-            return Stream(trait_records_bytes_generator(trait_records), media_type="application/ndjson")
+            return ndjson_stream(trait_records)
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),

@@ -179,18 +179,40 @@ class Plot(APIBase):
                 if pop:
                     population_id = pop.id
 
-            db_instance = PlotModel.get_or_create(
-                plot_number=plot_number,
-                plot_row_number=plot_row_number,
-                plot_column_number=plot_column_number,
-                plot_info=plot_info,
-                plot_geometry_info=plot_geometry_info,
+            # A name that doesn't resolve would otherwise become a NULL ID
+            # and the plot would be created or matched without that scope.
+            unresolved = [
+                label for label, name, resolved_id in (
+                    ("experiment", experiment_name, experiment_id),
+                    ("season", season_name, season_id),
+                    ("site", site_name, site_id),
+                    ("accession", accession_name, accession_id),
+                    ("population", population_name, population_id),
+                )
+                if name and resolved_id is None
+            ]
+            if unresolved:
+                raise ValueError(f"Could not find the plot's {', '.join(unresolved)}.")
+
+            # Match the whole plot_unique key, NULLs included, so a plot
+            # with no season (say) never matches one that has a season.
+            plot_key = dict(
                 experiment_id=experiment_id,
                 season_id=season_id,
                 site_id=site_id,
-                accession_id=accession_id,
-                population_id=population_id,
+                plot_number=plot_number,
+                plot_row_number=plot_row_number,
+                plot_column_number=plot_column_number,
             )
+            db_instance = PlotModel.get_by_exact_parameters(**plot_key)
+            if db_instance is None:
+                db_instance = PlotModel.create(
+                    **plot_key,
+                    plot_info=plot_info,
+                    plot_geometry_info=plot_geometry_info,
+                    accession_id=accession_id,
+                    population_id=population_id,
+                )
             return cls.model_validate(db_instance)
         except Exception as e:
             logger.error(f"Error creating plot: {e}")

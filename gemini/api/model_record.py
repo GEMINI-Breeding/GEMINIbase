@@ -136,7 +136,7 @@ class ModelRecord(APIBase, FileHandlerMixin):
     @classmethod
     def create(
         cls,
-        timestamp: datetime = datetime.now(),
+        timestamp: datetime = None,
         collection_date: date = None,
         dataset_name: str = None,
         model_name: str = None,
@@ -192,7 +192,7 @@ class ModelRecord(APIBase, FileHandlerMixin):
             if not dataset_name:
                 raise ValueError("Dataset name is required.")
             if not timestamp:
-                raise ValueError("Timestamp is required.")
+                timestamp = datetime.now()
             if not collection_date:
                 collection_date = timestamp.date()
             if not model_data and not record_file:
@@ -438,7 +438,8 @@ class ModelRecord(APIBase, FileHandlerMixin):
                 yield record
         except Exception as e:
             logger.error(f"Error searching ModelRecords: {e}")
-            yield None
+            # Re-raise: a yielded None hid the real error from every consumer.
+            raise
 
     @classmethod
     def filter(
@@ -497,7 +498,8 @@ class ModelRecord(APIBase, FileHandlerMixin):
                 yield record
         except Exception as e:
             logger.error(f"Error filtering ModelRecords: {e}")
-            yield None
+            # Re-raise: a yielded None hid the real error from every consumer.
+            raise
 
     def update(
         self,

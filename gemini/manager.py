@@ -1,3 +1,4 @@
+import secrets
 import shutil
 import subprocess, os
 from enum import Enum
@@ -121,6 +122,17 @@ class GEMINIManager(BaseModel):
         self.delete_settings()
         # Create a new settings file
         current_settings = self.get_settings()
+        if not current_settings.GEMINI_JWT_SECRET and not current_settings.GEMINI_AUTH_DISABLED:
+            # Without a secret the REST API refuses protected requests, so
+            # give every install its own instead of leaving auth unconfigured.
+            current_settings.GEMINI_JWT_SECRET = secrets.token_urlsafe(48)
+            print("Generated a new GEMINI_JWT_SECRET.")
+            if not current_settings.GEMINI_FIRST_SUPERUSER_EMAIL or not current_settings.GEMINI_FIRST_SUPERUSER_PASSWORD:
+                print(
+                    "Warning: GEMINI_FIRST_SUPERUSER_EMAIL/PASSWORD are unset, so no "
+                    "account exists to log in with. Set them, or run "
+                    "`geminibase bootstrap-superuser`."
+                )
         current_settings.create_env_file(self.env_file_path)
         self.pipeline_settings = current_settings
         print(f"Settings saved to {self.env_file_path}")

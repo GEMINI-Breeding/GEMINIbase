@@ -29,15 +29,9 @@ from gemini.rest_api.models import (
 )
 
 from gemini.rest_api.file_handler import api_file_handler
+from gemini.rest_api.ndjson import ndjson_stream
 
 from typing import List, Annotated, Optional
-
-
-async def dataset_records_bytes_generator(dataset_record_generator: Generator[DatasetRecord, None, None]) -> AsyncGenerator[bytes, None]:
-    for record in dataset_record_generator:
-        record = record.model_dump(exclude_none=True)
-        record = encode_json(record) + b'\n'
-        yield record
 
 
 class DatasetController(Controller):
@@ -267,8 +261,8 @@ class DatasetController(Controller):
             return Response(content=error, status_code=500)
 
     # Add a Dataset Record
-    @post(path="/id/{dataset_id:str}/records")
-    async def add_dataset_record(
+    @post(path="/id/{dataset_id:str}/records", sync_to_thread=True)
+    def add_dataset_record(
         self,
         dataset_id: str,
         data: Annotated[DatasetRecordInput, Body(media_type=RequestEncodingType.MULTI_PART)]
@@ -282,19 +276,17 @@ class DatasetController(Controller):
                 )
                 return Response(content=error, status_code=404)
             
-            if data.record_file:
-                record_file_path = await api_file_handler.create_file(data.record_file)
-            
-            add_success, inserted_record_ids = dataset.insert_record(
-                timestamp=data.timestamp,
-                collection_date=data.collection_date,
-                dataset_data=data.dataset_data,
-                experiment_name=data.experiment_name,
-                season_name=data.season_name,
-                site_name=data.site_name,
-                record_file=record_file_path if data.record_file else None,
-                record_info=data.record_info
-            )
+            with api_file_handler.saved_upload(data.record_file) as record_file_path:
+                add_success, inserted_record_ids = dataset.insert_record(
+                    timestamp=data.timestamp,
+                    collection_date=data.collection_date,
+                    dataset_data=data.dataset_data,
+                    experiment_name=data.experiment_name,
+                    season_name=data.season_name,
+                    site_name=data.site_name,
+                    record_file=record_file_path,
+                    record_info=data.record_info
+                )
             if not add_success:
                 error = RESTAPIError(
                     error="Dataset record not added",
@@ -342,7 +334,7 @@ class DatasetController(Controller):
                 site_name=site_name,
                 collection_date=collection_date
             )
-            return Stream(dataset_records_bytes_generator(records), media_type="application/ndjson")
+            return ndjson_stream(records)
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),
@@ -377,7 +369,7 @@ class DatasetController(Controller):
                 season_names=season_names,
                 site_names=site_names
             )
-            return Stream(dataset_records_bytes_generator(records), media_type="application/ndjson")
+            return ndjson_stream(records)
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),

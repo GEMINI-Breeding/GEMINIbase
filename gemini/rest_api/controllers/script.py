@@ -31,15 +31,9 @@ from gemini.rest_api.models import (
 )
 
 from gemini.rest_api.file_handler import api_file_handler
+from gemini.rest_api.ndjson import ndjson_stream
 
 from typing import List, Annotated, Optional
-
-async def script_records_bytes_generator(script_record_generator: Generator[ScriptRecord, None, None]) -> AsyncGenerator[bytes, None]:
-    for record in script_record_generator:
-        record = record.model_dump(exclude_none=True)
-        record = encode_json(record) + b'\n'
-        yield record
-
 
 class ScriptScriptRunInput(BaseModel):
     script_run_info: Optional[JSONB] = {}
@@ -341,8 +335,8 @@ class ScriptController(Controller):
     
 
     # Add a Script Record
-    @post(path="/id/{script_id:str}/records")
-    async def add_script_record(
+    @post(path="/id/{script_id:str}/records", sync_to_thread=True)
+    def add_script_record(
         self,
         script_id: str,
         data: Annotated[ScriptRecordInput, Body(media_type=RequestEncodingType.MULTI_PART)]
@@ -356,21 +350,18 @@ class ScriptController(Controller):
                 )
                 return Response(content=error, status_code=404)
             
-            record_file_path = None
-            if data.record_file:
-                record_file_path = await api_file_handler.create_file(data.record_file)
-
-            add_success, inserted_record_ids = script.insert_record(
-                timestamp=data.timestamp,
-                collection_date=data.collection_date,
-                script_data=data.script_data,
-                dataset_name=data.dataset_name,
-                experiment_name=data.experiment_name,
-                season_name=data.season_name,
-                site_name=data.site_name,
-                record_file=record_file_path,
-                record_info=data.record_info
-            )
+            with api_file_handler.saved_upload(data.record_file) as record_file_path:
+                add_success, inserted_record_ids = script.insert_record(
+                    timestamp=data.timestamp,
+                    collection_date=data.collection_date,
+                    script_data=data.script_data,
+                    dataset_name=data.dataset_name,
+                    experiment_name=data.experiment_name,
+                    season_name=data.season_name,
+                    site_name=data.site_name,
+                    record_file=record_file_path,
+                    record_info=data.record_info
+                )
             if not add_success or not inserted_record_ids:
                 error = RESTAPIError(
                     error="Script record not added",
@@ -417,7 +408,7 @@ class ScriptController(Controller):
                 site_name=site_name,
                 collection_date=collection_date
             )
-            return Stream(script_records_bytes_generator(script_records), media_type="application/ndjson")
+            return ndjson_stream(script_records)
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),
@@ -453,7 +444,7 @@ class ScriptController(Controller):
                 season_names=season_names,
                 site_names=site_names
             )
-            return Stream(script_records_bytes_generator(script_records), media_type="application/ndjson")
+            return ndjson_stream(script_records)
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),

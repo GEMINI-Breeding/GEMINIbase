@@ -159,7 +159,7 @@ class TraitRecord(APIBase):
     @classmethod
     def create(
         cls,
-        timestamp: datetime = datetime.now(),
+        timestamp: datetime = None,
         collection_date: date = None,
         dataset_name: str = None,
         trait_name: str = None,
@@ -350,7 +350,8 @@ class TraitRecord(APIBase):
             if not experiment_name and not site_name and not season_name:
                 logger.warning("At least one of experiment_name, site_name, or season_name is required to get TraitRecord.")
                 return None
-            if not all([plot_number, plot_row_number, plot_column_number]):
+            plot_coordinates = (plot_number, plot_row_number, plot_column_number)
+            if any(c is None for c in plot_coordinates) and not all(c is None for c in plot_coordinates):
                 logger.warning("Plot information (number, row, column) is required if any is provided.")
                 return None
             trait_record = TraitRecordsIMMVModel.get_by_parameters(

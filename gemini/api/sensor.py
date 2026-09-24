@@ -1044,10 +1044,10 @@ class Sensor(APIBase):
             if len(timestamps) == 0:
                 raise ValueError("At least one timestamp must be provided.")
             
+            collection_date = collection_date if collection_date else timestamps[0].date()
             if not dataset_name:
                 dataset_name = f"{self.sensor_name} Dataset {collection_date}"
 
-            collection_date = collection_date if collection_date else timestamps[0].date()
             sensor_records = []
             timestamps_length = len(timestamps)
 

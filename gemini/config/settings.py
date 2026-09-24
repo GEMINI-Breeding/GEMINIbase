@@ -62,11 +62,17 @@ class GEMINISettings(BaseSettings):
     # leave a ghost job that the frontend keeps re-opening WebSockets to.
     # Set to 0 to disable.
     GEMINI_JOB_REAPER_STALE_AFTER_SECONDS : int = 3600
+    # How often the reaper re-runs after startup. Workers heartbeat running
+    # jobs, so this only has to catch workers that died. 0 = startup only.
+    GEMINI_JOB_REAPER_INTERVAL_SECONDS : float = 300
 
     # JWT Auth
-    # When GEMINI_JWT_SECRET is empty, auth is disabled (endpoints that depend
-    # on CurrentUser return 503 with a clear message). Rotate in production.
+    # `geminibase setup` generates GEMINI_JWT_SECRET when it's empty. If the
+    # REST API still starts without one, protected endpoints answer 503
+    # rather than running open, unless GEMINI_AUTH_DISABLED is set: that is
+    # the only way to turn per-user auth off. Rotate in production.
     GEMINI_JWT_SECRET : str = ""
+    GEMINI_AUTH_DISABLED : bool = False
     GEMINI_JWT_ALGORITHM : str = "HS256"
     GEMINI_JWT_ACCESS_TOKEN_EXPIRE_MINUTES : int = 60 * 24 * 8  # 8 days
 

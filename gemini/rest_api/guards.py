@@ -3,9 +3,9 @@ Guards that enforce per-user authentication across controller routers.
 
 Unlike the existing ``APIKeyAuthMiddleware`` (a shared-secret admission
 gate), this guard validates a bearer token against ``GEMINI_JWT_SECRET``
-and confirms the referenced user is active. It activates only when the
-JWT secret is configured — when it's empty the guard is a no-op and the
-stack behaves exactly as it did before auth was introduced.
+and confirms the referenced user is active. It fails closed: with no JWT
+secret configured it answers 503, unless the operator turned auth off
+explicitly with ``GEMINI_AUTH_DISABLED``.
 
 A small whitelist of paths is always open, so fresh clients can log in
 or check health without a token.
@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import jwt
 from litestar.connection import ASGIConnection
-from litestar.exceptions import NotAuthorizedException, NotFoundException
+from litestar.exceptions import HTTPException, NotAuthorizedException, NotFoundException
 from litestar.handlers.base import BaseRouteHandler
 
 from gemini.api.user import User
@@ -22,6 +22,11 @@ from gemini.config.settings import GEMINISettings
 from gemini.rest_api.security import decode_access_token
 
 _settings = GEMINISettings()
+
+AUTH_NOT_CONFIGURED = (
+    "Auth is not configured: set GEMINI_JWT_SECRET, or set "
+    "GEMINI_AUTH_DISABLED=true to run without per-user auth."
+)
 
 # Paths that must stay open for unauthenticated callers. Everything else
 # under /api/* requires a bearer token once GEMINI_JWT_SECRET is set.
@@ -54,12 +59,14 @@ def _extract_bearer_token(connection: ASGIConnection) -> str | None:
 def authenticated_guard(
     connection: ASGIConnection, _handler: BaseRouteHandler
 ) -> None:
-    """Require a valid bearer token when auth is enabled."""
-    if not _settings.GEMINI_JWT_SECRET:
-        return
+    """Require a valid bearer token unless auth is explicitly disabled."""
     path = connection.scope.get("path", "")
     if path in _OPEN_PATHS:
         return
+    if not _settings.GEMINI_JWT_SECRET:
+        if _settings.GEMINI_AUTH_DISABLED:
+            return
+        raise HTTPException(status_code=503, detail=AUTH_NOT_CONFIGURED)
 
     token = _extract_bearer_token(connection)
     if not token:
