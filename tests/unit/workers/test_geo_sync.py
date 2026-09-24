@@ -93,8 +93,46 @@ def test_reference_track_without_positions_is_refused():
 
 
 def test_geo_txt_lists_located_images_only():
-    df = images(("a.jpg", 1.0, 38.5, -121.7, None, "exif"), ("b.jpg", 1.0, None, None, None, "none"))
-    assert sync.geo_txt(df) == "EPSG:4326\na.jpg -121.7 38.5 0 0 0 0 0 0\n"
+    df = images(("a.jpg", 1.0, 38.5, -121.7, 29.5, "exif"), ("b.jpg", 1.0, None, None, None, "none"))
+    # Nothing after the altitude: ODM would read more columns as camera
+    # yaw/pitch/roll and GPS accuracy.
+    assert sync.geo_txt(df) == "EPSG:4326\na.jpg -121.7 38.5 29.5\n"
+
+
+def test_geo_txt_leaves_out_an_unknown_altitude():
+    df = images(("a.jpg", 1.0, 38.5, -121.7, None, "exif"))
+    assert sync.geo_txt(df) == "EPSG:4326\na.jpg -121.7 38.5\n"
+
+
+def test_missing_altitude_takes_the_nearest_image_in_time():
+    df = images(
+        ("a.jpg", 10.0, 38.5, -121.7, 29.0, "platform_log"),
+        ("b.jpg", 11.0, 38.5, -121.7, None, "exif"),       # nearest: a
+        ("c.jpg", 19.0, 38.5, -121.7, None, "exif"),       # nearest: d
+        ("d.jpg", 20.0, 38.5, -121.7, 31.0, "platform_log"),
+        ("e.jpg", None, 38.5, -121.7, None, "exif"),       # no time: median
+        ("f.jpg", 12.0, None, None, None, "none"),         # no position: left alone
+    )
+    out, n = sync.fill_missing_altitude(df)
+    assert n == 3
+    assert out["alt"].tolist()[:5] == [29.0, 29.0, 31.0, 31.0, 30.0]
+    assert out["alt_estimated"].tolist() == [False, True, True, False, True, False]
+    assert pd.isna(out["alt"].iloc[5])
+    # Never 0 m: in geo.txt every located camera is on the same scale.
+    rows = [line.split() for line in sync.geo_txt(out).splitlines()[1:]]
+    assert [float(r[3]) for r in rows] == [29.0, 29.0, 31.0, 31.0, 30.0]
+
+
+def test_no_altitude_anywhere_stays_unknown_rather_than_0():
+    df = images(("a.jpg", 1.0, 38.5, -121.7, None, "exif"), ("b.jpg", 2.0, 38.5, -121.7, None, "exif"))
+    out, n = sync.fill_missing_altitude(df)
+    assert n == 0 and out["alt"].isna().all()
+    assert sync.geo_txt(out) == "EPSG:4326\na.jpg -121.7 38.5\nb.jpg -121.7 38.5\n"
+
+
+def test_reference_track_without_altitude_is_unknown_not_0():
+    ref = sync.reference_track(pd.DataFrame({"timestamp": [1.0, 2.0], "lat": [38.5, 38.6], "lon": [-121.7, -121.7]}))
+    assert ref["alt"].isna().all()
 
 
 def test_normalise_columns_uses_main_aliases():
