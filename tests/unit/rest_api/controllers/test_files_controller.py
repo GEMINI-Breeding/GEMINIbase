@@ -288,10 +288,49 @@ class TestUploadChunk:
 
     @patch(CHUNKS_PATH, {})
     @patch(MINIO_PATH)
-    def test_upload_error_cleans_up_temps(self, mock_minio, test_client):
-        """If MinIO upload_part fails, the multipart is aborted + session dropped."""
+    def test_failed_chunk_keeps_the_upload_so_a_retry_completes_it(self, mock_minio, test_client):
+        """A failed upload_part fails that chunk only: the multipart upload
+        and the parts already stored survive, and retrying the chunk
+        finishes the file."""
+        from gemini.rest_api.controllers.files import _chunk_uploads
         mock_minio.create_multipart_upload.return_value = "upload-xyz"
-        mock_minio.upload_part.side_effect = Exception("MinIO down")
+        mock_minio.upload_part.side_effect = ["etag-1", Exception("MinIO hiccup"), "etag-2"]
+
+        def send(idx):
+            return test_client.post(
+                "/api/files/upload_chunk",
+                data={
+                    "chunk_index": str(idx),
+                    "total_chunks": "2",
+                    "file_identifier": "retry-test",
+                    "object_name": "path/to/file.bin",
+                    "bucket_name": "test-bucket",
+                },
+                files={"file_chunk": (f"chunk{idx}.bin", io.BytesIO(b"data"), "application/octet-stream")},
+            )
+
+        assert send(0).status_code == 201
+        assert send(1).status_code == 500
+        mock_minio.abort_multipart_upload.assert_not_called()
+        assert _chunk_uploads["retry-test"]["parts"] == {1: "etag-1"}
+
+        retry = send(1)
+        assert retry.status_code == 201
+        assert retry.json()["complete"] is True
+        mock_minio.create_multipart_upload.assert_called_once()
+        mock_minio.complete_multipart_upload.assert_called_once()
+        assert mock_minio.complete_multipart_upload.call_args.kwargs["upload_id"] == "upload-xyz"
+        assert "retry-test" not in _chunk_uploads
+
+    @patch(CHUNKS_PATH, {})
+    @patch(MINIO_PATH)
+    def test_failed_assembly_aborts_the_upload(self, mock_minio, test_client):
+        """If complete_multipart_upload fails there is no session left to
+        retry into, so the multipart upload is aborted."""
+        from gemini.rest_api.controllers.files import _chunk_uploads
+        mock_minio.create_multipart_upload.return_value = "upload-xyz"
+        mock_minio.upload_part.return_value = "etag-1"
+        mock_minio.complete_multipart_upload.side_effect = Exception("assemble failed")
 
         response = test_client.post(
             "/api/files/upload_chunk",
@@ -305,7 +344,6 @@ class TestUploadChunk:
             files={"file_chunk": ("chunk0.bin", io.BytesIO(b"data"), "application/octet-stream")},
         )
         assert response.status_code == 500
-        from gemini.rest_api.controllers.files import _chunk_uploads
         assert "fail-test" not in _chunk_uploads
         mock_minio.abort_multipart_upload.assert_called_once()
 

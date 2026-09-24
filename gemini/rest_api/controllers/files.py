@@ -899,12 +899,28 @@ class FileController(Controller):
                     _chunk_uploads.pop(file_id, None)
 
             if should_finalize:
-                minio_storage_provider.complete_multipart_upload(
-                    object_name=session["object_name"],
-                    upload_id=session["upload_id"],
-                    parts=list(session["parts"].items()),
-                    bucket_name=session["bucket_name"],
-                )
+                try:
+                    minio_storage_provider.complete_multipart_upload(
+                        object_name=session["object_name"],
+                        upload_id=session["upload_id"],
+                        parts=list(session["parts"].items()),
+                        bucket_name=session["bucket_name"],
+                    )
+                except Exception:
+                    # The session was already popped, so no retry can land
+                    # in this multipart upload: abort it so MinIO drops the
+                    # parts, then let the handler below report the 500.
+                    with _chunk_uploads_lock:
+                        _chunk_uploads_per_id_locks.pop(file_id, None)
+                    try:
+                        minio_storage_provider.abort_multipart_upload(
+                            object_name=session["object_name"],
+                            upload_id=session["upload_id"],
+                            bucket_name=session["bucket_name"],
+                        )
+                    except Exception:
+                        pass
+                    raise
                 # Phase 9j: write the authoritative pointer row so the
                 # experiment-delete cascade can sweep this object by row
                 # rather than guessing the path layout. Idempotent on
@@ -960,19 +976,12 @@ class FileController(Controller):
                 complete=False,
             )
         except Exception as e:
-            # Best-effort abort so we don't leak an in-progress multipart upload.
-            session = _chunk_uploads.pop(file_id, None)
-            with _chunk_uploads_lock:
-                _chunk_uploads_per_id_locks.pop(file_id, None)
-            if session is not None:
-                try:
-                    minio_storage_provider.abort_multipart_upload(
-                        object_name=session["object_name"],
-                        upload_id=session["upload_id"],
-                        bucket_name=session["bucket_name"],
-                    )
-                except Exception:
-                    pass
+            # Fail only this chunk. The session and its multipart upload are
+            # kept so the client can retry the chunk into the same upload;
+            # aborting here would discard every part already stored (and
+            # break the file's other chunks still in flight). Abandoned
+            # uploads are dropped by /abort_upload, or by MinIO's stale-
+            # upload expiry.
             return Response(
                 content=RESTAPIError(error=str(e), error_description="Chunk upload failed"),
                 status_code=500,
