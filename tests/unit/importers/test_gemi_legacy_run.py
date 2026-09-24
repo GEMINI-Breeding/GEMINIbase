@@ -51,6 +51,7 @@ class FakeApi:
 class FakeStorage:
     def __init__(self):
         self.objects: dict[str, int] = {}
+        self.types: dict[str, str] = {}
         self.puts: list[str] = []
 
     def stat_object(self, bucket, key):
@@ -58,10 +59,11 @@ class FakeStorage:
             raise KeyError(key)
         return SimpleNamespace(size=self.objects[key])
 
-    def fput_object(self, bucket, key, path):
+    def fput_object(self, bucket, key, path, content_type="application/octet-stream"):
         from pathlib import Path
 
         self.objects[key] = Path(path).stat().st_size
+        self.types[key] = content_type
         self.puts.append(key)
 
 
@@ -106,6 +108,8 @@ def test_an_upload_becomes_what_the_uploader_would_create(tmp_path):
     assert registered["dataset_id"] == imp["dataset_id"]
     assert sorted(f["object_name"] for f in registered["files"]) == sorted(storage.objects)
     assert (imp["copied"], imp["already_there"]) == (2, 0)
+    # Stored with the type a browser upload records, not octet-stream.
+    assert set(storage.types.values()) == {"image/jpeg"}
 
 
 def test_running_again_resumes_without_duplicates(tmp_path):

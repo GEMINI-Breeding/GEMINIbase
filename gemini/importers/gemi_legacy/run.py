@@ -14,6 +14,7 @@ for reading); the caller mounts it read-only as well.
 from __future__ import annotations
 
 import logging
+import mimetypes
 import re
 from datetime import datetime
 from pathlib import Path
@@ -169,7 +170,9 @@ def import_upload(upload: UploadPlan, data_dir: Path, api: Api,
         if _stored_size(storage, bucket, key) == f.size:
             skipped += 1
         else:
-            storage.fput_object(bucket, key, str(data_dir / f.source))
+            # The type a browser upload records (image/jpeg, text/csv, …).
+            ctype = mimetypes.guess_type(key)[0] or "application/octet-stream"
+            storage.fput_object(bucket, key, str(data_dir / f.source), content_type=ctype)
             copied += 1
         on_file(f.size)
     api.register(exp_id, ds_id, bucket, keys)
