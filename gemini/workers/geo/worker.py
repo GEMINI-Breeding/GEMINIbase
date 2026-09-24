@@ -105,7 +105,7 @@ class GeoWorker(BaseWorker):
     @property
     def supported_job_types(self) -> Set[JobType]:
         return {JobType.CREATE_COG, JobType.TIF_TO_PNG, JobType.PROCESS_DRONE_TIFF,
-                JobType.SPLIT_ORTHOMOSAIC, JobType.DATA_SYNC}
+                JobType.SPLIT_ORTHOMOSAIC, JobType.DATA_SYNC, JobType.IMPORT_LEGACY}
 
     def process(self, job_id: str, job_type: str, parameters: dict) -> dict:
         if job_type == JobType.CREATE_COG.value:
@@ -118,6 +118,8 @@ class GeoWorker(BaseWorker):
             return self._split_orthomosaic_job(job_id, parameters)
         elif job_type == JobType.DATA_SYNC.value:
             return self._data_sync_job(job_id, parameters)
+        elif job_type == JobType.IMPORT_LEGACY.value:
+            return self._import_legacy_job(job_id, parameters)
         else:
             raise ValueError(f"Unsupported job type: {job_type}")
 
@@ -271,6 +273,33 @@ class GeoWorker(BaseWorker):
             )
         return {"mode": mode, "datasets": summary, "images": total, "located": located,
                 "platform_log_fixes": int(len(log_df)), "altitude": altitude}
+
+    def _import_legacy_job(self, job_id: str, p: dict) -> dict:
+        """Import the previous GEMI desktop app's uploads (tier 1; see
+        gemini/importers/gemi_legacy). The old install is mounted read-only
+        at GEMINI_LEGACY_APP_DIR / GEMINI_LEGACY_DATA_DIR. Re-running
+        resumes: what's already imported is found and skipped."""
+        from gemini.importers.gemi_legacy.plan import plan_import
+        from gemini.importers.gemi_legacy.reader import LegacyDatabase
+        from gemini.importers.gemi_legacy.run import run_import
+        from gemini.importers.gemi_legacy.source import legacy_data_dir, legacy_database
+
+        db_path = legacy_database()
+        if db_path is None:
+            raise RuntimeError("No previous GEMI install is available to import.")
+        self.report_progress(job_id, 0, {"stage": "Reading the previous GEMI install"})
+        with LegacyDatabase(db_path) as db:
+            plan = plan_import(db, legacy_data_dir())
+        result = run_import(
+            plan, legacy_data_dir(), self._http, _get_minio_client(), STORAGE_BUCKET,
+            progress=lambda pct, msg: self.report_progress(job_id, pct, {"stage": msg}),
+            cancelled=lambda: self.is_cancelled(job_id),
+        )
+        if result["failed"] and not result["imported"]:
+            raise RuntimeError(
+                "Nothing could be imported: " + "; ".join(f"{f['path']}: {f['error']}" for f in result["failed"])
+            )
+        return result
 
     def _create_cog_job(self, job_id: str, parameters: dict) -> dict:
         """

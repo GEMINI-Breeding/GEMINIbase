@@ -14,6 +14,8 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 
 # Copy worker code
 COPY gemini/workers/ /app/gemini/workers/
+# The previous-GEMI importer (IMPORT_LEGACY jobs); stdlib-only.
+COPY gemini/importers/ /app/gemini/importers/
 COPY gemini/__init__.py /app/gemini/__init__.py
 
 CMD ["python", "-m", "gemini.workers.geo.worker"]

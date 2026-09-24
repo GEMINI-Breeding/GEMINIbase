@@ -144,6 +144,11 @@ services:
       - ../../gemini:/geminibase/gemini:ro
       # Migrations too, so a new one runs on restart without a rebuild.
       - ../../alembic:/geminibase/alembic:ro
+      # The previous GEMI desktop app, READ-ONLY, for /api/legacy_import:
+      # its folder (gemi.db) and its data folder. An empty volume when
+      # there's nothing to import.
+      - ${GEMINI_LEGACY_APP_HOST_DIR:-gemini_legacy_none}:/legacy/app:ro
+      - ${GEMINI_LEGACY_DATA_HOST_DIR:-gemini_legacy_none}:/legacy/data:ro
     # As in production: buckets exist before the API serves (and
     # `up --wait` accepts storage-init's exit because the API waits on it).
     depends_on:
@@ -320,6 +325,12 @@ services:
       - "GEMINI_STORAGE_BUCKET_NAME=${GEMINI_STORAGE_BUCKET_NAME}"
       - "GEMINI_FIRST_SUPERUSER_EMAIL=${GEMINI_FIRST_SUPERUSER_EMAIL}"
       - "GEMINI_FIRST_SUPERUSER_PASSWORD=${GEMINI_FIRST_SUPERUSER_PASSWORD}"
+    volumes:
+      # The previous GEMI desktop app, READ-ONLY, for /api/legacy_import:
+      # its folder (gemi.db) and its data folder. An empty volume when
+      # there's nothing to import.
+      - ${GEMINI_LEGACY_APP_HOST_DIR:-gemini_legacy_none}:/legacy/app:ro
+      - ${GEMINI_LEGACY_DATA_HOST_DIR:-gemini_legacy_none}:/legacy/data:ro
     depends_on:
       rest-api:
         condition: service_healthy
@@ -425,6 +436,8 @@ networks:
     name: geminibase_network
 
 volumes:
+  # Stands in for the previous app's folders when there are none (above).
+  gemini_legacy_none:
   geminibase_db_data:
   geminibase_logger_data:
   geminibase_storage_data:

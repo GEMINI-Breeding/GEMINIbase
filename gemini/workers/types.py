@@ -20,6 +20,7 @@ class JobType(str, Enum):
     THERMAL_EXTRACT = "THERMAL_EXTRACT"
     ASSOCIATE_BOUNDARIES = "ASSOCIATE_BOUNDARIES"
     DATA_SYNC = "DATA_SYNC"
+    IMPORT_LEGACY = "IMPORT_LEGACY"
 
 
 class JobStatus(str, Enum):
@@ -49,4 +50,5 @@ JOB_TYPE_WORKER_MAP = {
     JobType.THERMAL_EXTRACT: "geminibase-worker-thermal",
     JobType.ASSOCIATE_BOUNDARIES: "geminibase-worker-stitch",
     JobType.DATA_SYNC: "geminibase-worker-geo",
+    JobType.IMPORT_LEGACY: "geminibase-worker-geo",
 }

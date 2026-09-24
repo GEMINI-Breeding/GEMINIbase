@@ -21,6 +21,7 @@ from gemini.rest_api.controllers.files import FileController
 from gemini.rest_api.controllers.geojson import GeoJsonController
 from gemini.rest_api.controllers.csv_data import CsvController
 from gemini.rest_api.controllers.jobs import JobController
+from gemini.rest_api.controllers.legacy_import import LegacyImportController
 from gemini.rest_api.controllers.plot_geometry import PlotGeometryController
 from gemini.rest_api.controllers.model_management import ModelManagementController
 from gemini.rest_api.controllers.annotations import AnnotationsController
@@ -60,6 +61,7 @@ controllers = {
     "geojson": GeoJsonController,
     "csv": CsvController,
     "jobs": JobController,
+    "legacy_import": LegacyImportController,
     "plot_geometry": PlotGeometryController,
     "model_management": ModelManagementController,
     "annotations": AnnotationsController,
