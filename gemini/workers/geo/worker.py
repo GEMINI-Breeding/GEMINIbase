@@ -246,12 +246,21 @@ class GeoWorker(BaseWorker):
                 df = sync.merge_log_gps(df, log_df)
             if df["lat"].notna().sum() >= 2:
                 add_direction_columns(df)
+            df, _ = sync.fill_missing_altitude(df)
             put(track_path, df.to_csv(index=False), "text/csv")
             summary[prefix] = {"images": len(df), **df["gps_source"].value_counts().to_dict()}
             geo_rows.append(df)
 
+        # Across folders too: a folder with no altitude at all must not sit
+        # at 0 m beside one that has it.
+        geo_all, _ = sync.fill_missing_altitude(pd.concat(geo_rows, ignore_index=True))
         if p.get("write_geo_txt"):
-            put(scope + "geo.txt", sync.geo_txt(pd.concat(geo_rows)), "text/plain")
+            put(scope + "geo.txt", sync.geo_txt(geo_all), "text/plain")
+        located_rows = geo_all["lat"].notna() & geo_all["lon"].notna()
+        altitude = {
+            "estimated": int((geo_all["alt_estimated"] == True).sum()),  # noqa: E712
+            "missing": int((located_rows & geo_all["alt"].isna()).sum()),
+        }
         total = sum(v.get("images", 0) for v in summary.values())
         located = sum(int(df["lat"].notna().sum()) for df in geo_rows)
         if located == 0:
@@ -261,7 +270,7 @@ class GeoWorker(BaseWorker):
                 + "."
             )
         return {"mode": mode, "datasets": summary, "images": total, "located": located,
-                "platform_log_fixes": int(len(log_df))}
+                "platform_log_fixes": int(len(log_df)), "altitude": altitude}
 
     def _create_cog_job(self, job_id: str, parameters: dict) -> dict:
         """
