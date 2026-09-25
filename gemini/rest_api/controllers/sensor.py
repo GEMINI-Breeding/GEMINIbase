@@ -3,12 +3,11 @@ from litestar.handlers import get, post, patch, delete
 from litestar.params import Body
 from litestar.controller import Controller
 from litestar.response import Stream, Redirect
-from litestar.serialization import encode_json
+from gemini.rest_api.ndjson import ndjson_stream
 from litestar.enums import RequestEncodingType
 
 from pydantic import BaseModel
 
-from collections.abc import AsyncGenerator, Generator
 
 from gemini.api.sensor import Sensor
 from gemini.api.sensor_record import SensorRecord
@@ -24,13 +23,6 @@ from gemini.rest_api.models import (
 )
 
 from gemini.rest_api.file_handler import api_file_handler
-
-
-async def sensor_records_bytes_generator(sensor_record_generator: Generator[SensorRecord, None, None]) -> AsyncGenerator[bytes, None]:
-    for record in sensor_record_generator:
-        record = record.model_dump(exclude_none=True)
-        record = encode_json(record) + b'\n'
-        yield record
 
 
 class SensorDatasetInput(BaseModel):
@@ -343,7 +335,7 @@ class SensorController(Controller):
                 plot_row_number=plot_row_number,
                 plot_column_number=plot_column_number
             )
-            return Stream(sensor_records_bytes_generator(sensor_record_generator), media_type="application/ndjson")
+            return Stream(ndjson_stream(sensor_record_generator), media_type="application/ndjson")
         except Exception as e:
             error_message = RESTAPIError(
                 error=str(e),
@@ -378,7 +370,7 @@ class SensorController(Controller):
                 season_names=season_names,
                 site_names=site_names
             )
-            return Stream(sensor_records_bytes_generator(sensor_records), media_type="application/ndjson")
+            return Stream(ndjson_stream(sensor_records), media_type="application/ndjson")
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),

@@ -3,10 +3,9 @@ from litestar.handlers import get, post, patch, delete
 from litestar.params import Body
 from litestar.controller import Controller
 from litestar.response import Stream, Redirect
-from litestar.serialization import encode_json
+from gemini.rest_api.ndjson import ndjson_stream
 from litestar.enums import RequestEncodingType
 
-from collections.abc import AsyncGenerator, Generator
 
 from pydantic import BaseModel
 
@@ -34,12 +33,6 @@ from gemini.rest_api.file_handler import api_file_handler
 
 from typing import List, Annotated, Optional
 
-async def script_records_bytes_generator(script_record_generator: Generator[ScriptRecord, None, None]) -> AsyncGenerator[bytes, None]:
-    for record in script_record_generator:
-        record = record.model_dump(exclude_none=True)
-        record = encode_json(record) + b'\n'
-        yield record
-
 
 class ScriptScriptRunInput(BaseModel):
     script_run_info: Optional[JSONB] = {}
@@ -49,7 +42,6 @@ class ScriptDatasetInput(BaseModel):
     dataset_info: Optional[JSONB] = {}
     collection_date: Optional[str] = None
     experiment_name: Optional[str] = 'Experiment A'
-
 
 
 class ScriptController(Controller):
@@ -417,7 +409,7 @@ class ScriptController(Controller):
                 site_name=site_name,
                 collection_date=collection_date
             )
-            return Stream(script_records_bytes_generator(script_records), media_type="application/ndjson")
+            return Stream(ndjson_stream(script_records), media_type="application/ndjson")
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),
@@ -453,7 +445,7 @@ class ScriptController(Controller):
                 season_names=season_names,
                 site_names=site_names
             )
-            return Stream(script_records_bytes_generator(script_records), media_type="application/ndjson")
+            return Stream(ndjson_stream(script_records), media_type="application/ndjson")
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),

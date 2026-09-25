@@ -3,11 +3,9 @@ from litestar.handlers import get, post, patch, delete
 from litestar.params import Body
 from litestar.controller import Controller
 from litestar.response import Stream, Redirect
-from litestar.serialization import encode_json
+from gemini.rest_api.ndjson import ndjson_stream
 from litestar.enums import RequestEncodingType
 
-
-from collections.abc import AsyncGenerator, Generator
 
 from gemini.api.dataset import Dataset
 from gemini.api.dataset_record import DatasetRecord
@@ -31,13 +29,6 @@ from gemini.rest_api.models import (
 from gemini.rest_api.file_handler import api_file_handler
 
 from typing import List, Annotated, Optional
-
-
-async def dataset_records_bytes_generator(dataset_record_generator: Generator[DatasetRecord, None, None]) -> AsyncGenerator[bytes, None]:
-    for record in dataset_record_generator:
-        record = record.model_dump(exclude_none=True)
-        record = encode_json(record) + b'\n'
-        yield record
 
 
 class DatasetController(Controller):
@@ -342,7 +333,7 @@ class DatasetController(Controller):
                 site_name=site_name,
                 collection_date=collection_date
             )
-            return Stream(dataset_records_bytes_generator(records), media_type="application/ndjson")
+            return Stream(ndjson_stream(records), media_type="application/ndjson")
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),
@@ -377,7 +368,7 @@ class DatasetController(Controller):
                 season_names=season_names,
                 site_names=site_names
             )
-            return Stream(dataset_records_bytes_generator(records), media_type="application/ndjson")
+            return Stream(ndjson_stream(records), media_type="application/ndjson")
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),

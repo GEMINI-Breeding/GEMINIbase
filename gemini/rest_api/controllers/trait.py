@@ -3,12 +3,10 @@ from litestar.handlers import get, post, patch, delete
 from litestar.params import Body
 from litestar.controller import Controller
 from litestar.response import Stream
-from litestar.serialization import encode_json
+from gemini.rest_api.ndjson import ndjson_stream
 from litestar.enums import RequestEncodingType
 
 from pydantic import BaseModel
-
-from collections.abc import AsyncGenerator, Generator
 
 from sqlalchemy.exc import DBAPIError
 
@@ -28,19 +26,11 @@ from gemini.rest_api.models import (
 )
 
 
-async def trait_records_bytes_generator(trait_record_generator: Generator[TraitRecord, None, None]) -> AsyncGenerator[bytes, None]:
-    for record in trait_record_generator:
-        record = record.model_dump(exclude_none=True)
-        record = encode_json(record) + b'\n'
-        yield record
-
-
 class TraitDatasetInput(BaseModel):
     dataset_name: str
     dataset_info: Optional[JSONB] = None
     collection_date: Optional[str] = None
     experiment_name: Optional[str] = 'Experiment A'
-
 
 
 class TraitController(Controller):
@@ -410,7 +400,7 @@ class TraitController(Controller):
                 plot_column_number=plot_column_number,
                 collection_date=collection_date
             )
-            return Stream(trait_records_bytes_generator(trait_records), media_type="application/ndjson")
+            return Stream(ndjson_stream(trait_records), media_type="application/ndjson")
         except Exception as e:
             error_message = RESTAPIError(
                 error=str(e),
@@ -445,7 +435,7 @@ class TraitController(Controller):
                 season_names=season_names,
                 site_names=site_names
             )
-            return Stream(trait_records_bytes_generator(trait_records), media_type="application/ndjson")
+            return Stream(ndjson_stream(trait_records), media_type="application/ndjson")
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),
