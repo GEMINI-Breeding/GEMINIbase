@@ -357,6 +357,44 @@ def _extract_image_gps(blob: bytes) -> dict | None:
         return None
 
 
+# EXIF sits at the start of a JPEG (APP1, at most 64 KB), so GPS is read
+# from a ranged GET instead of downloading the image: finalizing an upload
+# used to pull the whole object into the API's memory, multi-GB for an
+# orthomosaic .tif.
+_EXIF_HEADER_BYTES = 256 * 1024
+# A TIFF's IFDs can sit anywhere; past the header, read the whole file only
+# when it's small (a drone frame, not an orthomosaic).
+_EXIF_TIFF_FULL_READ_MAX_BYTES = 64 * 1024 * 1024
+
+
+def _read_image_gps(bucket: str, object_name: str) -> dict | None:
+    """EXIF GPS for an image in MinIO, reading as little of it as possible."""
+    head = minio_storage_provider.download_file_range(
+        object_name=object_name,
+        offset=0,
+        length=_EXIF_HEADER_BYTES,
+        bucket_name=bucket,
+    )
+    gps = _extract_image_gps(head)
+    if gps is not None or len(head) < _EXIF_HEADER_BYTES:
+        return gps
+    if not object_name.lower().endswith((".tif", ".tiff")):
+        return None
+    size = minio_storage_provider.get_file_metadata(
+        object_name=object_name, bucket_name=bucket
+    )["size"]
+    if size > _EXIF_TIFF_FULL_READ_MAX_BYTES:
+        return None
+    stream = minio_storage_provider.download_file_stream(
+        object_name=object_name, bucket_name=bucket
+    )
+    try:
+        return _extract_image_gps(stream.read())
+    finally:
+        stream.close()
+        stream.release_conn()
+
+
 def _synced_positions(bucket: str, images_prefix: str) -> dict:
     """{image basename: {lat, lon, alt}} from the image folder's synced
     track (…/Metadata/msgs_synced.csv beside …/Images/), if there is one.
@@ -578,11 +616,10 @@ class FileController(Controller):
         ``{bucket}/{prefix}``.
 
         Reads from the ``experiment_files.metadata_json`` cache when
-        present; otherwise streams the image from MinIO, extracts EXIF
-        GPS server-side, persists the result back to the cache, and
-        includes it in the response. The first call for a freshly-
-        uploaded scope can therefore be slow; subsequent calls are a
-        single DB query.
+        present; otherwise reads the image's EXIF header from MinIO
+        (a ranged GET, in parallel), persists the result back to the
+        cache, and includes it in the response. "No GPS" is cached too
+        (``gps: null``), so those images aren't re-read on every call.
         """
         try:
             from sqlalchemy import select
@@ -636,32 +673,43 @@ class FileController(Controller):
                         ExperimentFileModel.object_name.in_(object_names),
                     )
                 ).all()
+            # obj → gps dict, or None for "checked, no GPS". Objects not
+            # in here have never been checked.
             cached = {
-                r.object_name: (r.metadata_json or {}).get("gps")
+                r.object_name: r.metadata_json["gps"]
                 for r in rows
+                if isinstance(r.metadata_json, dict) and "gps" in r.metadata_json
             }
 
             synced = _synced_positions(bucket_name, prefix)
+            missing = [
+                e["object_name"]
+                for e in image_entries
+                if e["object_name"].rsplit("/", 1)[-1] not in synced
+                and e["object_name"] not in cached
+            ]
+
+            def backfill(obj: str) -> tuple[str, dict | None]:
+                try:
+                    gps = _read_image_gps(bucket_name, obj)
+                except Exception:
+                    return obj, None  # transient: don't cache, retry next call
+                _update_experiment_file_metadata(
+                    bucket=bucket_name, object_name=obj, patch={"gps": gps}
+                )
+                return obj, gps
+
+            if missing:
+                from concurrent.futures import ThreadPoolExecutor
+
+                with ThreadPoolExecutor(max_workers=8) as pool:
+                    cached.update(pool.map(backfill, missing))
+
             out: list[ImageGpsEntry] = []
             for entry in image_entries:
                 obj = entry["object_name"]
                 basename = obj.rsplit("/", 1)[-1]
                 gps = synced.get(basename) or cached.get(obj)
-                if gps is None:
-                    # Lazy backfill — extract once, persist, return.
-                    try:
-                        stream = minio_storage_provider.download_file_stream(
-                            object_name=obj, bucket_name=bucket_name,
-                        )
-                        gps = _extract_image_gps(stream.read())
-                    except Exception:
-                        gps = None
-                    if gps is not None:
-                        _update_experiment_file_metadata(
-                            bucket=bucket_name,
-                            object_name=obj,
-                            patch={"gps": gps},
-                        )
                 if gps:
                     out.append(ImageGpsEntry(
                         name=basename,
@@ -1000,19 +1048,16 @@ class FileController(Controller):
                     # /image-gps endpoint covers any image we miss here.
                     if _is_image_object(session["object_name"]):
                         try:
-                            stream = minio_storage_provider.download_file_stream(
-                                object_name=session["object_name"],
-                                bucket_name=session["bucket_name"],
+                            gps = _read_image_gps(
+                                session["bucket_name"], session["object_name"]
                             )
-                            gps = _extract_image_gps(stream.read())
-                        except Exception:
-                            gps = None
-                        if gps is not None:
                             _update_experiment_file_metadata(
                                 bucket=session["bucket_name"],
                                 object_name=session["object_name"],
                                 patch={"gps": gps},
                             )
+                        except Exception:
+                            pass  # /image-gps backfills it later
                 # Session was popped under the lock at the
                 # finalize-decision point above; drop the per-file
                 # lock too so the dict doesn't grow unbounded.
@@ -1424,6 +1469,8 @@ class FileController(Controller):
                 object_name=object_name, bucket_name=bucket_name
             )
             img = PILImage.open(io.BytesIO(file_stream.read()))
+            # JPEG: decode at 1/2–1/8 scale instead of full resolution.
+            img.draft("RGB", (size, size))
             img.thumbnail((size, size), PILImage.LANCZOS)
 
             # Convert to WebP

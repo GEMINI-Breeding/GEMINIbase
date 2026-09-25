@@ -369,6 +369,34 @@ class MinioStorageProvider(StorageProvider):
             raise StorageDownloadError(f"Unexpected error during download: {e}")
 
 
+    def download_file_range(
+        self,
+        object_name: str,
+        offset: int,
+        length: int,
+        bucket_name: Optional[str] = None,
+    ) -> bytes:
+        """Read ``length`` bytes starting at ``offset`` (fewer at end of file)."""
+        response = None
+        try:
+            response = self.client.get_object(
+                bucket_name=self.bucket_name if bucket_name is None else bucket_name,
+                object_name=object_name,
+                offset=offset,
+                length=length,
+            )
+            return response.read()
+        except S3Error as e:
+            if 'NoSuchKey' in str(e):
+                raise StorageFileNotFoundError(f"File not found: {object_name}")
+            raise StorageDownloadError(f"Failed to download file range: {e}")
+        except ConnectionError as e:
+            raise StorageConnectionError(f"Connection failed during download: {e}")
+        finally:
+            if response is not None:
+                response.close()
+                response.release_conn()
+
     def download_file(
         self,
         object_name: str,
