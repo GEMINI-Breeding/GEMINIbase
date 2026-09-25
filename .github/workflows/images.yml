@@ -79,8 +79,12 @@ jobs:
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
           outputs: type=image,name=${{ env.REGISTRY }}/${{ matrix.image.name }},push-by-digest=true,name-canonical=true,push=true
-          cache-from: type=gha,scope=${{ matrix.image.name }}-${{ matrix.arch }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.image.name }}-${{ matrix.arch }}
+          # Build cache lives in GHCR beside the image (a buildcache-{arch}
+          # tag), not in the Actions cache: the images are public, so it's
+          # free, where 24 image/arch caches filled the repo's 10 GB Actions
+          # cache allowance (billed above it).
+          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ matrix.image.name }}:buildcache-${{ matrix.arch }}
+          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ matrix.image.name }}:buildcache-${{ matrix.arch }},mode=max,image-manifest=true,oci-mediatypes=true
 
       - name: Record digest
         run: |
