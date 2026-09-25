@@ -1,6 +1,7 @@
 import io
 import hashlib
 import threading
+import time
 
 from litestar import Response
 from litestar.handlers import get, post, patch, delete
@@ -45,8 +46,15 @@ from typing import Annotated, List
 #       "object_name": str,
 #       "parts":       dict[int, str],      # part_number (1-indexed) -> etag
 #       "total":       int,                 # expected total_chunks
+#       "touched":     float,               # time.monotonic() of last chunk
 #     }
 #   }
+#
+# A session is bound to its destination: a chunk or resume check for the
+# same file_identifier but another object/bucket/total never joins it (see
+# `_session_for_chunk`). Sessions idle for _CHUNK_SESSION_TTL_SECONDS are
+# aborted by `_sweep_stale_sessions`, so an upload abandoned by a closed tab
+# doesn't hold MinIO parts until the next API restart.
 #
 # Single-process safe (Uvicorn runs --workers=1). If we ever scale horizontally
 # this needs to move to Redis.
@@ -66,6 +74,49 @@ _chunk_uploads: dict[str, dict] = {}
 # hold the lock across the actual `upload_part` MinIO call.
 _chunk_uploads_lock = threading.Lock()
 _chunk_uploads_per_id_locks: dict[str, threading.Lock] = {}
+
+
+_CHUNK_SESSION_TTL_SECONDS = 24 * 3600
+
+
+def _abort_session(session: dict) -> None:
+    """Best-effort abort of a session's MinIO multipart upload."""
+    try:
+        minio_storage_provider.abort_multipart_upload(
+            object_name=session["object_name"],
+            upload_id=session["upload_id"],
+            bucket_name=session["bucket_name"],
+        )
+    except Exception:
+        pass
+
+
+def _drop_session(file_id: str) -> None:
+    """Forget a session and abort its multipart upload."""
+    session = _chunk_uploads.pop(file_id, None)
+    with _chunk_uploads_lock:
+        _chunk_uploads_per_id_locks.pop(file_id, None)
+    if session is not None:
+        _abort_session(session)
+
+
+def _sweep_stale_sessions() -> None:
+    """Abort sessions no chunk has touched for the TTL."""
+    now = time.monotonic()
+    stale = [
+        fid
+        for fid, sess in list(_chunk_uploads.items())
+        if now - sess.get("touched", now) > _CHUNK_SESSION_TTL_SECONDS
+    ]
+    for fid in stale:
+        _drop_session(fid)
+
+
+def _session_matches(session: dict, object_name: str, bucket_name: str) -> bool:
+    return (
+        session["object_name"] == object_name
+        and session["bucket_name"] == bucket_name
+    )
 
 
 def _lock_for_file(file_id: str) -> threading.Lock:
@@ -843,6 +894,7 @@ class FileController(Controller):
             total = data.total_chunks
             part_number = chunk_idx + 1  # S3 parts are 1-indexed
             bucket_name = data.bucket_name or minio_storage_config.bucket_name
+            _sweep_stale_sessions()
 
             # Per-file_identifier lock prevents two parallel "first
             # chunk" requests from each creating a fresh multipart
@@ -853,6 +905,16 @@ class FileController(Controller):
             file_lock = _lock_for_file(file_id)
             with file_lock:
                 session = _chunk_uploads.get(file_id)
+                if session is not None and not (
+                    _session_matches(session, data.object_name, bucket_name)
+                    and session["total"] == total
+                ):
+                    # A leftover session for another destination (or a
+                    # different chunking). Joining it would assemble this
+                    # file at the old path; start over instead.
+                    _chunk_uploads.pop(file_id, None)
+                    _abort_session(session)
+                    session = None
                 if session is None:
                     upload_id = minio_storage_provider.create_multipart_upload(
                         object_name=data.object_name,
@@ -864,8 +926,10 @@ class FileController(Controller):
                         "object_name": data.object_name,
                         "parts": {},
                         "total": total,
+                        "touched": time.monotonic(),
                     }
                     _chunk_uploads[file_id] = session
+                session["touched"] = time.monotonic()
 
             # Idempotent re-send of an already-uploaded part: skip the upload but
             # still report current progress.
@@ -899,12 +963,20 @@ class FileController(Controller):
                     _chunk_uploads.pop(file_id, None)
 
             if should_finalize:
-                minio_storage_provider.complete_multipart_upload(
-                    object_name=session["object_name"],
-                    upload_id=session["upload_id"],
-                    parts=list(session["parts"].items()),
-                    bucket_name=session["bucket_name"],
-                )
+                try:
+                    minio_storage_provider.complete_multipart_upload(
+                        object_name=session["object_name"],
+                        upload_id=session["upload_id"],
+                        parts=list(session["parts"].items()),
+                        bucket_name=session["bucket_name"],
+                    )
+                except Exception:
+                    # Put the session back so the client's retry of this
+                    # chunk (already stored, so skipped) re-attempts the
+                    # assembly. The TTL sweep aborts it if nobody retries.
+                    with file_lock:
+                        _chunk_uploads.setdefault(file_id, session)
+                    raise
                 # Phase 9j: write the authoritative pointer row so the
                 # experiment-delete cascade can sweep this object by row
                 # rather than guessing the path layout. Idempotent on
@@ -960,19 +1032,10 @@ class FileController(Controller):
                 complete=False,
             )
         except Exception as e:
-            # Best-effort abort so we don't leak an in-progress multipart upload.
-            session = _chunk_uploads.pop(file_id, None)
-            with _chunk_uploads_lock:
-                _chunk_uploads_per_id_locks.pop(file_id, None)
-            if session is not None:
-                try:
-                    minio_storage_provider.abort_multipart_upload(
-                        object_name=session["object_name"],
-                        upload_id=session["upload_id"],
-                        bucket_name=session["bucket_name"],
-                    )
-                except Exception:
-                    pass
+            # The session and its stored parts are kept: the client retries
+            # the failed chunk, and one bad chunk used to discard every part
+            # of a multi-GB upload. A client that gives up sends
+            # /abort_upload; one that vanishes is swept after the TTL.
             return Response(
                 content=RESTAPIError(error=str(e), error_description="Chunk upload failed"),
                 status_code=500,
@@ -987,11 +1050,28 @@ class FileController(Controller):
 
         If the in-memory session is gone (e.g. API container restarted), we
         cannot recover the upload_id, so resume from MinIO is not possible and
-        we report nothing uploaded — the client will start fresh.
+        we report nothing uploaded — the client will start fresh. Parts are
+        also withheld when the caller names a different destination
+        (``object_name`` / ``bucket_name``) or chunk count than the session:
+        they belong to another upload, and skipping them would assemble this
+        file at that upload's path.
         """
         file_id = data.get("file_identifier", "")
         total = int(data.get("total_chunks", 0) or 0)
         session = _chunk_uploads.get(file_id)
+        object_name = data.get("object_name")
+        if session is not None and (
+            session["total"] != total
+            or (
+                object_name is not None
+                and not _session_matches(
+                    session,
+                    object_name,
+                    data.get("bucket_name") or minio_storage_config.bucket_name,
+                )
+            )
+        ):
+            session = None
         uploaded_part_numbers = sorted(session["parts"].keys()) if session else []
         return ChunkStatusResponse(
             file_identifier=file_id,
@@ -1076,18 +1156,7 @@ class FileController(Controller):
         data: AbortUploadRequest,
     ) -> dict:
         """Cancel an in-progress multipart upload and free its session state."""
-        session = _chunk_uploads.pop(data.file_identifier, None)
-        with _chunk_uploads_lock:
-            _chunk_uploads_per_id_locks.pop(data.file_identifier, None)
-        if session is not None:
-            try:
-                minio_storage_provider.abort_multipart_upload(
-                    object_name=session["object_name"],
-                    upload_id=session["upload_id"],
-                    bucket_name=session["bucket_name"],
-                )
-            except Exception:
-                pass
+        _drop_session(data.file_identifier)
         return {"status": "ok", "file_identifier": data.file_identifier}
 
     @post(path="/clear_upload_cache", sync_to_thread=True)
@@ -1097,18 +1166,7 @@ class FileController(Controller):
     ) -> dict:
         """Backwards-compatible alias for /abort_upload."""
         file_id = data.get("file_identifier", "")
-        session = _chunk_uploads.pop(file_id, None)
-        with _chunk_uploads_lock:
-            _chunk_uploads_per_id_locks.pop(file_id, None)
-        if session is not None:
-            try:
-                minio_storage_provider.abort_multipart_upload(
-                    object_name=session["object_name"],
-                    upload_id=session["upload_id"],
-                    bucket_name=session["bucket_name"],
-                )
-            except Exception:
-                pass
+        _drop_session(file_id)
         return {"status": "ok", "file_identifier": file_id}
 
     @get(path="/presign/{file_path:path}", sync_to_thread=True)

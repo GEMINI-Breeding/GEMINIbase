@@ -288,8 +288,11 @@ class TestUploadChunk:
 
     @patch(CHUNKS_PATH, {})
     @patch(MINIO_PATH)
-    def test_upload_error_cleans_up_temps(self, mock_minio, test_client):
-        """If MinIO upload_part fails, the multipart is aborted + session dropped."""
+    def test_upload_error_keeps_session_for_retry(self, mock_minio, test_client):
+        """A failed upload_part keeps the session so the client's retry resumes.
+
+        It used to abort the multipart, discarding every stored part of a
+        multi-GB upload because of one bad chunk."""
         mock_minio.create_multipart_upload.return_value = "upload-xyz"
         mock_minio.upload_part.side_effect = Exception("MinIO down")
 
@@ -306,8 +309,112 @@ class TestUploadChunk:
         )
         assert response.status_code == 500
         from gemini.rest_api.controllers.files import _chunk_uploads
-        assert "fail-test" not in _chunk_uploads
-        mock_minio.abort_multipart_upload.assert_called_once()
+        assert _chunk_uploads["fail-test"]["parts"] == {}
+        mock_minio.abort_multipart_upload.assert_not_called()
+
+    @patch(CHUNKS_PATH, {})
+    @patch(MINIO_PATH)
+    def test_leftover_session_for_another_path_is_not_joined(self, mock_minio, test_client):
+        """Same identifier, new destination → fresh multipart at the new path.
+
+        Joining the leftover session assembled the file at the old path."""
+        from gemini.rest_api.controllers.files import _chunk_uploads
+        _chunk_uploads["same-id"] = {
+            "upload_id": "old-upload",
+            "bucket_name": "test-bucket",
+            "object_name": "Raw/ExpA/file.bin",
+            "parts": {1: "etag-1"},
+            "total": 2,
+        }
+        mock_minio.create_multipart_upload.return_value = "new-upload"
+        mock_minio.upload_part.return_value = "etag-new"
+        response = test_client.post(
+            "/api/files/upload_chunk",
+            data={
+                "chunk_index": "1",
+                "total_chunks": "2",
+                "file_identifier": "same-id",
+                "object_name": "Raw/ExpB/file.bin",
+                "bucket_name": "test-bucket",
+            },
+            files={"file_chunk": ("c.bin", io.BytesIO(b"x"), "application/octet-stream")},
+        )
+        assert response.status_code == 201
+        assert response.json()["complete"] is False
+        mock_minio.abort_multipart_upload.assert_called_once_with(
+            object_name="Raw/ExpA/file.bin", upload_id="old-upload", bucket_name="test-bucket"
+        )
+        assert mock_minio.create_multipart_upload.call_args.kwargs["object_name"] == "Raw/ExpB/file.bin"
+        assert _chunk_uploads["same-id"]["object_name"] == "Raw/ExpB/file.bin"
+        assert _chunk_uploads["same-id"]["parts"] == {2: "etag-new"}
+
+    @patch(CHUNKS_PATH, {})
+    @patch(MINIO_PATH)
+    def test_failed_assembly_restores_session(self, mock_minio, test_client):
+        """complete_multipart_upload failing leaves the session for a retry."""
+        from gemini.rest_api.controllers.files import _chunk_uploads
+        _chunk_uploads["assemble-fail"] = {
+            "upload_id": "u",
+            "bucket_name": "test-bucket",
+            "object_name": "o.bin",
+            "parts": {1: "etag-1"},
+            "total": 2,
+        }
+        mock_minio.upload_part.return_value = "etag-2"
+        mock_minio.complete_multipart_upload.side_effect = [Exception("slow down"), None]
+        form = {
+            "chunk_index": "1",
+            "total_chunks": "2",
+            "file_identifier": "assemble-fail",
+            "object_name": "o.bin",
+            "bucket_name": "test-bucket",
+        }
+
+        def send():
+            return test_client.post(
+                "/api/files/upload_chunk",
+                data=form,
+                files={"file_chunk": ("c.bin", io.BytesIO(b"x"), "application/octet-stream")},
+            )
+
+        assert send().status_code == 500
+        assert _chunk_uploads["assemble-fail"]["parts"] == {1: "etag-1", 2: "etag-2"}
+        retry = send()
+        assert retry.status_code == 201
+        assert retry.json()["complete"] is True
+        assert mock_minio.upload_part.call_count == 1  # retry didn't re-send the part
+        assert "assemble-fail" not in _chunk_uploads
+
+    @patch(CHUNKS_PATH, {})
+    @patch(MINIO_PATH)
+    def test_idle_sessions_are_swept(self, mock_minio, test_client):
+        import time
+        from gemini.rest_api.controllers import files
+        files._chunk_uploads["abandoned"] = {
+            "upload_id": "u-old",
+            "bucket_name": "b",
+            "object_name": "old.bin",
+            "parts": {1: "e"},
+            "total": 3,
+            "touched": time.monotonic() - files._CHUNK_SESSION_TTL_SECONDS - 1,
+        }
+        mock_minio.create_multipart_upload.return_value = "u-new"
+        mock_minio.upload_part.return_value = "e1"
+        test_client.post(
+            "/api/files/upload_chunk",
+            data={
+                "chunk_index": "0",
+                "total_chunks": "2",
+                "file_identifier": "fresh",
+                "object_name": "new.bin",
+                "bucket_name": "b",
+            },
+            files={"file_chunk": ("c.bin", io.BytesIO(b"x"), "application/octet-stream")},
+        )
+        assert "abandoned" not in files._chunk_uploads
+        mock_minio.abort_multipart_upload.assert_called_once_with(
+            object_name="old.bin", upload_id="u-old", bucket_name="b"
+        )
 
 
 class TestCheckUploadedChunks:
@@ -332,6 +439,27 @@ class TestCheckUploadedChunks:
         assert data["uploaded_part_numbers"] == [1, 2]
         assert data["total_chunks"] == 5
         assert data["complete"] is False
+
+    @patch(CHUNKS_PATH, {
+        "existing-file": {
+            "upload_id": "u",
+            "bucket_name": "b",
+            "object_name": "Raw/ExpA/o",
+            "parts": {1: "etag-1"},
+            "total": 5,
+        }
+    })
+    def test_withholds_parts_of_a_session_for_another_path(self, test_client):
+        response = test_client.post(
+            "/api/files/check_uploaded_chunks",
+            json={
+                "file_identifier": "existing-file",
+                "total_chunks": 5,
+                "object_name": "Raw/ExpB/o",
+                "bucket_name": "b",
+            },
+        )
+        assert response.json()["uploaded_part_numbers"] == []
 
     @patch(CHUNKS_PATH, {})
     def test_returns_zero_for_unknown(self, test_client):
