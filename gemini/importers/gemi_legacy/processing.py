@@ -205,6 +205,12 @@ class Copier:
         if not rel:
             return None
         p = self.data_dir / rel
+        # Like plan._walk: a symlink out of the old data folder isn't followed.
+        try:
+            if not p.resolve().is_relative_to(self.data_dir.resolve()):
+                return None
+        except OSError:
+            return None
         return p if p.is_file() else None
 
     def put_file(self, src: Path, key: str) -> None:
@@ -232,9 +238,16 @@ class Importer:
         self.result: dict[str, Any] = {
             "workspaces": 0, "pipelines": 0, "runs": 0, "ortho_versions": 0,
             "boundary_versions": 0, "trait_datasets": 0, "plot_markings": 0, "stitches": 0,
-            "reference_datasets": 0, "archive_files": 0, "failed": [],
+            "reference_datasets": 0, "archive_files": 0, "failed": [], "notes": [],
         }
         self.uploads = {u.id: u for u in db.uploads()}
+        # Loaded once (not per run): big databases have many plot records.
+        self._trait_records: dict[str, list] = {}
+        for t in db.trait_records():
+            self._trait_records.setdefault(t.run_id, []).append(t)
+        self._plot_records: dict[str, list] = {}
+        for pr in db.plot_records():
+            self._plot_records.setdefault(pr.trait_record_id, []).append(pr)
 
     # -- helpers --------------------------------------------------------
     def _json(self, resp):
@@ -280,10 +293,16 @@ class Importer:
         plots_by_ds: dict[str, list] = {}
         for p in self.db.reference_plots():
             plots_by_ds.setdefault(p.dataset_id, []).append(p)
-        existing = {d.get("name") for d in (self._json(self.http.get("/api/reference_data")) or [])}
+        # Keyed by the old dataset's id, not its name: names aren't unique
+        # (two old "Yield" datasets, or one the user made here, must not
+        # stand in for each other).
+        done = {
+            (d.get("dataset_info") or {}).get("legacy_reference_id")
+            for d in (self._json(self.http.get("/api/reference_data")) or [])
+        }
         for ds in self.db.reference_datasets():
             try:
-                if ds.name in existing:
+                if ds.id in done:
                     continue
                 self.progress(f"Reference data: {ds.name}")
                 original = None
@@ -309,7 +328,8 @@ class Importer:
                                 *[p.traits.get(t, "") for t in traits]])
                 mapping = {"plot_id": "plot_id", "row": "row", "col": "col", "accession": "accession",
                            **{t: t for t in traits}}
-                params = {"name": ds.name, "column_mapping_json": json.dumps(mapping)}
+                params = {"name": ds.name, "column_mapping_json": json.dumps(mapping),
+                          "legacy_reference_id": ds.id}
                 for k, v in (("experiment", ds.experiment), ("location", ds.location),
                              ("population", ds.population), ("date", _iso_date(ds.date or "") and ds.date),
                              ("original_object", original)):
@@ -383,43 +403,56 @@ class Importer:
         })
         self.result["runs"] += 1
 
+    def _part(self, what: str, fn: Callable[[], Any]) -> Any:
+        """Run one part of a run's import; a failure is recorded (it shows
+        under "Couldn't import", and re-importing retries it) without
+        abandoning the rest of the run."""
+        try:
+            return fn()
+        except Exception as exc:  # noqa: BLE001
+            self._fail(what, exc)
+            return None
+
     def _aerial(self, run: LegacyRun, s: dict, directory: str, tag: str, steps: dict) -> None:
         o = run.outputs
         now = _iso(run.completed_at or run.created_at)
+        label = f"{run.date} {run.platform}/{run.sensor}"
+
         # Orthomosaic versions.
         versions = []
         for e in sorted(_ortho_entries(o), key=lambda e: e.get("version") or 0):
-            n = e.get("version") or 1
-            base = f"odm_orthophoto-gemi-{tag}-v{n}"
-            rgb = self.copier.source(e.get("rgb"))
-            if not rgb:
-                continue
-            self.copier.put_file(rgb, f"{directory}{base}.tif")
-            dem = self.copier.source(e.get("dem"))
-            if dem:
-                self.copier.put_file(dem, f"{directory}odm_dsm-gemi-{tag}-v{n}.tif")
-            pyr = self.copier.source(e.get("pyramid"))
-            if pyr:
-                self.copier.put_file(pyr, f"{directory}{base}-Pyramid.tif")
-            versions.append({"filename": f"{base}.tif", "path": f"{self.bucket}/{directory}{base}.tif",
-                             "label": e.get("name") or f"v{n} (GEMI)", "source": "RUN_ODM",
-                             "createdAt": _iso(e.get("created_at"))})
-            self.result["ortho_versions"] += 1
+            v = self._part(f"{label}: orthomosaic v{e.get('version') or 1}",
+                           lambda e=e: self._ortho_version(e, directory, tag))
+            if v:
+                versions.append(v)
+                self.result["ortho_versions"] += 1
         if versions:
             steps["data_sync"] = {"status": "skipped", "jobIds": []}
             steps["orthomosaic"] = {"status": "completed", "jobIds": [], "completedAt": now,
                                     "outputs": {"versions": versions}}
+
         # Plot boundary versions (+ plots).
         features_by_version: dict[int, dict] = {}
         accessions: set[str] = set()
         for b in sorted(o.get("plot_boundaries") or [], key=lambda b: b.get("version") or 0):
             src = self.copier.source(b.get("geojson_path"))
             if not src:
+                self._fail(f"{label}: boundary v{b.get('version')}",
+                           FileNotFoundError(f"{b.get('geojson_path')} is not in the data folder"))
                 continue
-            fc = canonical_boundaries(json.loads(src.read_text()))
+            fc = self._part(f"{label}: boundary v{b.get('version')}",
+                            lambda src=src: canonical_boundaries(json.loads(src.read_text())))
+            if fc is None:
+                continue
             features_by_version[b.get("version") or 0] = fc
             accessions |= {str(f["properties"]["accession"]) for f in fc["features"]
                            if f["properties"].get("accession")}
+            no_plot = sum(1 for f in fc["features"] if f["properties"].get("plot") is None)
+            if no_plot:
+                self.result["notes"].append(
+                    f"{label}: {no_plot} plot(s) in boundary \"{b.get('name') or b.get('version')}\" have no "
+                    "whole-number plot id, so no plot was created for them (the shapes are kept in the version)"
+                )
         self._accessions(accessions, s["experiment"], s["population"])
         new_versions: dict[int, tuple[int, str]] = {}
         for b in sorted(o.get("plot_boundaries") or [], key=lambda b: b.get("version") or 0):
@@ -427,61 +460,120 @@ class Importer:
             if v not in features_by_version:
                 continue
             name = b.get("name") or f"v{v} (GEMI)"
-            new_v = self._save_version(directory, name, {"boundaries": features_by_version[v],
-                                                          "created_from": "import"})
-            new_versions[v] = (new_v, name)
-            self.result["boundary_versions"] += 1
+            new_v = self._part(f"{label}: boundary \"{name}\"", lambda v=v, name=name: self._save_version(
+                directory, name, {"boundaries": features_by_version[v], "created_from": "import"}))
+            if new_v is not None:
+                new_versions[v] = (new_v, name)
+                self.result["boundary_versions"] += 1
         active_old = o.get("active_plot_boundary_version") or (max(new_versions) if new_versions else None)
         if active_old in new_versions:
             nv, nname = new_versions[active_old]
-            self._json(self.http.post("/api/plot_geometry/versions/activate",
-                                      json={"directory": directory, "version": nv}))
-            steps["plot_boundary_prep"] = {"status": "completed", "jobIds": [], "completedAt": now,
-                                           "outputs": {"activeVersion": nv, "activeVersionName": nname}}
-        # Traits.
+            activated = self._part(f"{label}: activating boundary \"{nname}\"", lambda: self._json(
+                self.http.post("/api/plot_geometry/versions/activate",
+                               json={"directory": directory, "version": nv})) or {})
+            if activated is not None:
+                steps["plot_boundary_prep"] = {"status": "completed", "jobIds": [], "completedAt": now,
+                                               "outputs": {"activeVersion": nv, "activeVersionName": nname}}
+
+        # Traits: one dataset per old trait record.
         acc_by_plot = {}
         for fc in features_by_version.values():
             for f in fc["features"]:
                 p = f["properties"]
                 if p.get("plot") is not None and p.get("accession"):
                     acc_by_plot[str(p["plot"])] = str(p["accession"])
-        records = [pr for pr in self.db.plot_records()]
-        for tr in (t for t in self.db.trait_records() if t.run_id == run.id):
-            rows = [pr for pr in records if pr.trait_record_id == tr.id]
-            if rows and self._traits(tr, rows, s):
+        for tr in self._trait_records.get(run.id, []):
+            rows = self._plot_records.get(tr.id, [])
+            if not rows:
+                continue
+            done = self._part(f"{label}: plot traits v{tr.version}", lambda tr=tr, rows=rows: self._traits(tr, rows, s))
+            if done is None:
+                continue  # failed: recorded, and retried by the next import
+            if done:
                 self.result["trait_datasets"] += 1
-                steps["trait_extraction"] = {"status": "completed", "jobIds": [], "completedAt": now}
+            steps["trait_extraction"] = {"status": "completed", "jobIds": [], "completedAt": now}
+
         # Cropped plot images.
-        self._plot_images(o.get("cropped_images"), directory, acc_by_plot)
+        self._part(f"{label}: plot images", lambda: self._plot_images(o.get("cropped_images"), directory, acc_by_plot))
+
+    def _ortho_version(self, e: dict, directory: str, tag: str) -> Optional[dict]:
+        n = e.get("version") or 1
+        base = f"odm_orthophoto-gemi-{tag}-v{n}"
+        rgb = self.copier.source(e.get("rgb"))
+        if not rgb:
+            raise FileNotFoundError(f"{e.get('rgb')} is not in the data folder")
+        self.copier.put_file(rgb, f"{directory}{base}.tif")
+        dem = self.copier.source(e.get("dem"))
+        if dem:
+            self.copier.put_file(dem, f"{directory}odm_dsm-gemi-{tag}-v{n}.tif")
+        pyr = self.copier.source(e.get("pyramid"))
+        if pyr:
+            self.copier.put_file(pyr, f"{directory}{base}-Pyramid.tif")
+        return {"filename": f"{base}.tif", "path": f"{self.bucket}/{directory}{base}.tif",
+                "label": e.get("name") or f"v{n} (GEMI)", "source": "RUN_ODM",
+                "createdAt": _iso(e.get("created_at"))}
 
     def _traits(self, tr, rows, s: dict) -> bool:
+        """One old trait record → a dataset of trait records. The dataset
+        is marked import_complete only after every record is in; a dataset
+        found without the mark is an interrupted import, so it's deleted
+        (which sweeps its partial records) and imported again. Returns
+        False if it was already complete."""
         E = s["experiment"]
         name = (f"Traits from GEMI · {E} · {s['season']}/{s['site']}/{s['population']} · "
                 f"{s['date']} {s['platform']}/{s['sensor']} · v{tr.version}")
-        if self.api._find("/api/datasets", {"dataset_name": name, "experiment_name": E}, "dataset_name", name):
+        found = self.api._find("/api/datasets", {"dataset_name": name, "experiment_name": E}, "dataset_name", name)
+        if found and (found.get("dataset_info") or {}).get("import_complete"):
             return False
-        self.api.dataset(name, E, {"source": "GEMI import", "legacy_trait_record_id": tr.id},
-                         collection_date=_iso_date(s["date"]))
+        if found:
+            self._json(self.http.delete(f"/api/datasets/id/{found['id']}"))
+            self.api._cache.pop(("/api/datasets", name, E), None)
+        info = {"source": "GEMI import", "legacy_trait_record_id": tr.id}
+        ds = self.api.dataset(name, E, info, collection_date=_iso_date(s["date"]))
         trait_names = tr.trait_columns or sorted({k for r in rows for k in r.traits})
         stamp = f"{s['date']}T00:00:00" if _iso_date(s["date"]) else None
+        unlinked = 0
         for t in trait_names:
             trait = self.api.find_or_create("/api/traits", "trait_name", t, E,
                                             {"trait_units": "", "trait_level_id": 2})
             recs = []
             for r in rows:
                 v = r.traits.get(t)
-                if v is None or as_int(r.plot_id) is None:
-                    continue
-                recs.append({"trait_value": v, "plot_number": as_int(r.plot_id),
-                             "plot_row_number": as_int(r.row), "plot_column_number": as_int(r.col),
-                             "record_info": {"source": "GEMI import", "legacy_trait_record_id": tr.id},
-                             **({"timestamp": stamp} if stamp else {})})
+                if v is None:
+                    continue  # no value for this trait on this plot
+                plot = as_int(r.plot_id)
+                rec = {"trait_value": v,
+                       "record_info": {"source": "GEMI import", "legacy_trait_record_id": tr.id,
+                                       "legacy_plot_id": r.plot_id,
+                                       **({"legacy_accession": r.accession} if r.accession else {})},
+                       **({"timestamp": stamp} if stamp else {})}
+                # Every record carries the plot keys (None when unlinked): a
+                # bulk insert needs the same keys in every row.
+                # (Row/col only go with a plot number: the API refuses them
+                # alone. Unlinked values keep them in record_info.)
+                linked = plot is not None
+                rec.update(plot_number=plot, plot_row_number=as_int(r.row) if linked else None,
+                           plot_column_number=as_int(r.col) if linked else None)
+                if plot is None:
+                    # Plot numbers are integers here; "101A" can't be one.
+                    # Keep the value, unlinked, with the old plot id and
+                    # row/col in record_info — never drop it.
+                    rec["record_info"].update(legacy_row=r.row, legacy_col=r.col)
+                    unlinked += 1
+                recs.append(rec)
             for i in range(0, len(recs), 500):
                 self._json(self.http.post(f"/api/traits/id/{trait['id']}/records/bulk", json={
                     "records": recs[i:i + 500], "experiment_name": E, "season_name": s["season"],
                     "site_name": s["site"], "population_name": s["population"], "dataset_name": name,
                     **({"collection_date": stamp} if stamp else {}),
                 }))
+        self._json(self.http.patch(f"/api/datasets/id/{ds['id']}",
+                                   json={"dataset_info": {**info, "import_complete": True}}))
+        if unlinked:
+            self.result["notes"].append(
+                f"{unlinked} trait value(s) in \"{name}\" kept without a plot link: their old plot "
+                "ids aren't whole numbers (the old id, row and column are kept with each value)"
+            )
         return True
 
     def _plot_images(self, cropped_dir: Optional[str], directory: str, acc_by_plot: dict) -> None:
@@ -496,45 +588,59 @@ class Importer:
     def _ground(self, run: LegacyRun, s: dict, directory: str, steps: dict, short_ids: list) -> None:
         o = run.outputs
         now = _iso(run.completed_at or run.created_at)
+        label = f"{run.date} {run.platform}/{run.sensor}"
         marks_dir = f"Processed/{s['season']}/{s['experiment']}/{s['site']}/{s['population']}/PlotMarkings"
         track_root = (f"Raw/{s['season']}/{s['experiment']}/{s['site']}/{s['population']}/{s['date']}/"
                       f"{s['platform']}/{s['sensor']}/{short_ids[0]}" if short_ids else None)
-        saved = {}
-        for m in sorted(o.get("plot_markings") or [], key=lambda m: m.get("version") or 0):
+
+        def marking(m: dict) -> tuple[int, int]:
             src = self.copier.source(m.get("csv_path"))
             if not src:
-                continue
+                raise FileNotFoundError(f"{m.get('csv_path')} is not in the data folder")
             sels = selections_from_csv(src.read_text())
             snap = {"selections": sels, "track": {
                 "imagesPrefix": f"{self.bucket}/{track_root}/RGB/Images/top/" if track_root else "",
                 "msgsSyncedPath": f"{self.bucket}/{track_root}/RGB/Metadata/msgs_synced.csv" if track_root else None,
             }}
-            name = m.get("name") or f"v{m.get('version')} (GEMI)"
-            saved[m.get("version")] = (self._save_version(marks_dir, name, snap), len(sels))
-            self.result["plot_markings"] += 1
+            return self._save_version(marks_dir, m.get("name") or f"v{m.get('version')} (GEMI)", snap), len(sels)
+
+        saved = {}
+        for m in sorted(o.get("plot_markings") or [], key=lambda m: m.get("version") or 0):
+            r = self._part(f"{label}: plot marking v{m.get('version')}", lambda m=m: marking(m))
+            if r:
+                saved[m.get("version")] = r
+                self.result["plot_markings"] += 1
         active = o.get("active_plot_marking_version")
         if active in saved:
             v, count = saved[active]
-            self._json(self.http.post("/api/plot_geometry/versions/activate",
-                                      json={"directory": marks_dir, "version": v}))
-            steps["plot_marking"] = {"status": "completed", "jobIds": [], "completedAt": now,
-                                     "outputs": {"directory": marks_dir, "version": v, "plots": count}}
-        # Stitch versions: next free AgRowStitch_v{N}; a marker says which
-        # old stitch it came from, so a re-run doesn't copy it again.
-        for st in sorted(o.get("stitchings") or [], key=lambda x: x.get("version") or 0):
+            if self._part(f"{label}: activating plot marking", lambda: self._json(self.http.post(
+                    "/api/plot_geometry/versions/activate", json={"directory": marks_dir, "version": v})) or {}
+                    ) is not None:
+                steps["plot_marking"] = {"status": "completed", "jobIds": [], "completedAt": now,
+                                         "outputs": {"directory": marks_dir, "version": v, "plots": count}}
+
+        # Stitch versions: next free AgRowStitch_v{N}. The marker saying
+        # which old stitch it came from is written FIRST, so an interrupted
+        # copy is finished in the same folder by the next import instead of
+        # leaving a partial duplicate.
+        def stitch(st: dict) -> None:
             rel = norm_rel_path(st.get("dir"), self.copier.old_root)
             if not rel or not (self.data_dir / rel).is_dir():
-                continue
+                raise FileNotFoundError(f"{st.get('dir')} is not in the data folder")
             marker = {"imported_from": "GEMI", "legacy_run_id": run.id, "legacy_version": st.get("version")}
             target = self._stitch_dir(directory, marker)
-            for p in sorted((self.data_dir / rel).rglob("*")):
-                if p.is_file():
-                    self.copier.put_file(p, f"{target}{p.relative_to(self.data_dir / rel).as_posix()}")
             self.copier.put_bytes(json.dumps(marker).encode(), f"{target}imported_from_gemi.json",
                                   "application/json")
-            self.result["stitches"] += 1
-            steps["stitching"] = {"status": "completed", "jobIds": [], "completedAt": now}
-        self._plot_images(o.get("cropped_images"), directory, {})
+            root = (self.data_dir / rel).resolve()
+            for p in sorted((self.data_dir / rel).rglob("*")):
+                if p.is_file() and p.resolve().is_relative_to(root):
+                    self.copier.put_file(p, f"{target}{p.relative_to(self.data_dir / rel).as_posix()}")
+
+        for st in sorted(o.get("stitchings") or [], key=lambda x: x.get("version") or 0):
+            if self._part(f"{label}: stitch v{st.get('version')}", lambda st=st: stitch(st) or True):
+                self.result["stitches"] += 1
+                steps["stitching"] = {"status": "completed", "jobIds": [], "completedAt": now}
+        self._part(f"{label}: plot images", lambda: self._plot_images(o.get("cropped_images"), directory, {}))
 
     def _stitch_dir(self, directory: str, marker: dict) -> str:
         storage = self.copier.storage

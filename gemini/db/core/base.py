@@ -34,6 +34,27 @@ db_engine = DatabaseEngine(db_config)
 
 logger = logging.getLogger(__name__)
 
+
+
+def _same_keys(rows) -> list:
+    """Split rows into runs that share the same keys, in order.
+
+    A multi-row execute needs every row to carry the same columns. Callers
+    drop None fields per row (so column defaults apply), so one batch can
+    mix rows with and without e.g. plot_number — which failed with "A value
+    is required for bind parameter …". Each group is one executemany, in the
+    same session/transaction.
+    """
+    groups: list = []
+    keys = None
+    for row in rows:
+        k = tuple(sorted(row))
+        if not groups or k != keys:
+            groups.append([])
+            keys = k
+        groups[-1].append(row)
+    return groups
+
 class BaseModel(DeclarativeBase, SerializeMixin):
     """
     Base class for all SQLAlchemy models in GEMINI.
@@ -339,8 +360,10 @@ class BaseModel(DeclarativeBase, SerializeMixin):
         with db_engine.get_session() as session:
             table = cls.__table__
             stmt = pg_insert(table).on_conflict_do_nothing(constraint=constraint).returning(table.c.id)
-            inserted_records = session.execute(stmt, data, execution_options={"populate_existing": True})
-            inserted_ids = [record.id for record in inserted_records]
+            inserted_ids = []
+            for group in _same_keys(data):
+                inserted_records = session.execute(stmt, group, execution_options={"populate_existing": True})
+                inserted_ids += [record.id for record in inserted_records]
             return inserted_ids
         
         
@@ -364,8 +387,10 @@ class BaseModel(DeclarativeBase, SerializeMixin):
                 constraint=constraint,
                 set_={upsert_on: insert_stmt.excluded[upsert_on]}
             ).returning(table.c.id)
-            inserted_records = session.execute(stmt, data, execution_options={"populate_existing": True})
-            inserted_ids = [record.id for record in inserted_records]
+            inserted_ids = []
+            for group in _same_keys(data):
+                inserted_records = session.execute(stmt, group, execution_options={"populate_existing": True})
+                inserted_ids += [record.id for record in inserted_records]
             return inserted_ids
         
 

@@ -902,6 +902,8 @@ class Dataset(APIBase):
                     record_info=record_info[i] if record_info else {},
                     insert_on_create=False
                 )
+                if dataset_record is None:  # create() logged why
+                    raise ValueError(f"Record {i + 1} of {timestamps_length} is invalid; nothing was inserted.")
                 dataset_records.append(dataset_record)
             success, inserted_record_ids = DatasetRecord.insert(dataset_records)
             if not success:

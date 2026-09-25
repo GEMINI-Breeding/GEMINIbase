@@ -1068,6 +1068,8 @@ class Sensor(APIBase):
                     record_info=record_info[i] if record_info else {},
                     insert_on_create=False
                 )
+                if sensor_record is None:  # create() logged why
+                    raise ValueError(f"Record {i + 1} of {timestamps_length} is invalid; nothing was inserted.")
                 sensor_records.append(sensor_record)
 
             success, inserted_record_ids = SensorRecord.insert(sensor_records)

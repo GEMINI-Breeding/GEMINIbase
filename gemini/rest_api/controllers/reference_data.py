@@ -126,6 +126,16 @@ def _original_object_info(original_object: Optional[str]) -> Optional[dict]:
     return None
 
 
+def _upload_info(original_object: Optional[str], legacy_reference_id: Optional[str]) -> Optional[dict]:
+    """dataset_info for an upload: the original file's pointer, plus — for
+    the previous-GEMI importer — the old dataset's id, which is how a
+    re-import knows it already brought this one in (names aren't unique)."""
+    info = dict(_original_object_info(original_object) or {})
+    if legacy_reference_id:
+        info["legacy_reference_id"] = legacy_reference_id
+    return info or None
+
+
 def _dataset_to_output(
     dataset: ReferenceDataset, plot_count: Optional[int] = None
 ) -> ReferenceDatasetOutput:
@@ -193,6 +203,7 @@ class ReferenceDataController(Controller):
         population: Optional[str] = None,
         date: Optional[str] = None,
         original_object: Optional[str] = None,
+        legacy_reference_id: Optional[str] = None,
     ) -> ReferenceDatasetOutput:
         try:
             try:
@@ -271,7 +282,7 @@ class ReferenceDataController(Controller):
                 population=population,
                 dataset_date=dataset_date_parsed,
                 trait_columns=trait_columns,
-                dataset_info=_original_object_info(original_object),
+                dataset_info=_upload_info(original_object, legacy_reference_id),
             )
             if dataset is None:
                 error = RESTAPIError(

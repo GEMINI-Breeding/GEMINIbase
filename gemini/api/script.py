@@ -934,6 +934,8 @@ class Script(APIBase):
                     record_info = record_info[i] if record_info else {},
                     insert_on_create=False
                 )
+                if script_record is None:  # create() logged why
+                    raise ValueError(f"Record {i + 1} of {timestamps_length} is invalid; nothing was inserted.")
                 script_records.append(script_record)
 
             success, inserted_record_ids = ScriptRecord.insert(script_records)
