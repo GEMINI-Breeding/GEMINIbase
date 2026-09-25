@@ -1,4 +1,6 @@
 import os
+import re
+import uuid
 from litestar.datastructures import UploadFile
 
 class RESTAPIFileHandler:
@@ -15,13 +17,22 @@ class RESTAPIFileHandler:
             os.makedirs(self.downloads_folder)
 
     async def create_file(self, uploaded_file: UploadFile) -> str:
-        original_file_name = uploaded_file.filename
+        """Save an upload under a fresh name in the uploads folder.
+
+        The client's filename is never part of the path: it used to be
+        joined in as-is, so ``../../app/x.py`` or an absolute path wrote
+        anywhere the API could, and two uploads with the same name
+        overwrote each other. Only its extension is kept — the record
+        code derives the storage key's extension from it.
+        """
+        ext = os.path.splitext(os.path.basename(uploaded_file.filename or ""))[1]
+        if not re.fullmatch(r"\.[A-Za-z0-9]{1,16}", ext):
+            ext = ""
         file_content = await uploaded_file.read()
-        local_file_path = os.path.join(self.uploads_folder, original_file_name)
+        local_file_path = os.path.join(self.uploads_folder, f"{uuid.uuid4().hex}{ext}")
         with open(local_file_path, "wb") as f:
             f.write(file_content)
-        local_file_path = os.path.abspath(local_file_path)
-        return local_file_path
+        return os.path.abspath(local_file_path)
 
 # Create a File Handler for uploads and downloads
 home_dir = os.path.expanduser("~")
