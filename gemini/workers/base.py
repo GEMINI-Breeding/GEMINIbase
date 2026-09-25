@@ -16,6 +16,7 @@ import logging
 import math
 import os
 import signal
+import threading
 import time
 from abc import ABC, abstractmethod
 from typing import Any, Set
@@ -24,6 +25,11 @@ import redis
 
 from gemini.workers.auth import session_from_env
 from gemini.workers.types import JobType, JobStatus
+
+# Seconds between liveness pings for a running job. Mirrors
+# gemini.api.job_reaper.HEARTBEAT_INTERVAL_SECONDS (not imported: workers
+# don't carry the DB stack). The API fails a RUNNING job whose pings stop.
+HEARTBEAT_INTERVAL_SECONDS = 30
 
 logger = logging.getLogger(__name__)
 
@@ -231,12 +237,22 @@ class BaseWorker(ABC):
         process_failed = False
         result: dict | None = None
         process_error: Exception | None = None
+        stop_heartbeat = threading.Event()
+        heartbeat = threading.Thread(
+            target=self._heartbeat,
+            args=(job_id, stop_heartbeat),
+            name=f"heartbeat-{job_id[:8]}",
+            daemon=True,
+        )
+        heartbeat.start()
         try:
             result = self.process(job_id, job_type, parameters)
         except Exception as e:
             process_failed = True
             process_error = e
             logger.error(f"Job {job_id} failed: {e}")
+        finally:
+            stop_heartbeat.set()
 
         if process_failed:
             self._report_terminal_status(
@@ -283,6 +299,19 @@ class BaseWorker(ABC):
             outcome_label="completion",
         )
         logger.info(f"Job {job_id} completed successfully")
+
+    def _heartbeat(self, job_id: str, stop: threading.Event) -> None:
+        """Ping the API while `process()` runs, so the reaper knows we're alive.
+
+        Progress PATCHes also count, but many steps (a long NodeODM stage,
+        GEMMA, a big download) report nothing for minutes. Failures are
+        logged and ignored; the reaper only acts after several missed pings.
+        """
+        while not stop.wait(HEARTBEAT_INTERVAL_SECONDS):
+            try:
+                self._http.post(f"/api/jobs/{job_id}/heartbeat", timeout=10)
+            except Exception as e:
+                logger.warning(f"Heartbeat for job {job_id} failed: {e}")
 
     def _report_terminal_status(
         self,

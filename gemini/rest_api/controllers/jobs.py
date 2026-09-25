@@ -278,6 +278,17 @@ class JobController(Controller):
                 status_code=500,
             )
 
+    @post(path="/{job_id:str}/heartbeat", sync_to_thread=True, status_code=200)
+    def heartbeat(self, job_id: str) -> dict:
+        """Worker liveness ping for a RUNNING job (see gemini.api.job_reaper).
+
+        Only bumps updated_at: no status change and no progress event.
+        ``running`` is false once the job has left RUNNING (e.g. cancelled).
+        """
+        from gemini.api.job_reaper import touch_job
+
+        return {"running": touch_job(job_id)}
+
     @patch(path="/{job_id:str}/status", sync_to_thread=True)
     def update_job_status(self, job_id: str,
                           data: Annotated[JobStatusUpdate, Body]) -> JobOutput:

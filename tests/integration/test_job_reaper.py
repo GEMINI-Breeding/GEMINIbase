@@ -2,8 +2,8 @@
 Integration tests for the orphaned-job reaper.
 
 Hits a real PostgreSQL database — no mocks. The reaper sweeps stale
-PENDING/RUNNING jobs whose `updated_at` is older than the threshold,
-marking them FAILED with a clear error_message.
+RUNNING jobs whose `updated_at` is older than the threshold, marking them
+FAILED with a clear error_message. PENDING jobs are queued, not orphaned.
 """
 import pytest
 from sqlalchemy import text
@@ -40,9 +40,10 @@ def _get_job(session, job_id: str) -> dict:
 
 
 class TestJobReaper:
-    def test_reaper_marks_only_stale_running_or_pending_as_failed(self, setup_real_db):
+    def test_reaper_marks_only_stale_running_as_failed(self, setup_real_db):
         """The reaper should:
-        - Mark stale RUNNING and stale PENDING as FAILED.
+        - Mark stale RUNNING as FAILED.
+        - Leave PENDING alone however old: it is waiting for a busy worker.
         - Leave fresh RUNNING and fresh PENDING alone (worker is still alive).
         - Leave terminal-state jobs (COMPLETED/FAILED/CANCELLED) alone, even
           if they're old — those are correctly closed and shouldn't be touched.
@@ -64,17 +65,17 @@ class TestJobReaper:
         reaped = reap_orphaned_jobs(stale_after_seconds=threshold)
 
         reaped_ids = {r[0] for r in reaped}
-        assert reaped_ids == {stale_running, stale_pending}, (
-            f"reaper should sweep exactly the two stale rows, got {reaped_ids}"
+        assert reaped_ids == {stale_running}, (
+            f"reaper should sweep exactly the stale RUNNING row, got {reaped_ids}"
         )
 
         with engine.get_session() as session:
             assert _get_job(session, stale_running)["status"] == "FAILED"
-            assert _get_job(session, stale_pending)["status"] == "FAILED"
+            assert _get_job(session, stale_pending)["status"] == "PENDING"
             # Error message should be present and informative
             stale_msg = _get_job(session, stale_running)["error_message"]
             assert stale_msg is not None
-            assert "Orphaned" in stale_msg
+            assert "Interrupted" in stale_msg
             assert str(threshold) in stale_msg
             # completed_at should be set on reaped rows
             assert _get_job(session, stale_running)["completed_at"] is not None
@@ -113,3 +114,19 @@ class TestJobReaper:
             _insert_job(session, "COMPLETED", age_seconds=99999)
 
         assert reap_orphaned_jobs(stale_after_seconds=60) == []
+
+
+class TestHeartbeat:
+    def test_touch_keeps_a_running_job_off_the_reaper(self, setup_real_db):
+        from gemini.api.job_reaper import reap_orphaned_jobs, touch_job
+
+        engine = setup_real_db
+        with engine.get_session() as session:
+            running = _insert_job(session, "RUNNING", age_seconds=300)
+            cancelled = _insert_job(session, "CANCELLED", age_seconds=300)
+
+        assert touch_job(running) is True
+        assert touch_job(cancelled) is False  # not RUNNING → not touched
+        assert reap_orphaned_jobs(stale_after_seconds=60) == []
+        with engine.get_session() as session:
+            assert _get_job(session, running)["status"] == "RUNNING"
