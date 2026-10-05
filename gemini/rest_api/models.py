@@ -1503,6 +1503,10 @@ class ParseHeadersRequest(RESTAPIBase):
 
 class ParseHeadersResponse(RESTAPIBase):
     headers: List[str]
+    sheets: List[str] = []  # Excel only
+    preview: List[List[Optional[str]]] = []  # first rows, in `headers` order
+    numeric_columns: List[str] = []
+    row_count: int = 0
 
 
 class ReferenceUploadRequest(RESTAPIBase):
@@ -1513,6 +1517,7 @@ class ReferenceMatchReport(RESTAPIBase):
     total: int
     matched: int
     unmatched: int
+    unmatched_examples: List[str] = []
 
 
 class ReferenceDatasetOutput(RESTAPIBase):
@@ -1527,6 +1532,8 @@ class ReferenceDatasetOutput(RESTAPIBase):
     dataset_info: Optional[JSONB] = None
     created_at: Optional[datetime] = None
     match_report: Optional[ReferenceMatchReport] = None
+    warnings: List[str] = []  # upload only
+    skipped_empty_rows: int = 0  # upload only
 
 
 class ReferencePlotOutput(RESTAPIBase):

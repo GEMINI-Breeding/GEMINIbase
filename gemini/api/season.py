@@ -123,15 +123,29 @@ class Season(APIBase):
             Optional[Season]: The created season, or None if an error occurred.
         """
         try:
-            db_instance = SeasonModel.get_or_create(
-                season_name=season_name,
-                season_start_date=season_start_date,
-                season_end_date=season_end_date,
-                season_info=season_info,
-            )
-            season = cls.model_validate(db_instance)
+            # Seasons are unique per experiment: matching on the name alone
+            # picked up (and re-parented) another experiment's "2022".
+            experiment_id = None
             if experiment_name:
-                season.associate_experiment(experiment_name=experiment_name)
+                from gemini.api.experiment import Experiment
+                experiment = Experiment.get(experiment_name=experiment_name)
+                if not experiment:
+                    logger.warning(f"Experiment with name {experiment_name} does not exist.")
+                    return None
+                experiment_id = experiment.id
+            db_instance = SeasonModel.get_by_parameters(
+                season_name=season_name,
+                experiment_id=experiment_id,
+            )
+            if not db_instance:
+                db_instance = SeasonModel.create(
+                    season_name=season_name,
+                    season_start_date=season_start_date,
+                    season_end_date=season_end_date,
+                    season_info=season_info,
+                    experiment_id=experiment_id,
+                )
+            season = cls.model_validate(db_instance)
             return season
         except Exception as e:
             logger.error(f"Error creating season: {e}")

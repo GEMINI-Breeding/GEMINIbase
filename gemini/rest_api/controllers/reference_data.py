@@ -41,6 +41,7 @@ from gemini.rest_api.models import (
     ReferenceAggregateOutput,
     ReferenceDatasetOutput,
     ReferencePlotList,
+    ReferenceMatchReport,
     ReferencePlotOutput,
     ReferenceUploadRequest,
     RESTAPIError,
@@ -49,59 +50,183 @@ from gemini.rest_api.models import (
 logger = logging.getLogger(__name__)
 
 
-def _read_dataframe(filename: str, raw: bytes) -> pd.DataFrame:
-    """Parse CSV or Excel bytes into a DataFrame, with string-typed columns."""
-    lower = (filename or "").lower()
-    if lower.endswith((".xls", ".xlsx", ".xlsm")):
-        return pd.read_excel(io.BytesIO(raw), dtype=object)
-    return pd.read_csv(io.BytesIO(raw), dtype=object)
+# Mapping value older upload dialogs send for "don't import this column".
+IGNORE_MAPPING = "__ignore__"
+
+# "No value" spellings in field sheets, beyond pandas' defaults.
+MISSING_TOKENS = {"", "-", ".", "na", "n/a", "nan", "#n/a"}
+
+MAX_LISTED_ISSUES = 10
 
 
-def _apply_mapping(df: pd.DataFrame, mapping: dict) -> List[dict]:
-    """Translate raw DataFrame rows into identity + traits dicts using a mapping.
+def _is_excel(filename: str) -> bool:
+    return (filename or "").lower().endswith((".xls", ".xlsx", ".xlsm"))
 
-    mapping: {source_column: canonical_name}  — canonical_name is one of
-             IDENTITY_FIELDS or any trait label.
+
+def _sheet_names(filename: str, raw: bytes) -> List[str]:
+    if not _is_excel(filename):
+        return []
+    return [str(s) for s in pd.ExcelFile(io.BytesIO(raw)).sheet_names]
+
+
+def _clean_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Drop blank rows and Excel's empty `Unnamed:` columns; trim header names."""
+    df = df.dropna(how="all")
+    df = df[[c for c in df.columns if not (str(c).startswith("Unnamed:") and df[c].isna().all())]]
+    df.columns = [str(c).strip() for c in df.columns]
+    return df
+
+
+def _read_dataframe(
+    filename: str,
+    raw: bytes,
+    sheets: Optional[List[str]] = None,
+    header_row: int = 0,
+) -> pd.DataFrame:
+    """Parse CSV or Excel bytes into a DataFrame of strings.
+
+    CSV delimiter is sniffed (`,` `;` tab). `sheets` (Excel) are stacked,
+    default first sheet. `header_row` is the 0-based row with column names.
+    Adds `_sheet` / `_row` (spreadsheet row) for error messages.
+    """
+    if _is_excel(filename):
+        frames = []
+        for name in sheets or [0]:
+            df = _clean_columns(
+                pd.read_excel(io.BytesIO(raw), sheet_name=name, dtype=object, header=header_row)
+            )
+            df["_sheet"] = name if sheets and len(sheets) > 1 else None
+            df["_row"] = df.index + header_row + 2
+            frames.append(df)
+        return pd.concat(frames, ignore_index=True, sort=False)
+
+    text = raw.decode("utf-8-sig", errors="replace")
+    first_line = next((ln for ln in text.splitlines()[header_row:] if ln.strip()), "")
+    sep = max([",", ";", "\t"], key=first_line.count)
+    df = _clean_columns(
+        pd.read_csv(io.StringIO(text), dtype=object, sep=sep, header=header_row, skip_blank_lines=False)
+    )
+    df["_sheet"] = None
+    df["_row"] = df.index + header_row + 2
+    return df
+
+
+def _data_columns(df: pd.DataFrame) -> List[str]:
+    return [c for c in df.columns if c not in ("_sheet", "_row")]
+
+
+def _is_missing(value) -> bool:
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return True
+    return str(value).strip().lower() in MISSING_TOKENS
+
+
+def _to_number(value) -> Optional[float]:
+    """Parse a cell as a number; accepts a decimal comma (`4,5`)."""
+    text = str(value).strip()
+    if text.count(",") == 1 and "." not in text:
+        text = text.replace(",", ".")
+    try:
+        return float(text)
+    except ValueError:
+        return None
+
+
+def _normalize_identity(field: str, value) -> Optional[str]:
+    """Trim; write whole-number plot/row/col ids canonically (`0101`, `101.0` → `101`)."""
+    if _is_missing(value):
+        return None
+    text = str(value).strip()
+    number = None if field == "accession" else _to_number(text)
+    return str(int(number)) if number is not None and number.is_integer() else text
+
+
+def _row_label(raw_row) -> str:
+    sheet = raw_row.get("_sheet")
+    return f"{sheet} row {raw_row.get('_row')}" if sheet else f"row {raw_row.get('_row')}"
+
+
+def _apply_mapping(df: pd.DataFrame, mapping: dict) -> dict:
+    """Rows as identity + traits dicts, via {source_column: canonical_name}.
+
+    Rows with no trait values (blank lines, notes) are skipped and counted;
+    rows without plot_id or col+row are skipped and listed; non-numeric trait
+    cells are stored empty and listed.
     """
     rows: List[dict] = []
-    # Build inverse lookup so we know which canonical name each column maps to.
+    skipped_empty = 0
+    invalid: List[str] = []
+    non_numeric: List[str] = []
     for _, raw_row in df.iterrows():
         normalized: dict = {"traits": {}}
+        row_non_numeric: List[str] = []
         for source_col, canonical in mapping.items():
-            if canonical is None or canonical == "":
-                continue
             if source_col not in df.columns:
                 continue
             value = raw_row.get(source_col)
-            if pd.isna(value):
-                value = None
             if canonical in IDENTITY_FIELDS:
-                normalized[canonical] = None if value is None else str(value)
+                normalized[canonical] = _normalize_identity(canonical, value)
+            elif _is_missing(value):
+                normalized["traits"][canonical] = None
             else:
-                # Keep trait values numeric when we can; fall back to str.
-                if value is None:
-                    normalized["traits"][canonical] = None
-                else:
-                    try:
-                        normalized["traits"][canonical] = float(value)
-                    except (TypeError, ValueError):
-                        normalized["traits"][canonical] = str(value)
+                number = _to_number(value)
+                if number is None:
+                    row_non_numeric.append(f"{_row_label(raw_row)}: {source_col} = {str(value).strip()!r}")
+                normalized["traits"][canonical] = number
+        if not row_non_numeric and all(v is None for v in normalized["traits"].values()):
+            skipped_empty += 1
+            continue
+        if not normalized.get("plot_id") and not (normalized.get("col") and normalized.get("row")):
+            invalid.append(_row_label(raw_row))
+            continue
+        non_numeric.extend(row_non_numeric)
         rows.append(normalized)
-    return rows
+    return {"rows": rows, "skipped_empty": skipped_empty, "invalid": invalid, "non_numeric": non_numeric}
 
 
-def _validate_rows(rows: List[dict]) -> Optional[str]:
-    """Return an error string if any row lacks the minimum identity fields."""
-    if not rows:
-        return "The uploaded file has no data rows."
-    for idx, row in enumerate(rows):
-        has_plot_id = bool(row.get("plot_id"))
-        has_coords = bool(row.get("col")) and bool(row.get("row"))
-        if not has_plot_id and not has_coords:
-            return (
-                f"Row {idx + 1}: each row must have plot_id or both col and row."
-            )
-    return None
+def _listed(items: List[str]) -> str:
+    more = len(items) - MAX_LISTED_ISSUES
+    return "; ".join(items[:MAX_LISTED_ISSUES]) + (f"; and {more} more" if more > 0 else "")
+
+
+def _upload_warnings(parsed: dict) -> List[str]:
+    warnings: List[str] = []
+    if parsed["invalid"]:
+        warnings.append(
+            f"Skipped {len(parsed['invalid'])} row(s) with no plot_id and no col/row: "
+            + _listed(parsed["invalid"])
+        )
+    if parsed["non_numeric"]:
+        warnings.append(
+            f"{len(parsed['non_numeric'])} value(s) were not numbers and were left empty: "
+            + _listed(parsed["non_numeric"])
+        )
+    return warnings
+
+
+def _match_report(rows: List[dict], experiment: Optional[str], location: Optional[str]) -> Optional[dict]:
+    """Rows that identify a plot in this experiment + site (plot number, then row/col)."""
+    if not experiment or not location:
+        return None
+    from gemini.db.models.views.plot_view import PlotViewModel
+
+    plots = PlotViewModel.search(experiment_name=experiment, site_name=location) or []
+    numbers = {str(p.plot_number) for p in plots}
+    coords = {(str(p.plot_row_number), str(p.plot_column_number)) for p in plots}
+    matched = 0
+    unmatched: List[str] = []
+    for row in rows:
+        pid = row.get("plot_id")
+        if pid in numbers or (row.get("row"), row.get("col")) in coords:
+            matched += 1
+        elif (label := pid or f"row {row.get('row')}, col {row.get('col')}") not in unmatched:
+            unmatched.append(label)
+    return {
+        "total": len(rows),
+        "matched": matched,
+        "unmatched": len(rows) - matched,
+        "unmatched_examples": unmatched[:MAX_LISTED_ISSUES],
+    }
 
 
 def _original_object_info(original_object: Optional[str]) -> Optional[dict]:
@@ -169,12 +294,33 @@ class ReferenceDataController(Controller):
             ParseHeadersRequest,
             Body(media_type=RequestEncodingType.MULTI_PART),
         ],
+        sheets: Optional[str] = None,
+        header_row: Optional[int] = None,
     ) -> ParseHeadersResponse:
+        """Column names as `/upload` parses them, plus sheets, a preview and numeric columns."""
         try:
             raw = data.file.file.read()
-            df = _read_dataframe(data.file.filename or "", raw)
-            headers = [str(h) for h in df.columns if h is not None and str(h).strip()]
-            return ParseHeadersResponse(headers=headers)
+            filename = data.file.filename or ""
+            df = _read_dataframe(
+                filename, raw, sheets=json.loads(sheets) if sheets else None, header_row=header_row or 0
+            )
+            columns = _data_columns(df)
+            numeric_columns = []
+            for c in columns:
+                values = [v for v in df[c].tolist() if not _is_missing(v)]
+                if values and sum(_to_number(v) is not None for v in values) >= 0.8 * len(values):
+                    numeric_columns.append(c)
+            preview = [
+                [None if _is_missing(v) else str(v) for v in row]
+                for row in df[columns].head(5).itertuples(index=False, name=None)
+            ]
+            return ParseHeadersResponse(
+                headers=columns,
+                sheets=_sheet_names(filename, raw),
+                preview=preview,
+                numeric_columns=numeric_columns,
+                row_count=len(df),
+            )
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),
@@ -204,6 +350,8 @@ class ReferenceDataController(Controller):
         date: Optional[str] = None,
         original_object: Optional[str] = None,
         legacy_reference_id: Optional[str] = None,
+        sheets: Optional[str] = None,
+        header_row: Optional[int] = None,
     ) -> ReferenceDatasetOutput:
         try:
             try:
@@ -222,11 +370,13 @@ class ReferenceDataController(Controller):
                 )
                 return Response(content=error, status_code=400)
 
+            mapping = {k: v for k, v in mapping.items() if v and v != IGNORE_MAPPING}
+
             # Reject ambiguous mappings where two source columns would collapse
             # to the same non-identity (trait) canonical — the UI should guide
             # the user to rename one side rather than silently coalescing.
             trait_canonicals = [
-                v for v in mapping.values() if v and v not in IDENTITY_FIELDS
+                v for v in mapping.values() if v not in IDENTITY_FIELDS
             ]
             if len(trait_canonicals) != len(set(trait_canonicals)):
                 dupes = {
@@ -243,7 +393,12 @@ class ReferenceDataController(Controller):
 
             raw = data.file.file.read()
             try:
-                df = _read_dataframe(data.file.filename or "", raw)
+                df = _read_dataframe(
+                    data.file.filename or "",
+                    raw,
+                    sheets=json.loads(sheets) if sheets else None,
+                    header_row=header_row or 0,
+                )
             except Exception as e:
                 error = RESTAPIError(
                     error="Unreadable file",
@@ -251,21 +406,19 @@ class ReferenceDataController(Controller):
                 )
                 return Response(content=error, status_code=400)
 
-            rows = _apply_mapping(df, mapping)
-            error_msg = _validate_rows(rows)
-            if error_msg:
-                error = RESTAPIError(
-                    error="Invalid data",
-                    error_description=error_msg,
+            parsed = _apply_mapping(df, mapping)
+            rows = parsed["rows"]
+            if not rows:
+                description = (
+                    "No row has a plot_id or both col and row: " + _listed(parsed["invalid"])
+                    if parsed["invalid"]
+                    else "The uploaded file has no data rows with values."
                 )
+                error = RESTAPIError(error="Invalid data", error_description=description)
                 return Response(content=error, status_code=400)
 
             trait_columns = sorted(
-                {
-                    canonical
-                    for canonical in mapping.values()
-                    if canonical and canonical not in IDENTITY_FIELDS
-                }
+                {c for c in mapping.values() if c not in IDENTITY_FIELDS}
             )
 
             dataset_date_parsed = None
@@ -302,7 +455,13 @@ class ReferenceDataController(Controller):
                     error_description=f"Failed to insert plots: {e}",
                 )
                 return Response(content=error, status_code=500)
-            return _dataset_to_output(dataset, plot_count=inserted)
+            output = _dataset_to_output(dataset, plot_count=inserted)
+            report = _match_report(rows, experiment, location)
+            if report:
+                output.match_report = ReferenceMatchReport(**report)
+            output.warnings = _upload_warnings(parsed)
+            output.skipped_empty_rows = parsed["skipped_empty"]
+            return output
         except Exception as e:
             logger.exception("reference-data upload failed")
             error = RESTAPIError(
