@@ -255,7 +255,7 @@ def extract_images(
         save_path.mkdir(parents=True, exist_ok=True)
     
     # convert image topics to camera locations
-    image_topics_location = [f"/{CAMERA_POSITIONS[topic.split('/')[1]]}/{topic.split('/')[2]}" \
+    image_topics_location = [f"/{CAMERA_POSITIONS.get(topic.split('/')[1], topic.split('/')[1])}/{topic.split('/')[2]}" \
         for topic in image_topics]
     
     cols = ['sequence_num'] + image_topics_location
@@ -270,7 +270,7 @@ def extract_images(
 
         # prepare save path
         camera_name = topic_name.split('/')[1]
-        camera_name = CAMERA_POSITIONS[camera_name]
+        camera_name = CAMERA_POSITIONS.get(camera_name, camera_name)
         camera_type = topic_name.split('/')[2]
         topic_name_location = f'/{camera_name}/{camera_type}'
         camera_type = 'Disparity' if camera_type == 'disparity' else 'Images'
@@ -314,36 +314,9 @@ def extract_images(
                     img_name: str = f"disparity-{updated_ts}.npy"
                     np.save(str(camera_path / img_name), points_xyz)
             else:
-                
-                if camera_name == 'top' and calibrations and camera_name in calibrations:
-                    calibration = calibrations[camera_name]
-                    intrinsic = calibration["cameraData"][2]["intrinsicMatrix"]
-                    D = np.array(calibration["cameraData"][2]["distortionCoeff"])
-
-                    # adjust K if your image is downscaled!
-                    h, w = img.shape[:2]
-                    orig_w = calibration["cameraData"][2]["width"]
-                    orig_h = calibration["cameraData"][2]["height"]
-
-                    scale_x = w / orig_w
-                    scale_y = h / orig_h
-
-                    K = np.array([
-                        [intrinsic[0] * scale_x, 0, intrinsic[2] * scale_x],
-                        [0, intrinsic[4] * scale_y, intrinsic[5] * scale_y],
-                        [0, 0, 1]
-                    ])
-
-                    # undistort using remap
-                    R = np.eye(3)
-                    new_K, roi = cv2.getOptimalNewCameraMatrix(K, D, (w, h), 1, (w, h))
-                    map1, map2 = cv2.initUndistortRectifyMap(K, D, R, new_K, (w, h), cv2.CV_16SC2)
-                    img = cv2.remap(img, map1, map2, interpolation=cv2.INTER_LINEAR)
-
-                    # CROP to remove black border
-                    x, y, w_roi, h_roi = roi
-                    img = img[y : y + h_roi, x : x + w_roi]
-                
+                # Raw (distorted) frames. The inline top-camera undistort was
+                # removed — it degraded some datasets. Intrinsics/distortion stay
+                # available in Metadata/{camera}_calibration.json.
                 img_name: str = f"rgb-{updated_ts}.jpg"
                 cv2.imwrite(str(camera_path / img_name), img)
 
@@ -355,9 +328,11 @@ def extract_images(
     dfs = []
     ts_cols_list = []
     images_report = {}
-    unique_camera_ids = {s.split('/')[1] for s in image_topics if s.startswith('/oak')}
+    # Sorted so oak0 (top) comes first: sync_msgs keys msgs_synced on the
+    # first stream, and stitching expects every top frame there.
+    unique_camera_ids = sorted({s.split('/')[1] for s in image_topics if s.startswith('/oak')})
     for i in unique_camera_ids:
-        i = CAMERA_POSITIONS[i]
+        i = CAMERA_POSITIONS.get(i, i)
         ts_cols = [f'/{i}/rgb',f'/{i}/disparity']
         
         # check for missing topics
@@ -545,7 +520,7 @@ def extract_calibrations(
         for event_log in tqdm(calib_events):  # calibration events typically few
             calib_msg = event_log.read_message()
             json_data: dict = json_format.MessageToDict(calib_msg)
-            camera_name_pos = CAMERA_POSITIONS[camera_name]
+            camera_name_pos = CAMERA_POSITIONS.get(camera_name, camera_name)
             json_name = f'{camera_name_pos}_calibration.json'
             json_path = save_path / json_name
             calibrations[camera_name_pos] = json_data
@@ -619,10 +594,6 @@ def process_single_binary_file(args):
         calib_topics = [t for t in topics if 'calibration' in t.lower()]
         gps_topics = [t for t in topics if any(g in t.lower() for g in GPS_TYPES)]
         image_topics = [t for t in topics if any(i in t.lower() for i in IMAGE_TYPES)]
-        # Only extract the top camera (oak0). Left (oak1) and right (oak2) cameras
-        # are not currently used downstream, so skip them to save time and disk space.
-        _top_cams = {k for k, v in CAMERA_POSITIONS.items() if v == "top"}
-        image_topics = [t for t in image_topics if any(cam in t for cam in _top_cams)]
         # count events for progress granularity (only in sequential mode where progress_meta present)
         progress_tracker = None
         if progress_meta:

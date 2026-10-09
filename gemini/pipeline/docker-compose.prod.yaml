@@ -174,6 +174,9 @@ services:
     # host.docker.internal (Docker Desktop provides it; this is for Linux).
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    # Downloaded models (HF Hub, uploaded weights) — kept across updates.
+    volumes:
+      - gemini_ml_models:/models
 
   geminibase-worker-geo:
     <<: *worker
@@ -223,3 +226,5 @@ volumes:
   # Stands in for the previous GEMI app's folders when there are none: the
   # desktop app sets GEMINI_LEGACY_*_HOST_DIR when it finds an old install.
   gemini_legacy_none:
+  # ML worker's model cache (HF Hub downloads, uploaded weights).
+  gemini_ml_models:

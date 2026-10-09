@@ -1,0 +1,8 @@
+# Model backends for LOCATE_PLANTS beyond Roboflow's HTTP API.
+# Installed after a CPU-only torch/torchvision (see Dockerfile) and
+# constrained by requirements.txt so numpy / Pillow stay on the pinned majors.
+ultralytics>=8.3,<9        # local .pt weights (+ .onnx exported by Ultralytics)
+onnxruntime>=1.18,<2       # .onnx weights
+transformers>=4.44,<5      # Hugging Face pipelines (local mode)
+timm>=1.0,<2               # backbones many HF vision models need
+huggingface_hub>=0.24,<1

@@ -227,6 +227,11 @@ services:
       - "GEMINI_STORAGE_BUCKET_NAME=${GEMINI_STORAGE_BUCKET_NAME}"
       - "GEMINI_FIRST_SUPERUSER_EMAIL=${GEMINI_FIRST_SUPERUSER_EMAIL}"
       - "GEMINI_FIRST_SUPERUSER_PASSWORD=${GEMINI_FIRST_SUPERUSER_PASSWORD}"
+      # Optional default Hugging Face token, used when a model has none.
+      - "HF_TOKEN=${HF_TOKEN:-}"
+    volumes:
+      # Downloaded models (HF Hub, uploaded weights) — kept across rebuilds.
+      - geminibase_ml_models:/models
     depends_on:
       rest-api:
         condition: service_healthy
@@ -442,4 +447,5 @@ volumes:
   geminibase_logger_data:
   geminibase_storage_data:
   geminibase_scheduler_db_data:
+  geminibase_ml_models:
   nodeodm_data:

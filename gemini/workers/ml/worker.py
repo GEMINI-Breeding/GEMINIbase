@@ -2,8 +2,11 @@
 ML / trait-extraction worker.
 
 Dispatches on job_type:
-    - LOCATE_PLANTS  → Roboflow cloud inference on a single image, returns
-                       per-detection list + per-class counts.
+    - LOCATE_PLANTS  → detection / segmentation / classification on a single
+                       image or every plot image, with a Roboflow, Hugging
+                       Face or uploaded local-weights model (see
+                       inference_utils.ModelSpec). Returns per-detection
+                       lists + per-class counts.
     - EXTRACT_TRAITS → ExG vegetation fraction + canopy height per plot,
                        from an orthomosaic (and optional DEM) against a
                        plot-boundary GeoJSON.
@@ -17,6 +20,7 @@ result artifacts, and returns the result paths on the job record.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -34,6 +38,81 @@ STORAGE_PORT = os.environ.get("GEMINI_STORAGE_PORT", "9000")
 STORAGE_ACCESS_KEY = os.environ.get("GEMINI_STORAGE_ACCESS_KEY", "")
 STORAGE_SECRET_KEY = os.environ.get("GEMINI_STORAGE_SECRET_KEY", "")
 STORAGE_BUCKET = os.environ.get("GEMINI_STORAGE_BUCKET_NAME", "gemini")
+# Persistent volume for downloaded models (uploaded weights; HF Hub models
+# go to HF_HOME, which the image points inside it too).
+MODEL_CACHE_DIR = os.environ.get("GEMINI_MODEL_CACHE_DIR", "/models")
+
+
+def _download_weights(client, object_path: str) -> str:
+    """Local path of an uploaded weights file, downloading it once.
+
+    Cached under the object's ETag, so re-uploading different weights to
+    the same path is picked up, while repeat runs skip the download.
+    """
+    from gemini.workers.ml.inference_utils import InferenceConfigError
+
+    try:
+        stat = client.stat_object(STORAGE_BUCKET, object_path)
+    except Exception as e:  # noqa: BLE001 — minio raises S3Error for a missing key
+        raise InferenceConfigError(
+            f"Weights file '{object_path}' wasn't found in storage. Upload it "
+            "again from the pipeline's model settings."
+        ) from e
+    etag = (stat.etag or "noetag").strip('"')
+    key = hashlib.sha1(object_path.encode()).hexdigest()[:16]
+    dest_dir = Path(MODEL_CACHE_DIR) / "weights" / key / etag[:16]
+    dest = dest_dir / Path(object_path).name
+    if dest.exists():
+        return str(dest)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    part = dest.with_name(dest.name + ".part")
+    client.fget_object(STORAGE_BUCKET, object_path, str(part))
+    os.replace(part, dest)
+    return str(dest)
+
+
+def _resolve_model_spec(client, parameters: dict):
+    """ModelSpec for a LOCATE_PLANTS job, with uploaded weights downloaded."""
+    from gemini.workers.ml.inference_utils import ModelSpec
+
+    spec = ModelSpec.from_params(parameters)
+    spec.validate()  # fail on bad config before downloading anything
+    if spec.source == "local_weights":
+        spec.weights_path = _download_weights(client, spec.weights_path)
+    return spec
+
+
+def _predict(spec, image_path: str, parameters: dict) -> list:
+    """Run the job's model on one local image."""
+    from gemini.workers.ml.inference_utils import (
+        run_classification_on_image,
+        run_inference_on_image,
+    )
+
+    if spec.task_type == "classification":
+        return run_classification_on_image(
+            image_path, spec, top_k=int(parameters.get("top_k", 5))
+        )
+    return run_inference_on_image(
+        image_path=image_path,
+        confidence_threshold=float(parameters.get("confidence_threshold", 0.1)),
+        iou_threshold=float(parameters.get("iou_threshold", 0.5)),
+        crop_size=int(parameters.get("crop_size", 640)),
+        overlap=int(parameters.get("overlap", 32)),
+        spec=spec,
+    )
+
+
+def _class_counts(predictions: list, task_type: str) -> dict:
+    """Per-class counts. A classification result counts its top class once."""
+    if task_type == "classification":
+        top = predictions[0]["class"] if predictions else None
+        return {top: 1} if top is not None else {}
+    counts: dict = {}
+    for p in predictions:
+        cls = p.get("class", "")
+        counts[cls] = counts.get(cls, 0) + 1
+    return counts
 
 
 def _get_minio_client():
@@ -89,7 +168,7 @@ class MlWorker(BaseWorker):
     # ------------------------------------------------------------------
 
     def _locate_plants_job(self, job_id: str, parameters: dict) -> dict:
-        """Roboflow cloud inference on one image, or on every plot image.
+        """Model inference on one image, or on every plot image.
 
         Two modes, chosen by which parameter is supplied:
 
@@ -107,8 +186,20 @@ class MlWorker(BaseWorker):
         Parameters:
             image_path: MinIO object path to a PNG/JPEG (single mode)
             images_prefix: MinIO prefix to infer over (batch mode)
-            api_key: Roboflow API key (string)
-            model_id: "workspace/model/version" or "workspace/model"
+            source: "roboflow" (default) | "huggingface" | "local_weights"
+            task_type: "detection" (default) | "segmentation" | "classification"
+            api_key: Roboflow API key (roboflow)
+            model_id: "workspace/model/version" or "workspace/model" (roboflow)
+            api_url: self-hosted Roboflow inference server (roboflow, optional)
+            weights_path: MinIO path of an uploaded .pt/.onnx (local_weights)
+            hf_model_id: Hub repo id, e.g. "facebook/detr-resnet-50" (huggingface)
+            hf_token: HF access token (huggingface; required for cloud mode,
+                needed locally only for gated models). Falls back to the
+                worker's HF_TOKEN environment variable.
+            hf_mode: "local" (in this worker, default) | "cloud" (HF router)
+            hf_zero_shot / hf_prompt: zero-shot detection/classification with
+                comma-separated candidate labels
+            top_k: classification results kept per image, default 5
             confidence_threshold: float, default 0.1
             iou_threshold: float, default 0.5
             crop_size: int, default 640
@@ -118,51 +209,31 @@ class MlWorker(BaseWorker):
                 returns the summary). In batch mode this receives the
                 per-plot mapping instead.
         """
-        from gemini.workers.ml.inference_utils import run_inference_on_image
-
         if parameters.get("images_prefix") and not parameters.get("image_path"):
             return self._locate_plants_batch(job_id, parameters)
 
         image_path = parameters["image_path"]
-        api_key = parameters["api_key"]
-        model_id = parameters["model_id"]
-        confidence_threshold = float(parameters.get("confidence_threshold", 0.1))
-        iou_threshold = float(parameters.get("iou_threshold", 0.5))
-        crop_size = int(parameters.get("crop_size", 640))
-        overlap = int(parameters.get("overlap", 32))
         output_predictions_path = parameters.get("output_predictions_path")
-        # Self-hosted Roboflow inference server; None = Roboflow cloud.
-        api_url = parameters.get("api_url")
 
         self.report_progress(job_id, 5, {"stage": "downloading"})
         client = _get_minio_client()
+        spec = _resolve_model_spec(client, parameters)
         with tempfile.TemporaryDirectory() as tmpdir:
             local_image = os.path.join(tmpdir, Path(image_path).name)
             client.fget_object(STORAGE_BUCKET, image_path, local_image)
 
             self.report_progress(
-                job_id, 20, {"stage": "inference", "model_id": model_id}
+                job_id, 20, {"stage": "inference", "model_id": spec.display_id}
             )
-            predictions = run_inference_on_image(
-                image_path=local_image,
-                api_key=api_key,
-                model_id=model_id,
-                confidence_threshold=confidence_threshold,
-                iou_threshold=iou_threshold,
-                crop_size=crop_size,
-                overlap=overlap,
-                api_url=api_url,
-            )
-
-            counts_by_class: dict = {}
-            for p in predictions:
-                cls = p.get("class", "")
-                counts_by_class[cls] = counts_by_class.get(cls, 0) + 1
+            predictions = _predict(spec, local_image, parameters)
+            counts_by_class = _class_counts(predictions, spec.task_type)
 
             result: dict = {
                 "total_detections": len(predictions),
                 "counts_by_class": counts_by_class,
-                "model_id": model_id,
+                "model_id": spec.display_id,
+                "source": spec.source,
+                "task_type": spec.task_type,
             }
 
             if output_predictions_path:
@@ -198,8 +269,8 @@ class MlWorker(BaseWorker):
         import re
 
         from gemini.workers.ml.inference_utils import (
+            InferenceConfigError,
             redact_api_key,
-            run_inference_on_image,
         )
 
         images_prefix = parameters["images_prefix"]
@@ -209,18 +280,12 @@ class MlWorker(BaseWorker):
         # row/col the populate_trait_record_ids trigger needs to resolve a
         # plot — the PNG name only carries the plot number.
         boundaries = parameters.get("boundaries")
-        count_label = parameters.get("count_label") or parameters["model_id"]
-        api_key = parameters["api_key"]
-        model_id = parameters["model_id"]
-        confidence_threshold = float(parameters.get("confidence_threshold", 0.1))
-        iou_threshold = float(parameters.get("iou_threshold", 0.5))
-        crop_size = int(parameters.get("crop_size", 640))
-        overlap = int(parameters.get("overlap", 32))
         output_predictions_path = parameters.get("output_predictions_path")
-        # Self-hosted Roboflow inference server; None = Roboflow cloud.
-        api_url = parameters.get("api_url")
 
         client = _get_minio_client()
+        spec = _resolve_model_spec(client, parameters)
+        model_id = spec.display_id
+        count_label = parameters.get("count_label") or model_id
         self.report_progress(job_id, 2, {"stage": "listing", "prefix": images_prefix})
 
         image_names: list[str] = []
@@ -271,16 +336,11 @@ class MlWorker(BaseWorker):
                 local_image = os.path.join(tmpdir, f"{idx}_{Path(object_name).name}")
                 try:
                     client.fget_object(STORAGE_BUCKET, object_name, local_image)
-                    predictions = run_inference_on_image(
-                        image_path=local_image,
-                        api_key=api_key,
-                        model_id=model_id,
-                        confidence_threshold=confidence_threshold,
-                        iou_threshold=iou_threshold,
-                        crop_size=crop_size,
-                        overlap=overlap,
-                        api_url=api_url,
-                    )
+                    predictions = _predict(spec, local_image, parameters)
+                except InferenceConfigError:
+                    # Bad key / model / weights fails every image the same
+                    # way — stop now instead of repeating it per plot.
+                    raise
                 except Exception as e:  # noqa: BLE001 — one plot must not sink the run
                     # A failed image goes to `errors`, never to by_plot, so
                     # no count (let alone 0) is recorded for it.
@@ -292,11 +352,9 @@ class MlWorker(BaseWorker):
                     if os.path.exists(local_image):
                         os.remove(local_image)
 
-                per_class: dict = {}
-                for pred in predictions:
-                    cls = pred.get("class", "")
-                    per_class[cls] = per_class.get(cls, 0) + 1
-                    counts_by_class[cls] = counts_by_class.get(cls, 0) + 1
+                per_class = _class_counts(predictions, spec.task_type)
+                for cls, n in per_class.items():
+                    counts_by_class[cls] = counts_by_class.get(cls, 0) + n
 
                 total_detections += len(predictions)
                 by_plot[key] = {
@@ -305,6 +363,13 @@ class MlWorker(BaseWorker):
                     "counts_by_class": per_class,
                     "predictions": predictions,
                 }
+                if spec.task_type == "classification":
+                    by_plot[key]["top_class"] = (
+                        predictions[0]["class"] if predictions else None
+                    )
+                    by_plot[key]["scores"] = {
+                        p["class"]: p["confidence"] for p in predictions
+                    }
 
             # Every image failing is a failed job, not a job that found
             # nothing. Reporting COMPLETED here would show a green tick for
@@ -320,6 +385,8 @@ class MlWorker(BaseWorker):
             result: dict = {
                 "images_prefix": images_prefix,
                 "model_id": model_id,
+                "source": spec.source,
+                "task_type": spec.task_type,
                 "plots_processed": len(by_plot),
                 "images_found": len(image_names),
                 "total_detections": total_detections,
@@ -333,14 +400,27 @@ class MlWorker(BaseWorker):
 
             if boundaries and output_predictions_path:
                 self.report_progress(job_id, 90, {"stage": "ingesting_counts"})
-                result["ingested"] = self._ingest_detection_counts(
-                    boundaries=boundaries,
-                    by_plot=by_plot,
-                    classes=sorted(counts_by_class),
-                    label=count_label,
-                    output_path=output_predictions_path,
-                    run_id=job_id,
-                )
+                if spec.task_type == "classification":
+                    classes = sorted(
+                        {c for hit in by_plot.values() for c in hit.get("scores", {})}
+                    )
+                    result["ingested"] = self._ingest_class_scores(
+                        boundaries=boundaries,
+                        by_plot=by_plot,
+                        classes=classes,
+                        label=count_label,
+                        output_path=output_predictions_path,
+                        run_id=job_id,
+                    )
+                else:
+                    result["ingested"] = self._ingest_detection_counts(
+                        boundaries=boundaries,
+                        by_plot=by_plot,
+                        classes=sorted(counts_by_class),
+                        label=count_label,
+                        output_path=output_predictions_path,
+                        run_id=job_id,
+                    )
                 result["dataset_name"] = _run_dataset_name(
                     "LOCATE_PLANTS", output_predictions_path, job_id, count_label
                 )
@@ -412,6 +492,57 @@ class MlWorker(BaseWorker):
             geojson={"type": "FeatureCollection", "features": features},
             trait_columns=[(total_col, "count")]
             + [(col, "count") for col in class_cols.values()],
+            source="LOCATE_PLANTS",
+            run_id=run_id,
+            label=label,
+        )
+
+    def _ingest_class_scores(
+        self,
+        *,
+        boundaries: dict,
+        by_plot: dict,
+        classes: list,
+        label: str,
+        output_path: str,
+        run_id: Optional[str] = None,
+    ) -> dict:
+        """Write per-plot classification scores into trait_records.
+
+        One trait per class (`"<class> score (<label>)"`), the model's
+        confidence for that class on the plot image. Only the top-k classes
+        come back per image, so a class outside a plot's top-k gets no
+        record — its score is unknown, not 0.
+        """
+        from gemini.workers.ml.trait_ingest import ingest_trait_features
+
+        class_cols = {c: f"{c} score ({label})" for c in classes if c}
+
+        features = []
+        for feat in (boundaries or {}).get("features", []) or []:
+            if not isinstance(feat, dict):
+                continue
+            props = dict(feat.get("properties") or {})
+            raw = props.get("plot_number", props.get("plot", props.get("Plot")))
+            try:
+                key = str(int(float(raw)))
+            except (TypeError, ValueError):
+                continue
+            hit = by_plot.get(key)
+            if hit is None:
+                continue
+            for cls, col in class_cols.items():
+                if cls in hit.get("scores", {}):
+                    props[col] = hit["scores"][cls]
+            features.append({**feat, "properties": props})
+
+        if not features or not class_cols:
+            return {}
+        return ingest_trait_features(
+            self._http,
+            output_path=output_path,
+            geojson={"type": "FeatureCollection", "features": features},
+            trait_columns=[(col, "score") for col in class_cols.values()],
             source="LOCATE_PLANTS",
             run_id=run_id,
             label=label,
