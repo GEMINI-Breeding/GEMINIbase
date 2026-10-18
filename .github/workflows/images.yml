@@ -58,6 +58,15 @@ jobs:
           - { name: geminibase-worker-thermal, context: ., file: gemini/workers/thermal/Dockerfile }
           - { name: geminibase-worker-gwas, context: ., file: gemini/workers/gwas/Dockerfile }
           - { name: geminibase-worker-odm, context: ., file: gemini/workers/odm/Dockerfile }
+        include:
+          # The ML worker with CUDA PyTorch, for machines with an NVIDIA card
+          # (the desktop app uses it when Docker can reach the card).
+          - arch: amd64
+            image:
+              name: geminibase-worker-ml-gpu
+              context: .
+              file: gemini/workers/ml/Dockerfile
+              build_args: TORCH_INDEX=https://download.pytorch.org/whl/cu124
     steps:
       - uses: actions/checkout@v4
 
@@ -74,6 +83,7 @@ jobs:
         with:
           context: ${{ matrix.image.context }}
           file: ${{ matrix.image.file }}
+          build-args: ${{ matrix.image.build_args }}
           platforms: linux/${{ matrix.arch }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
@@ -112,6 +122,7 @@ jobs:
           - geminibase-logger
           - geminibase-rest-api
           - geminibase-worker-ml
+          - geminibase-worker-ml-gpu
           - geminibase-worker-geo
           - geminibase-worker-amiga
           - geminibase-worker-stitch
@@ -150,8 +161,9 @@ jobs:
         run: |
           set -euo pipefail
           sources=()
-          for arch in amd64 arm64; do
-            sources+=("$IMAGE@$(cat "digests/$arch")")
+          # Every architecture built (the GPU worker is amd64 only).
+          for f in digests/*; do
+            sources+=("$IMAGE@$(cat "$f")")
           done
           args=()
           while IFS= read -r tag; do

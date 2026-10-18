@@ -15,11 +15,15 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 
 # Model backends (Hugging Face, local Ultralytics weights). CPU-only torch
 # first, from PyTorch's CPU index — the default wheel bundles CUDA (~2 GB more)
-# that this container can't use without GPU passthrough. Ultralytics pulls in
+# that this container can't use without GPU passthrough. The GPU variant
+# (geminibase-worker-ml-gpu, amd64 only) is the same image built with
+# TORCH_INDEX set to a CUDA index; it uses an NVIDIA card when the container is
+# given one (`--gpus`), and the CPU otherwise. Ultralytics pulls in
 # the GUI build of OpenCV, which needs libGL and clashes with the headless one;
 # swap it back.
 COPY gemini/workers/ml/requirements-models.txt /app/requirements-models.txt
-RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu \
+ARG TORCH_INDEX=https://download.pytorch.org/whl/cpu
+RUN pip install --no-cache-dir --index-url ${TORCH_INDEX} \
         torch torchvision \
     && pip install --no-cache-dir -r /app/requirements-models.txt -c /app/requirements.txt \
     && pip uninstall -y opencv-python opencv-python-headless \

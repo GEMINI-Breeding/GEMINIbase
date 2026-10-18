@@ -532,6 +532,17 @@ def _hf_task(spec: ModelSpec) -> str:
     return _HF_PIPELINE_TASKS[(spec.task_type, spec.zero_shot)]
 
 
+def _torch_device() -> int:
+    """The GPU (0) when this worker has one, else the CPU (-1). Ultralytics
+    picks the GPU by itself; Hugging Face pipelines have to be told."""
+    try:
+        import torch
+
+        return 0 if torch.cuda.is_available() else -1
+    except Exception:  # noqa: BLE001 — no torch, or a broken CUDA setup: the CPU
+        return -1
+
+
 def _load_hf_pipeline(spec: ModelSpec) -> Any:
     task = _hf_task(spec)
 
@@ -543,7 +554,7 @@ def _load_hf_pipeline(spec: ModelSpec) -> Any:
                 "Hugging Face models need the 'transformers' package in the ML worker image."
             ) from e
         try:
-            return pipeline(task=task, model=spec.model_id, token=spec.api_key or None, device=-1)
+            return pipeline(task=task, model=spec.model_id, token=spec.api_key or None, device=_torch_device())
         except Exception as e:  # noqa: BLE001
             msg = str(e)
             hint = ""
