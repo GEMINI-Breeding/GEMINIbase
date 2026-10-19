@@ -344,19 +344,122 @@ def _features_to_records(
             or props.get("Accession")
             or props.get("Label")
         )
-        out.append(
-            {
-                "plot_number": plot_number,
-                "plot_row_number": plot_row,
-                "plot_column_number": plot_col,
-                "trait_value": value,
-                "accession_name": accession
-                if isinstance(accession, str) and accession
-                else None,
-                "record_info": {"source": source},
-            }
-        )
+        rec = {
+            "plot_number": plot_number,
+            "plot_row_number": plot_row,
+            "plot_column_number": plot_col,
+            "trait_value": value,
+            "accession_name": accession
+            if isinstance(accession, str) and accession
+            else None,
+            "record_info": {"source": source},
+        }
+        # A field with several crops in one upload: the plot's own population
+        # (from the field design's crop / population column) wins over the
+        # upload's. Kept aside, the records are posted per population.
+        population = plot_population(props)
+        if population:
+            rec["_population"] = population
+        out.append(rec)
     return out
+
+
+def plot_population(props: dict) -> Optional[str]:
+    """The population a plot's properties name (field design: crop,
+    population, Population_exact …), else None (the upload's applies)."""
+    for key in ("population_name", "population", "Population", "Population_exact",
+                "Population_general", "crop", "Crop", "CROP"):
+        v = props.get(key)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    return None
+
+
+def _ensure_population(
+    http: WorkerSession, *, population_name: str, experiment_name: str
+) -> bool:
+    """A population of this name exists (made for the experiment if not).
+    Trait records naming one that does not exist are refused."""
+    try:
+        resp = http.get("/api/populations", params={"population_name": population_name})
+        if resp.ok and any(
+            isinstance(row, dict) and row.get("population_name") == population_name
+            for row in (resp.json() or [])
+        ):
+            return True
+    except Exception as e:
+        logger.debug(f"Population pre-fetch failed for {population_name!r}: {e}")
+    try:
+        resp = http.post(
+            "/api/populations",
+            json={
+                "population_name": population_name,
+                "experiment_name": experiment_name,
+                "population_info": {"created_by": "trait ingest (field design crop)"},
+            },
+        )
+        if resp.ok:
+            return True
+    except Exception as e:
+        logger.warning(f"Population create failed for {population_name!r}: {e}")
+    # Someone else may have made it meanwhile.
+    try:
+        resp = http.get("/api/populations", params={"population_name": population_name})
+        return bool(resp.ok and resp.json())
+    except Exception:
+        return False
+
+
+def _post_records(
+    http: WorkerSession,
+    *,
+    trait_id: str,
+    trait_name: str,
+    records: list[dict],
+    payload: dict,
+) -> tuple[int, Optional[str]]:
+    """Post one population's records for a trait. Returns (inserted, error)."""
+    payload = {**payload, "records": records}
+    try:
+        resp = http.post(f"/api/traits/id/{trait_id}/records/bulk", json=payload)
+    except Exception as e:
+        logger.error(f"Trait ingest: bulk POST raised for {trait_name!r}: {e}")
+        return 0, f"{trait_name}: {e}"
+    # The boundary GeoJSON's `accession` property is user-authored
+    # (field-design CSV); whether those rows exist in `accessions`
+    # depends on whether the user has imported their germplasm
+    # separately. Rather than fail the whole ingest in that case,
+    # drop accession_name from every record and retry — the trait
+    # values still land, scoped to plot only.
+    if (
+        not resp.ok
+        and resp.status_code == 422
+        and "accession" in (resp.text or "").lower()
+        and any(r.get("accession_name") for r in records)
+    ):
+        logger.info(
+            f"Trait ingest: 422 on accession lookup for {trait_name!r}; "
+            f"retrying without accession_name (records will be orphan-linked "
+            f"to plots only)."
+        )
+        try:
+            resp = http.post(
+                f"/api/traits/id/{trait_id}/records/bulk",
+                json={**payload, "records": [{**r, "accession_name": None} for r in records]},
+            )
+        except Exception as e:
+            logger.error(f"Trait ingest: bulk POST retry raised for {trait_name!r}: {e}")
+            return 0, f"{trait_name}: {e}"
+    if not resp.ok:
+        detail = resp.text[:300] if hasattr(resp, "text") else ""
+        logger.error(
+            f"Trait ingest: bulk POST returned {resp.status_code} for {trait_name!r}: {detail}"
+        )
+        return 0, f"{trait_name}: HTTP {resp.status_code} {detail}"
+    try:
+        return int(resp.json().get("inserted_count", len(records))), None
+    except Exception:
+        return len(records), None
 
 
 def ingest_trait_features(
@@ -452,80 +555,48 @@ def ingest_trait_features(
             failures.append(f"{trait_name}: could not resolve the trait")
             continue
 
-        payload = {
-            "records": records,
-            "experiment_name": scope["experiment_name"],
-            "season_name": scope["year"],
-            "site_name": scope["site_name"],
-            # Population scopes the records so the analyze map can join by
-            # plot_number (unique only within a population). The trigger
-            # also backfills it from the plot, but sending it explicitly
-            # covers plot-less records too.
-            "population_name": scope["population_name"],
-            "dataset_name": dataset_name,
-            "collection_date": f"{scope['date']}T00:00:00",
-        }
-        try:
-            resp = http.post(
-                f"/api/traits/id/{trait_id}/records/bulk", json=payload
+        # One post per population: the upload's, plus each crop the field
+        # design gives individual plots (an upload holding several crops).
+        groups: dict[str, list[dict]] = {}
+        for rec in records:
+            groups.setdefault(rec.pop("_population", None) or scope["population_name"], []).append(rec)
+        inserted, error = 0, None
+        for population_name, group in groups.items():
+            if population_name != scope["population_name"] and not _ensure_population(
+                http, population_name=population_name, experiment_name=scope["experiment_name"]
+            ):
+                error = f"{trait_name}: could not make population {population_name!r}"
+                break
+            n, error = _post_records(
+                http,
+                trait_id=trait_id,
+                trait_name=trait_name,
+                records=group,
+                payload={
+                    "experiment_name": scope["experiment_name"],
+                    "season_name": scope["year"],
+                    "site_name": scope["site_name"],
+                    # Population scopes the records so the analyze map can join by
+                    # plot_number (unique only within a population). The trigger
+                    # also backfills it from the plot, but sending it explicitly
+                    # covers plot-less records too.
+                    "population_name": population_name,
+                    "dataset_name": dataset_name,
+                    "collection_date": f"{scope['date']}T00:00:00",
+                },
             )
-        except Exception as e:
-            logger.error(
-                f"Trait ingest: bulk POST raised for {trait_name!r}: {e}"
-            )
-            failures.append(f"{trait_name}: {e}")
+            if error:
+                break
+            inserted += n
+        if error:
+            failures.append(error)
             continue
-        # The `populate_trait_record_ids` trigger raises 422 when an
-        # accession_name is supplied but doesn't exist in `accessions`.
-        # The boundary GeoJSON's `accession` property is user-authored
-        # (field-design CSV); whether those rows exist in `accessions`
-        # depends on whether the user has imported their germplasm
-        # separately. Rather than fail the whole ingest in that case,
-        # drop accession_name from every record and retry — the trait
-        # values still land, scoped to plot only. The user can re-link
-        # accessions later by re-importing the germplasm + re-running.
-        if (
-            not resp.ok
-            and resp.status_code == 422
-            and "accession" in (resp.text or "").lower()
-            and any(r.get("accession_name") for r in records)
-        ):
-            logger.info(
-                f"Trait ingest: 422 on accession lookup for {trait_name!r}; "
-                f"retrying without accession_name (records will be orphan-linked "
-                f"to plots only)."
-            )
-            stripped = [
-                {**r, "accession_name": None} for r in records
-            ]
-            try:
-                resp = http.post(
-                    f"/api/traits/id/{trait_id}/records/bulk",
-                    json={**payload, "records": stripped},
-                )
-            except Exception as e:
-                logger.error(
-                    f"Trait ingest: bulk POST retry raised for {trait_name!r}: {e}"
-                )
-                failures.append(f"{trait_name}: {e}")
-                continue
-        if not resp.ok:
-            detail = resp.text[:300] if hasattr(resp, "text") else ""
-            logger.error(
-                f"Trait ingest: bulk POST returned {resp.status_code} for "
-                f"{trait_name!r}: {detail}"
-            )
-            failures.append(f"{trait_name}: HTTP {resp.status_code} {detail}")
-            continue
-        try:
-            body = resp.json()
-            n = int(body.get("inserted_count", len(records)))
-        except Exception:
-            n = len(records)
-        counts[trait_name] = n
+        counts[trait_name] = inserted
         logger.info(
-            f"Trait ingest: inserted {n} {trait_name!r} records "
-            f"({scope['experiment_name']}/{scope['year']}/{scope['site_name']})."
+            f"Trait ingest: inserted {inserted} {trait_name!r} records "
+            f"({scope['experiment_name']}/{scope['year']}/{scope['site_name']}"
+            + (f"; populations {', '.join(groups)}" if len(groups) > 1 else "")
+            + ")."
         )
 
     if failures:
