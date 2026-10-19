@@ -65,7 +65,9 @@ class BaseWorker(ABC):
     """
 
     def __init__(self, worker_id: str = None):
-        self.worker_id = worker_id or f"{self.__class__.__name__}-{os.getpid()}"
+        # GEMINI_WORKER_ID: set by the cluster's worker job, so several copies
+        # of one worker can tell their jobs apart.
+        self.worker_id = worker_id or os.environ.get("GEMINI_WORKER_ID") or f"{self.__class__.__name__}-{os.getpid()}"
         self.api_base_url = os.environ.get("GEMINI_REST_API_URL", "http://gemini-rest-api:7777")
         self.redis_host = os.environ.get("GEMINI_LOGGER_HOSTNAME", "gemini-logger")
         self.redis_port = int(os.environ.get("GEMINI_LOGGER_PORT", "6379"))
