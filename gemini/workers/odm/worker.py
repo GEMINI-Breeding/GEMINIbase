@@ -109,6 +109,23 @@ QUALITY_PRESETS: dict[str, list[dict]] = {
         {"name": "orthophoto-resolution", "value": 1},
         {"name": "dem-resolution", "value": 1},
     ],
+    # A fine map with a light reconstruction: the orthophoto at 1 cm/px (what
+    # object detection and per-plot traits use), while the parts that cost
+    # memory and are used less are kept light — fewer image features for
+    # matching, a low-density point cloud and mesh, no textured 3D model, a
+    # 5 cm DSM (canopy height), and fewer parallel processes. Ultra on a field
+    # of ~3,700 images ran out of memory in OpenSfM at 56 GB; this keeps the
+    # same orthophoto detail within it.
+    "Detailed map": [
+        {"name": "feature-quality", "value": "medium"},
+        {"name": "min-num-features", "value": 8000},
+        {"name": "pc-quality", "value": "low"},
+        {"name": "mesh-size", "value": 100000},
+        {"name": "skip-3dmodel", "value": True},
+        {"name": "max-concurrency", "value": 8},
+        {"name": "orthophoto-resolution", "value": 1},
+        {"name": "dem-resolution", "value": 5},
+    ],
 }
 
 
@@ -392,6 +409,18 @@ def _diagnose_odm_failure(log_lines: list[str]) -> str:
         return ""
     # Search the tail first — failures are almost always near the end.
     tail = "\n".join(log_lines[-200:])
+
+    # OOM in structure-from-motion (OpenSfM matching / reconstruction): many
+    # images with many features each. ODM still prints its generic "Whoops!
+    # You ran out of memory" block, so this must come before the texturing
+    # check below, which would otherwise take the blame.
+    if "Killed" in tail and ("opensfm" in tail.lower() or "run_opensfm" in tail):
+        return (
+            "out-of-memory while matching the images (OpenSfM), before the "
+            "orthophoto is made. Use the \"Detailed map\" quality (fewer image "
+            "features, light point cloud and mesh, same 1 cm orthophoto), or "
+            "give the worker more memory."
+        )
 
     # OOM-killer SIGKILL on a sub-process. Most common ODM failure on
     # large flights: OpenMVS depth-fusion or PoissonRecon spikes RAM
