@@ -254,7 +254,10 @@ class StitchWorker(BaseWorker):
                 start, end = plot.get("start_image") or "", plot.get("end_image") or ""
                 ui_dir = str(plot.get("direction") or "down")
                 base_pct = 5 + 85 * i / n
-                self._stage(job_id, base_pct, f"Stitching plot {pid} ({i + 1}/{n})")
+                # How the run is going so far, for the progress log (the app
+                # and the agent show it as the plots finish).
+                self._stage(job_id, base_pct, f"Stitching plot {pid} ({i + 1}/{n})",
+                            plots_done=len(succeeded), plots_failed=len(failed), plots_total=n)
                 try:
                     rows = plan.plot_rows(msgs, names, start, end)
                     frames = list(dict.fromkeys(b for b in names.loc[rows.index] if b))
@@ -337,6 +340,21 @@ class StitchWorker(BaseWorker):
                     msg = str(exc)[:600]
                     logger.warning("Plot %s failed: %s", pid, msg)
                     failed[pid] = msg
+                    self._stage(job_id, base_pct, f"Plot {pid} failed: {msg[:200]}",
+                                plots_done=len(succeeded), plots_failed=len(failed), plots_total=n,
+                                failed_plot=pid)
+                    # Failing on nearly every plot: something common is wrong
+                    # (the marking, the crop mask, the settings). Stop early
+                    # instead of spending hours on the rest.
+                    stop = p.get("stop_when_failing", True)
+                    tried = len(succeeded) + len(failed)
+                    if stop and tried >= 6 and len(failed) / tried >= 0.8:
+                        raise RuntimeError(
+                            f"Stopped early: {len(failed)} of the first {tried} plots failed "
+                            f"(plot {pid}: {msg[:300]}). Something they share is likely wrong: check "
+                            "the plot marking, the crop mask and the stitch settings, then run again "
+                            "(stop_when_failing=false runs every plot regardless)."
+                        )
                 if self.is_cancelled(job_id):
                     raise StitchCancelled()
 
