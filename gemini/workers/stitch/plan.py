@@ -161,3 +161,51 @@ def build_base_config(
     for k in dropped:
         config.pop(k)
     return config, dropped
+
+
+# ── several plots in one frame ───────────────────────────────────────────────
+#
+# A rover camera can see more than one plot at once: on some fields one pass
+# shows a plot in the top half of every frame and the neighbouring plot in
+# the bottom half. Plot Marking then marks the stretch once and records each
+# plot's lane: lane k of N, the frame split top/bottom or left/right. Each
+# lane is stitched from its own band of the frames, and placed beside the
+# GPS line (which runs through the frame centre) by where that band sits.
+
+
+def lane_mask(lane: int, lanes: int, split: str, width: int, height: int) -> List[int]:
+    """[left, right, top, bottom] pixels to mask so only lane `lane` (1-based,
+    counted from the top or the left) of `lanes` remains."""
+    if lanes <= 1:
+        return [0, 0, 0, 0]
+    k = max(1, min(int(lane), int(lanes)))
+    size = width if split == "left_right" else height
+    lo = round((k - 1) * size / lanes)
+    hi = round(k * size / lanes)
+    if split == "left_right":
+        return [lo, size - hi, 0, 0]
+    return [0, 0, lo, size - hi]
+
+
+def merge_masks(a: Optional[List[int]], b: Optional[List[int]]) -> Optional[List[int]]:
+    """Both masks at once: the larger crop on each side."""
+    if a is None:
+        return b
+    if b is None:
+        return a
+    return [max(int(x), int(y)) for x, y in zip(a, b)]
+
+
+def band_offset_px(mask: List[int], split: str, width: int, height: int) -> float:
+    """How far the kept band's centre sits from the frame centre, in frame
+    pixels across the track (+ = towards the frame's bottom / right)."""
+    left, right, top, bottom = (int(v) for v in mask)
+    if split == "left_right":
+        return (left + (width - left - right) / 2.0) - width / 2.0
+    return (top + (height - top - bottom) / 2.0) - height / 2.0
+
+
+def band_size_px(mask: List[int], split: str, width: int, height: int) -> int:
+    """Pixels across the track that the kept band spans."""
+    left, right, top, bottom = (int(v) for v in mask)
+    return (width - left - right) if split == "left_right" else (height - top - bottom)

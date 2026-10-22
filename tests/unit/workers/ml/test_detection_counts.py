@@ -51,8 +51,26 @@ def test_inferred_with_no_detections_records_zero():
     }
     _, kw = _run(by_plot, ["plant"])
     props = _props_by_plot(kw)
-    assert props[2]["detections (Stand)"] == 0
     assert props[2]["plant count (Stand)"] == 0
+
+
+def test_single_class_writes_its_count_not_a_duplicate_total():
+    # One class: the total would always equal the class count, two traits
+    # that agree perfectly. Only the class count is written.
+    by_plot = {
+        "1": {"count": 3, "counts_by_class": {"plant": 3}},
+        "2": {"count": 1, "counts_by_class": {"plant": 1}},
+    }
+    _, kw = _run(by_plot, ["plant"])
+    assert [c for c, _ in kw["trait_columns"]] == ["plant count (Stand)"]
+    assert "detections (Stand)" not in _props_by_plot(kw)[1]
+
+
+def test_no_class_detected_anywhere_keeps_the_total():
+    by_plot = {"1": {"count": 0, "counts_by_class": {}}}
+    _, kw = _run(by_plot, [])
+    assert [c for c, _ in kw["trait_columns"]] == ["detections (Stand)"]
+    assert _props_by_plot(kw)[1]["detections (Stand)"] == 0
 
 
 def test_errored_or_missing_plot_writes_no_record():

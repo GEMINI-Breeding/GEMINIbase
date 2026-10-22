@@ -212,8 +212,35 @@ class MlWorker(BaseWorker):
         if parameters.get("images_prefix") and not parameters.get("image_path"):
             return self._locate_plants_batch(job_id, parameters)
 
-        image_path = parameters["image_path"]
+        image_path = parameters.get("image_path")
         output_predictions_path = parameters.get("output_predictions_path")
+
+        # Labelling in the app: an example box/point → objects and masks
+        # (see prompted.py). No model spec; the predictions come back inline.
+        if parameters.get("prompted"):
+            from gemini.workers.ml import prompted as prompted_models
+
+            p = dict(parameters["prompted"])
+
+            def progress(frac: float, stage: str) -> None:
+                self.report_progress(job_id, round(5 + 85 * frac, 1), {"stage": stage})
+
+            if p.get("mode") == "warmup":
+                self.report_progress(job_id, 2, {"stage": "Worker started; checking models"})
+                return {"prompted": "warmup", **prompted_models.warmup(progress)}
+
+            client = _get_minio_client()
+            with tempfile.TemporaryDirectory() as tmpdir:
+                local_image = os.path.join(tmpdir, Path(image_path).name)
+                client.fget_object(STORAGE_BUCKET, image_path, local_image)
+                refer_local = None
+                if p.get("refer_image") and p["refer_image"] != image_path:
+                    refer_local = os.path.join(tmpdir, "refer_" + Path(p["refer_image"]).name)
+                    client.fget_object(STORAGE_BUCKET, p["refer_image"], refer_local)
+                self.report_progress(job_id, 30, {"stage": f"prompted {p.get('mode')}"})
+                predictions = prompted_models.run(local_image, p, refer_local, progress)
+            return {"prompted": p.get("mode"), "total_detections": len(predictions),
+                    "predictions": predictions}
 
         self.report_progress(job_id, 5, {"stage": "downloading"})
         client = _get_minio_client()
@@ -460,11 +487,17 @@ class MlWorker(BaseWorker):
         measurement. A plot that errored or had no image gets NO record:
         writing 0 there would claim "we looked and found nothing" for a plot
         nobody looked at.
+
+        With a single class the total and that class's count are the same
+        number; writing both made two traits that always agree (a perfect,
+        meaningless correlation in Analyze), so only the class count is
+        written. The total is kept when there are several classes, or none
+        (nothing detected anywhere, so no class to name).
         """
         from gemini.workers.ml.trait_ingest import ingest_trait_features
 
-        total_col = f"detections ({label})"
         class_cols = {c: f"{c} count ({label})" for c in classes if c}
+        total_col = None if len(class_cols) == 1 else f"detections ({label})"
 
         features = []
         for feat in (boundaries or {}).get("features", []) or []:
@@ -479,7 +512,8 @@ class MlWorker(BaseWorker):
             hit = by_plot.get(key)
             if hit is None:
                 continue  # errored or no image — no measurement, no record
-            props[total_col] = hit["count"]
+            if total_col:
+                props[total_col] = hit["count"]
             for cls, col in class_cols.items():
                 props[col] = hit["counts_by_class"].get(cls, 0)
             features.append({**feat, "properties": props})
@@ -490,7 +524,7 @@ class MlWorker(BaseWorker):
             self._http,
             output_path=output_path,
             geojson={"type": "FeatureCollection", "features": features},
-            trait_columns=[(total_col, "count")]
+            trait_columns=([(total_col, "count")] if total_col else [])
             + [(col, "count") for col in class_cols.values()],
             source="LOCATE_PLANTS",
             run_id=run_id,
@@ -622,6 +656,7 @@ class MlWorker(BaseWorker):
                 output_path=output_path,
                 geojson=geojson_dict,
                 run_id=job_id,
+                label=parameters.get("dataset_label"),
             )
 
             return {

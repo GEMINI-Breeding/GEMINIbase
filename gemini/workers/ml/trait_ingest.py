@@ -631,11 +631,14 @@ def ingest_extracted_traits(
     geojson: dict,
     timestamp: Optional[datetime] = None,
     run_id: Optional[str] = None,
+    label: Optional[str] = None,
 ) -> dict:
     """Ingest the EXTRACT_TRAITS GeoJSON into `trait_records`.
 
     Thin wrapper over `ingest_trait_features` with the fixed
-    EXTRACT_TRAITS column allow-list.
+    EXTRACT_TRAITS column allow-list. ``label`` separates runs that share
+    a flight but not their plots (one orthomosaic per treatment block):
+    a run replaces only earlier runs with the same label.
     """
     return ingest_trait_features(
         http,
@@ -645,4 +648,5 @@ def ingest_extracted_traits(
         source="EXTRACT_TRAITS",
         timestamp=timestamp,
         run_id=run_id,
+        label=label,
     )

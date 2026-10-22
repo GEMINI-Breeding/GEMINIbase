@@ -280,6 +280,25 @@ class StitchWorker(BaseWorker):
                     config["image_directory"] = str(img_dir)
                     config["stitching_direction"] = plan.DIRECTION_MAP.get(ui_dir.lower(), "DOWN")
                     mask = plan.choose_crop_mask(settings.get("crop_rules"), ui_dir, heading)
+                    # Several plots per frame: keep only this plot's lane.
+                    lanes = int(plot.get("lanes") or 1)
+                    split = str(plot.get("split") or "top_bottom")
+                    band = None
+                    if lanes > 1:
+                        from PIL import Image
+
+                        with Image.open(img_dir / frames[0]) as im:
+                            fw, fh = im.size
+                        base = mask if mask is not None else config.get("mask")
+                        mask = plan.merge_masks(
+                            list(base) if base is not None else None,
+                            plan.lane_mask(int(plot.get("lane") or 1), lanes, split, fw, fh),
+                        )
+                        band = {
+                            "offset_px": plan.band_offset_px(mask, split, fw, fh),
+                            "size_px": plan.band_size_px(mask, split, fw, fh),
+                            "extra_m": float(plot.get("lane_offset_m") or 0.0),
+                        }
                     if mask is not None:
                         config["mask"] = mask
                     config_path = outer / "config.yaml"
@@ -297,9 +316,12 @@ class StitchWorker(BaseWorker):
                     info = {"frames": len(frames), "mask": config.get("mask"),
                             "stitching_direction": config["stitching_direction"],
                             "mosaic": output_prefix + png_name}
+                    if lanes > 1:
+                        info.update({"lane": int(plot.get("lane") or 1), "lanes": lanes,
+                                     "split": split, "band": band})
 
                     tif = outer / f"georeferenced_plot_{pid}_utm.tif"
-                    if georef.georeference_plot(found[0], rows, tif):
+                    if georef.georeference_plot(found[0], rows, tif, band=band):
                         client.fput_object(STORAGE_BUCKET, output_prefix + tif.name, str(tif),
                                            content_type="image/tiff")
                         utm_tifs.append(tif)
@@ -383,7 +405,8 @@ class StitchWorker(BaseWorker):
 
         Parameters: stitch_prefix (…/AgRowStitch_v{N}/), boundaries (the
         plot-boundary FeatureCollection), plot_images_prefix (…/PlotImages/),
-        boundary_version (recorded only).
+        boundary_version (recorded only), corrections (optional GPS
+        corrections, see corrections.py).
 
         Writes each matched plot's mosaic to plot_images_prefix as
         plot_{n}_accession_{a}.png — the aerial split's naming, so Analyze
@@ -421,6 +444,13 @@ class StitchWorker(BaseWorker):
                 centres[pid] = georef.center_wgs84(local)
                 footprints[pid] = georef.footprint_wgs84(local)
 
+        # The person's GPS corrections from the Plot Boundary map (whole
+        # track, and per bed: straighten, rotate, shift), applied before
+        # matching so each plot lands where they placed it.
+        if p.get("corrections"):
+            from gemini.workers.stitch import corrections as gps_fix
+
+            footprints, centres = gps_fix.apply(footprints, p["corrections"])
         matches = associate.match(centres, polygons)
         matched = {pid: props for pid, props in matches.items() if props is not None}
         if not matched:

@@ -88,10 +88,23 @@ def estimate_cross_track(xs, ys, theta: float, fixed_min: float = 1.0):
     return height_need, v_min, v_max
 
 
-def georeference_plot(mosaic_path: Path, gps_df: Any, out_tif: Path) -> bool:
+def georeference_plot(
+    mosaic_path: Path,
+    gps_df: Any,
+    out_tif: Path,
+    *,
+    band: Optional[dict] = None,
+) -> bool:
     """Write out_tif: the mosaic as a UTM GeoTIFF laid along the GPS track.
 
     gps_df holds this plot's rows of msgs_synced (lat, lon), in capture order.
+
+    `band` (several plots per frame): {"offset_px": …, "size_px": …} — where
+    the stitched band sits across the frame, in frame pixels, from
+    plan.band_offset_px / band_size_px. The mosaic is then sized with square
+    pixels (its true cross-track width) and moved off the GPS line by the
+    band's offset, instead of being centred on the line at a nominal 1 m.
+    Plus an optional "extra_m" offset (metres, same direction) for tuning.
     """
     import rasterio
     from PIL import Image, ImageFile
@@ -131,9 +144,26 @@ def georeference_plot(mosaic_path: Path, gps_df: Any, out_tif: Path) -> bool:
     u_center = (u_min + u_max) / 2.0
     u_min = u_center - width_m / 2.0
 
-    height_m, _, v_max = estimate_cross_track(xs, ys, theta, fixed_min=1.0)
     px = width_m / w
-    py = height_m / h
+    if band and band.get("size_px"):
+        # Square pixels: the band's true width across the track.
+        height_m = h * px
+        v_max = height_m / 2.0
+        py = px
+        # Metres per frame pixel across the track, from the band's own size.
+        m_per_frame_px = height_m / float(band["size_px"])
+        offset_m = float(band.get("offset_px", 0.0)) * m_per_frame_px + float(
+            band.get("extra_m", 0.0)
+        )
+        # Rows run along (sin tc, -cos tc) with tc = theta + pi (see
+        # build_rotated_affine): move the anchor that way, so + offsets go
+        # towards the frame's bottom side, as in plan.band_offset_px.
+        tc = theta + math.pi
+        gps_cx += offset_m * math.sin(tc)
+        gps_cy += -offset_m * math.cos(tc)
+    else:
+        height_m, _, v_max = estimate_cross_track(xs, ys, theta, fixed_min=1.0)
+        py = height_m / h
     transform = build_rotated_affine(u_min, v_max, width_m, height_m, theta, px, py, gps_cx, gps_cy)
 
     with rasterio.open(

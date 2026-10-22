@@ -74,3 +74,26 @@ def test_combined_mosaic_is_a_cog_with_nodata_between_plots(tmp_path):
     edges = np.flatnonzero(np.diff(rows.astype(int)))
     assert len(edges) >= 2, "expected a nodata band between the two plots"
     assert not (tmp_path / "combined_mosaic.plain.tif").exists()
+
+
+def test_lane_band_is_placed_beside_the_gps_line(tmp_path):
+    # Two plots per frame (top / bottom): each band is stitched separately
+    # and must land on its own side of the GPS line, at its true width.
+    gps = southbound()
+    out_top = tmp_path / "top.tif"
+    out_bottom = tmp_path / "bottom.tif"
+    band = {"offset_px": -270.0, "size_px": 540}  # top half of a 1080-px frame
+    assert georef.georeference_plot(strip(tmp_path / "t.png", h=150), gps, out_top, band=band)
+    assert georef.georeference_plot(
+        strip(tmp_path / "b.png", h=150), gps, out_bottom, band={**band, "offset_px": 270.0}
+    )
+    (lon_t, _), (lon_b, _) = georef.center_wgs84(out_top), georef.center_wgs84(out_bottom)
+    # Opposite sides of the line, symmetric about it.
+    assert (lon_t - LON0) * (lon_b - LON0) < 0
+    assert (lon_t - LON0) == pytest.approx(-(lon_b - LON0), rel=1e-3)
+    # Square pixels: the band spans h * (track length / w) across the track,
+    # and its centre sits half a band from the line.
+    track_m = np.hypot(0, 3e-6 * 7 * 111_320)
+    band_m = 150 * track_m / 600
+    m_per_deg_lon = 111_320 * np.cos(np.radians(LAT0))
+    assert abs(lon_t - LON0) * m_per_deg_lon == pytest.approx(band_m / 2, rel=0.05)
