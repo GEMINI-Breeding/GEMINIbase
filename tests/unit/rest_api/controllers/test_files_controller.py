@@ -266,6 +266,7 @@ class TestUploadChunk:
             "total": 2,
         }
         mock_minio.upload_part.return_value = "etag-2"
+        mock_minio.list_parts.return_value = {1: "etag-1", 2: "etag-2"}
 
         response = test_client.post(
             "/api/files/upload_chunk",
@@ -361,6 +362,7 @@ class TestUploadChunk:
             "total": 2,
         }
         mock_minio.upload_part.return_value = "etag-2"
+        mock_minio.list_parts.return_value = {1: "etag-1", 2: "etag-2"}
         mock_minio.complete_multipart_upload.side_effect = [Exception("slow down"), None]
         form = {
             "chunk_index": "1",
@@ -384,6 +386,34 @@ class TestUploadChunk:
         assert retry.json()["complete"] is True
         assert mock_minio.upload_part.call_count == 1  # retry didn't re-send the part
         assert "assemble-fail" not in _chunk_uploads
+
+    @patch(CHUNKS_PATH, {})
+    @patch(MINIO_PATH)
+    def test_assembly_uses_minios_etags_and_asks_for_missing_parts(self, mock_minio, test_client):
+        """A part sent twice keeps MinIO's etag; a part MinIO lacks is asked for again."""
+        from gemini.rest_api.controllers.files import _chunk_uploads
+        form = {"chunk_index": "1", "total_chunks": "2", "file_identifier": "etags",
+                "object_name": "o.bin", "bucket_name": "test-bucket"}
+
+        def send():
+            return test_client.post("/api/files/upload_chunk", data=form,
+                                    files={"file_chunk": ("c.bin", io.BytesIO(b"x"), "application/octet-stream")})
+
+        _chunk_uploads["etags"] = {"upload_id": "u", "bucket_name": "test-bucket", "object_name": "o.bin",
+                                   "parts": {1: "etag-old"}, "total": 2}
+        mock_minio.upload_part.return_value = "etag-2"
+        mock_minio.list_parts.return_value = {1: "etag-new", 2: "etag-2"}
+        assert send().json()["complete"] is True
+        parts = mock_minio.complete_multipart_upload.call_args.kwargs["parts"]
+        assert parts == [(1, "etag-new"), (2, "etag-2")]
+
+        _chunk_uploads["etags"] = {"upload_id": "u", "bucket_name": "test-bucket", "object_name": "o.bin",
+                                   "parts": {1: "etag-1"}, "total": 2}
+        mock_minio.complete_multipart_upload.reset_mock()
+        mock_minio.list_parts.return_value = {2: "etag-2"}
+        out = send().json()
+        assert out["complete"] is False and out["uploaded_part_numbers"] == [2]
+        mock_minio.complete_multipart_upload.assert_not_called()
 
     @patch(CHUNKS_PATH, {})
     @patch(MINIO_PATH)
@@ -428,7 +458,9 @@ class TestCheckUploadedChunks:
             "total": 5,
         }
     })
-    def test_returns_count_for_existing(self, test_client):
+    @patch(MINIO_PATH)
+    def test_returns_count_for_existing(self, mock_minio, test_client):
+        mock_minio.list_parts.return_value = {1: "etag-1", 2: "etag-2"}
         response = test_client.post(
             "/api/files/check_uploaded_chunks",
             json={"file_identifier": "existing-file", "total_chunks": 5},

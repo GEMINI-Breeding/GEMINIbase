@@ -116,9 +116,12 @@ def test_preset_table_matches_main():
 
 
 def test_preset_set_matches_main_exactly():
-    """We ship exactly the four presets main has — no extra tiers, no
-    missing ones. Drift either direction is a regression."""
-    assert set(QUALITY_PRESETS.keys()) == {"Draft", "Standard", "High Quality", "Ultra"}
+    """We ship exactly the presets the app's Orthomosaic step offers (main's
+    four, plus "Detailed map" and the Quick one for boundaries and raw
+    frames) — no extra tiers, no missing ones. Drift either direction is a
+    regression."""
+    assert set(QUALITY_PRESETS.keys()) == {"Draft", "Standard", "High Quality", "Ultra", "Detailed map",
+                                           "Quick (boundaries + raw frames)"}
 
 
 def test_preset_carries_orthophoto_and_dem_resolution():

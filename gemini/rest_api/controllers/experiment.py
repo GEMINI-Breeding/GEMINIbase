@@ -1,4 +1,4 @@
-from litestar import Response
+from litestar import Request, Response
 from litestar.handlers import get, post, patch, delete
 from litestar.params import Body
 from litestar.controller import Controller
@@ -22,6 +22,8 @@ from gemini.rest_api.models import (
     GenotypingStudyOutput,
 )
 from typing import List, Annotated, Optional
+
+from gemini.rest_api import people  # noqa: E402
 
 class ExperimentSeasonInput(BaseModel):
     season_name: str
@@ -125,12 +127,40 @@ class ExperimentController(Controller):
             )
             return Response(content=error, status_code=500)
 
+    # Who is linked to each experiment (owners first), for the lists that show it
+    @get(path="/people", sync_to_thread=True)
+    def get_experiment_people(self) -> dict:
+        return people.people_by_experiment()
+
+    # Public (everyone sees it) or private (only the people linked to it see it in their lists)
+    @patch(path="/id/{experiment_id:str}/visibility", sync_to_thread=True)
+    def set_experiment_visibility(self, request: Request, experiment_id: str,
+                                  data: Annotated[dict, Body]) -> ExperimentOutput:
+        visibility = str((data or {}).get("visibility") or "")
+        if visibility not in people.VISIBILITY:
+            return Response(content=RESTAPIError(error="Bad visibility",
+                                                 error_description="public or private"), status_code=400)
+        experiment = Experiment.get_by_id(id=experiment_id)
+        if experiment is None:
+            return Response(content=RESTAPIError(error="Experiment not found",
+                                                 error_description="No experiment was found with the given ID"),
+                            status_code=404)
+        viewer = _viewer(request)
+        if not people.is_owner(experiment_id, viewer):
+            return Response(content=RESTAPIError(error="Not the owner",
+                                                 error_description="Only the experiment's owner (or an "
+                                                                   "administrator) can change who sees it."),
+                            status_code=403)
+        info = dict(experiment.experiment_info or {})
+        info["visibility"] = visibility
+        return experiment.update(experiment_info=info)
+
     # Get All Experiments
     @get(path="/all", sync_to_thread=True)
-    def get_all_experiments(self, limit: int = 100, offset: int = 0) -> List[ExperimentOutput]:
+    def get_all_experiments(self, request: Request, limit: int = 100, offset: int = 0) -> List[ExperimentOutput]:
         try:
             experiments = Experiment.get_all(limit=limit, offset=offset)
-            return experiments or []
+            return people.visible_to(experiments or [], _viewer(request))
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),
@@ -142,6 +172,7 @@ class ExperimentController(Controller):
     @get(sync_to_thread=True)
     def get_experiments(
         self,
+        request: Request,
         experiment_name: Optional[str] = None,
         experiment_info: Optional[JSONB] = None,
         experiment_start_date: Optional[str] = None,
@@ -152,12 +183,12 @@ class ExperimentController(Controller):
             if experiment_info is not None:
                 experiment_info = str_to_dict(experiment_info)
 
-            return Experiment.search(
+            return people.visible_to(Experiment.search(
                 experiment_name=experiment_name,
                 experiment_info=experiment_info,
                 experiment_start_date=experiment_start_date,
                 experiment_end_date=experiment_end_date
-            ) or []
+            ) or [], _viewer(request))
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),
@@ -191,7 +222,7 @@ class ExperimentController(Controller):
     # Create Experiment
     @post(sync_to_thread=True)
     def create_experiment(
-        self, data: Annotated[ExperimentInput, Body]
+        self, request: Request, data: Annotated[ExperimentInput, Body]
     ) -> ExperimentOutput:
         try:
             experiment = Experiment.create(
@@ -206,6 +237,8 @@ class ExperimentController(Controller):
                     error_description="The experiment could not be created"
                 )
                 return Response(content=error, status_code=500)
+            # Whoever made it is its owner (shown beside it; they choose who sees it).
+            people.claim(str(experiment.id), _viewer(request))
             return experiment
         except Exception as e:
             error = RESTAPIError(
@@ -867,3 +900,13 @@ class ExperimentController(Controller):
                 error_description="An error occurred while retrieving the experiment genotyping studies"
             )
             return Response(content=error, status_code=500)
+
+
+def _viewer(request: Request):
+    """The signed-in person, or None when the app runs without sign-in."""
+    from gemini.rest_api.dependencies import provide_current_user
+
+    try:
+        return provide_current_user(request)
+    except Exception:
+        return None

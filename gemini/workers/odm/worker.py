@@ -109,6 +109,18 @@ QUALITY_PRESETS: dict[str, list[dict]] = {
         {"name": "orthophoto-resolution", "value": 1},
         {"name": "dem-resolution", "value": 1},
     ],
+    # For placing plot boundaries, and plot images from the raw frames: a quick
+    # orthomosaic from the sparse reconstruction (no dense point cloud, which is
+    # where wind-blown plants turn into ghosts and seams), at 5 cm. Its camera
+    # positions are kept like every run's, so each plot's best raw frames can be
+    # picked once the boundaries sit right on it.
+    "Quick (boundaries + raw frames)": [
+        {"name": "fast-orthophoto", "value": True},
+        {"name": "feature-quality", "value": "medium"},
+        {"name": "skip-3dmodel", "value": True},
+        {"name": "orthophoto-resolution", "value": 5},
+        {"name": "dem-resolution", "value": 5},
+    ],
     # A fine map with a light reconstruction: the orthophoto at 1 cm/px (what
     # object detection and per-plot traits use), while the parts that cost
     # memory and are used less are kept light — fewer image features for
@@ -772,6 +784,18 @@ class OdmWorker(BaseWorker):
                         dsm_path = os.path.join(tmpdir, "dsm.tif")
                         with zf.open(dsm_entry) as src, open(dsm_path, "wb") as dst:
                             shutil.copyfileobj(src, dst)
+                    # Where each frame was taken and the lens: what places raw frames
+                    # on the plots (plot images from raw frames, for flights whose
+                    # orthomosaic is unusable in detail, e.g. wind). Same frame of
+                    # reference as this orthomosaic.
+                    camera_files = {}
+                    for suffix, local in (("odm_report/shots.geojson", "shots.geojson"),
+                                          ("cameras.json", "cameras.json")):
+                        entry = next((n for n in zf.namelist() if n.endswith(suffix)), None)
+                        if entry is not None:
+                            camera_files[local] = os.path.join(tmpdir, local)
+                            with zf.open(entry) as src, open(camera_files[local], "wb") as dst:
+                                shutil.copyfileobj(src, dst)
             except zipfile.BadZipFile:
                 raise RuntimeError("NodeODM returned invalid zip file")
 
@@ -810,6 +834,19 @@ class OdmWorker(BaseWorker):
                 )
                 logger.info(f"Uploaded DSM to {dsm_object_path}")
 
+            cameras_object_paths = {}
+            if {"shots.geojson", "cameras.json"} <= set(camera_files):
+                for local, stem, ext in (("shots.geojson", "odm_shots", "geojson"),
+                                         ("cameras.json", "odm_cameras", "json")):
+                    obj = f"{output_prefix}{stem}-{job_id}.{ext}"
+                    client.fput_object(STORAGE_BUCKET, obj, camera_files[local],
+                                       content_type="application/json")
+                    cameras_object_paths[stem] = obj
+                logger.info("Saved camera positions: %s", cameras_object_paths)
+            else:
+                logger.warning("NodeODM gave no camera positions (shots.geojson / cameras.json): "
+                               "raw frames cannot be placed on plots for this run")
+
             # Phase 6: Save final log to MinIO (95-98%)
             self.report_progress(job_id, 96, {"stage": "saving_log"})
             self._save_log(task_id, output_prefix, client)
@@ -833,6 +870,9 @@ class OdmWorker(BaseWorker):
             }
             if dsm_object_path:
                 result["dsm_path"] = dsm_object_path
+            if cameras_object_paths:
+                result["shots_path"] = cameras_object_paths["odm_shots"]
+                result["cameras_path"] = cameras_object_paths["odm_cameras"]
             if cog_job_id:
                 result["cog_job_id"] = cog_job_id
             return result

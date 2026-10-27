@@ -58,6 +58,8 @@ logger = logging.getLogger(__name__)
 _settings = GEMINISettings()
 
 
+from gemini.rest_api import people  # noqa: E402
+
 class UsersController(Controller):
 
     dependencies = {
@@ -80,6 +82,10 @@ class UsersController(Controller):
                 )
                 return Response(content=error, status_code=503)
             user = User.authenticate(email=data.email, password=data.password)
+            if user is None and people.passwordless_enabled() and not data.password:
+                # An account made without a password (a lab's test setup): its email is enough.
+                candidate = User.get(email=data.email.strip())
+                user = candidate if candidate is not None and people.is_passwordless(candidate) else None
             if user is None:
                 error = RESTAPIError(
                     error="Invalid credentials",
@@ -102,6 +108,41 @@ class UsersController(Controller):
                 error_description="An internal error occurred during login.",
             )
             return Response(content=error, status_code=500)
+
+    @get(path="/login/options", sync_to_thread=True)
+    def login_options(self) -> dict:
+        """What the sign-in page offers (no sign-in needed to ask)."""
+        on = people.passwordless_enabled()
+        return {"passwordless": on, "guest": on}
+
+    @post(path="/login/guest", sync_to_thread=True)
+    def login_guest(self) -> Token:
+        """Sign in to the shared guest account (only with GEMINI_PASSWORDLESS_LOGIN)."""
+        if not people.passwordless_enabled() or not _settings.GEMINI_JWT_SECRET:
+            error = RESTAPIError(error="Guest sign-in disabled",
+                                 error_description="Ask an administrator for an account.")
+            return Response(content=error, status_code=403)
+        user = people.guest_user()
+        if user is None or not user.is_active:
+            error = RESTAPIError(error="Guest sign-in failed", error_description="The guest account is unavailable.")
+            return Response(content=error, status_code=500)
+        expires = timedelta(minutes=_settings.GEMINI_JWT_ACCESS_TOKEN_EXPIRE_MINUTES)
+        return Token(access_token=create_access_token(subject=user.id, expires_delta=expires))
+
+    @get(path="/people", sync_to_thread=True)
+    def list_people(self, current_user: User) -> list[dict]:
+        """Everyone with an account and the experiments they are linked to (any signed-in user)."""
+        from gemini.db.models.associations import UserExperimentModel
+        from gemini.db.models.users import UserModel
+
+        links: dict[str, list[dict]] = {}
+        for row in UserExperimentModel.search():
+            links.setdefault(str(row.user_id), []).append(
+                {"experiment_id": str(row.experiment_id), "role": row.role or "member"})
+        return [{"id": str(u.id), "email": u.email, "full_name": u.full_name, "is_superuser": bool(u.is_superuser),
+                 "is_active": bool(u.is_active), "passwordless": people.is_passwordless(u),
+                 "guest": u.email == people.GUEST_EMAIL, "experiments": links.get(str(u.id), [])}
+                for u in sorted(UserModel.search(), key=lambda u: u.email)]
 
     @post(path="/login/test-token", sync_to_thread=True)
     def test_token(self, current_user: User) -> UserOutput:
@@ -318,9 +359,18 @@ class UsersController(Controller):
             user_info = (
                 str_to_dict(data.user_info) if data.user_info is not None else None
             )
+            password = data.password
+            if not password:
+                if not people.passwordless_enabled():
+                    error = RESTAPIError(error="Password needed",
+                                         error_description="Accounts without a password are turned off "
+                                                           "(GEMINI_PASSWORDLESS_LOGIN).")
+                    return Response(content=error, status_code=400)
+                password = people.random_password()
+                user_info = {**(user_info or {}), "passwordless": True}
             user = User.create(
-                email=data.email,
-                password=data.password,
+                email=data.email.strip(),
+                password=password,
                 full_name=data.full_name,
                 is_active=data.is_active if data.is_active is not None else True,
                 is_superuser=data.is_superuser if data.is_superuser is not None else False,

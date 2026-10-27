@@ -447,7 +447,13 @@ class GeoWorker(BaseWorker):
         Parameters:
             year, experiment, location, population, date: Path components
             boundaries: GeoJSON FeatureCollection with plot polygons (WGS84)
+            source: "frames" for the plot's best raw frames instead (plot_frames.py)
         """
+        if parameters.get("source") == "frames":
+            # Plot images from the raw frames, placed by the ODM run's camera positions.
+            from . import plot_frames
+
+            return plot_frames.run(self, job_id, parameters, _get_minio_client(), STORAGE_BUCKET)
         year = parameters["year"]
         experiment = parameters["experiment"]
         location = parameters["location"]

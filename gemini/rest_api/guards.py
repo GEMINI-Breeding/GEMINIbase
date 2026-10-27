@@ -28,6 +28,9 @@ _settings = GEMINISettings()
 _OPEN_PATHS = {
     "/api/users/login/access-token",
     "/api/users/signup",
+    # Sign-in without a password (each refuses unless GEMINI_PASSWORDLESS_LOGIN).
+    "/api/users/login/guest",
+    "/api/users/login/options",
     "/api/utils/health-check",
     "/api/utils/capabilities",
 }

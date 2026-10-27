@@ -1,5 +1,6 @@
 import io
 import hashlib
+import logging
 import threading
 import time
 
@@ -58,6 +59,8 @@ from typing import Annotated, List
 #
 # Single-process safe (Uvicorn runs --workers=1). If we ever scale horizontally
 # this needs to move to Redis.
+logger = logging.getLogger(__name__)
+
 _chunk_uploads: dict[str, dict] = {}
 
 # Guard for the create_multipart_upload + session-dict write that
@@ -1011,11 +1014,45 @@ class FileController(Controller):
                     _chunk_uploads.pop(file_id, None)
 
             if should_finalize:
+                # Assemble what MinIO actually holds. A part sent twice at
+                # once (a browser retry of a slow chunk) keeps the last
+                # write, whose etag need not be the one recorded; assembling
+                # with a stale etag fails with InvalidPart.
+                try:
+                    stored = minio_storage_provider.list_parts(
+                        object_name=session["object_name"],
+                        upload_id=session["upload_id"],
+                        bucket_name=session["bucket_name"],
+                    )
+                except Exception:
+                    logger.exception("list_parts failed; assembling with the recorded etags")
+                    stored = dict(session["parts"])
+                stale = [n for n, e in session["parts"].items()
+                         if n in stored and stored[n].strip('"') != str(e).strip('"')]
+                missing = [n for n in range(1, total + 1) if n not in stored]
+                if stale:
+                    logger.warning("Upload %s: %d recorded part etag(s) differ from MinIO's "
+                                   "(e.g. part %s); assembling with MinIO's", session["object_name"],
+                                   len(stale), stale[0])
+                if missing:
+                    # Parts recorded but not stored: ask the client for them
+                    # again instead of failing the whole upload.
+                    logger.warning("Upload %s: MinIO lacks %d part(s) (e.g. %s); asking the client to "
+                                   "send them again", session["object_name"], len(missing), missing[:5])
+                    with file_lock:
+                        session["parts"] = {n: e for n, e in stored.items()}
+                        _chunk_uploads.setdefault(file_id, session)
+                    return ChunkStatusResponse(
+                        file_identifier=file_id,
+                        uploaded_part_numbers=sorted(stored),
+                        total_chunks=total,
+                        complete=False,
+                    )
                 try:
                     minio_storage_provider.complete_multipart_upload(
                         object_name=session["object_name"],
                         upload_id=session["upload_id"],
-                        parts=list(session["parts"].items()),
+                        parts=list(stored.items()),
                         bucket_name=session["bucket_name"],
                     )
                 except Exception:
@@ -1118,6 +1155,17 @@ class FileController(Controller):
         ):
             session = None
         uploaded_part_numbers = sorted(session["parts"].keys()) if session else []
+        if session is not None:
+            # What MinIO holds, not just what was recorded.
+            try:
+                stored = minio_storage_provider.list_parts(
+                    object_name=session["object_name"],
+                    upload_id=session["upload_id"],
+                    bucket_name=session["bucket_name"],
+                )
+                uploaded_part_numbers = sorted(n for n in stored if n in session["parts"])
+            except Exception:
+                pass
         return ChunkStatusResponse(
             file_identifier=file_id,
             uploaded_part_numbers=uploaded_part_numbers,
@@ -1297,7 +1345,9 @@ class FileController(Controller):
         """Download many files as one ZIP.
 
         Body: ``{"files": [object names]}`` or ``{"prefix": "..."}`` (every
-        object under it), plus an optional ``"filename"`` for the download.
+        object under it), or ``{"entries": [{"object", "name"}]}`` (each object
+        under that name in the archive; one object may come several times),
+        plus an optional ``"filename"`` for the download.
 
         The archive is spooled to a temp file rather than built in memory —
         a flight's images run to gigabytes. Entries keep their path relative
@@ -1315,6 +1365,13 @@ class FileController(Controller):
             bucket = minio_storage_config.bucket_name
             files = [f for f in (data.get("files") or []) if f]
             prefix = data.get("prefix", "") or ""
+            # Or entries with their names in the archive ([{"object", "name"}]), the same
+            # object more than once allowed: raw frames named by each plot they show.
+            entries = [(str(e.get("object") or ""), str(e.get("name") or ""))
+                       for e in (data.get("entries") or []) if isinstance(e, dict)]
+            entries = [(o, n) for o, n in entries if o and n and ".." not in n and not n.startswith("/")]
+            if entries:
+                files = [o for o, _ in entries]
 
             if prefix and not files:
                 items = minio_storage_provider.list_files(
@@ -1337,8 +1394,9 @@ class FileController(Controller):
             spool = tempfile.SpooledTemporaryFile(max_size=64 * 1024 * 1024)
             missing: list = []
             with zipfile.ZipFile(spool, "w", zipfile.ZIP_DEFLATED, allowZip64=True) as zf:
-                for file_path in files:
-                    arcname = file_path[len(root):] if file_path.startswith(root) else file_path
+                for i, file_path in enumerate(files):
+                    arcname = entries[i][1] if entries else (
+                        file_path[len(root):] if file_path.startswith(root) else file_path)
                     compress = (
                         zipfile.ZIP_STORED
                         if arcname.lower().endswith(stored)

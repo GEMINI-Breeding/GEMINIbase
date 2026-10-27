@@ -82,6 +82,12 @@ class GEMINISettings(BaseSettings):
     # them (PATCH /api/users/id/{id} with is_active=true).
     GEMINI_SIGNUP_ENABLED : bool = False
 
+    # A lab's test setup: accounts made without a password sign in with their
+    # email alone, and "Continue as guest" signs in to a shared guest account.
+    # Anyone who can reach the API can then sign in: keep it off where the API
+    # is reachable by people outside the lab.
+    GEMINI_PASSWORDLESS_LOGIN : bool = False
+
     # Test-only: when "1", enables DELETE /api/e2e_cleanup so the
     # Playwright afterEach hook can sweep entities a single test run
     # created. Read directly from os.environ in the controller; left

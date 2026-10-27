@@ -1431,7 +1431,8 @@ class GenotypeRecordOutput(RESTAPIBase):
 
 class UserInput(RESTAPIBase):
     email: str
-    password: str
+    # Empty: an account that signs in without a password (GEMINI_PASSWORDLESS_LOGIN).
+    password: str = ""
     full_name: Optional[str] = None
     is_active: Optional[bool] = True
     is_superuser: Optional[bool] = False
@@ -1480,7 +1481,7 @@ class Token(RESTAPIBase):
 
 class LoginInput(RESTAPIBase):
     email: str
-    password: str
+    password: str = ""
 
 
 class UserExperimentInput(RESTAPIBase):

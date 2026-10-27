@@ -242,6 +242,38 @@ class MinioStorageProvider(StorageProvider):
                 time.sleep(base_delay * (2 ** attempt))
         raise StorageUploadError(f"Part {part_number} upload failed definitively for '{object_name}'.")
 
+    def list_parts(
+        self,
+        object_name: str,
+        upload_id: str,
+        bucket_name: Optional[str] = None,
+    ) -> dict[int, str]:
+        """The parts MinIO holds for a multipart upload: {part_number: etag}.
+
+        The source of truth at assembly: the etags recorded as chunks
+        arrived can be stale (a part sent twice at once keeps the last
+        write, which need not be the one recorded)."""
+        target_bucket = bucket_name if bucket_name is not None else self.bucket_name
+        out: dict[int, str] = {}
+        marker = None
+        while True:
+            res = self.client._list_parts(
+                bucket_name=target_bucket,
+                object_name=object_name,
+                upload_id=upload_id,
+                max_parts=1000,
+                part_number_marker=marker,
+            )
+            for p in getattr(res, "parts", None) or []:
+                out[int(getattr(p, "part_number", 0))] = str(getattr(p, "etag", ""))
+            if getattr(res, "is_truncated", False) is not True:
+                break
+            nxt = getattr(res, "next_part_number_marker", None)
+            if not nxt or nxt == marker:   # no progress: stop rather than loop
+                break
+            marker = nxt
+        return out
+
     def complete_multipart_upload(
         self,
         object_name: str,
