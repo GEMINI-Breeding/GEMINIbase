@@ -11,6 +11,11 @@ placed on (frames.py). Written under …/{platform}/{sensor}/PlotFrames/:
 
 The full frames are not copied: the manifest points at them, and downloads
 name them by plot and accession.
+
+Other sensors uploaded for the same date and platform (a thermal camera beside
+the RGB one) are matched to these frames by capture time and cut the same way,
+under PlotFrames/{Sensor}/ (plot_companions.py); a thermal camera's frames also
+give each plot's canopy temperature.
 """
 from __future__ import annotations
 
@@ -22,11 +27,12 @@ import os
 import re
 import tempfile
 from collections import defaultdict
-from typing import Any
+from typing import Any, Optional
 
 import numpy as np
 
 from . import frames as F
+from . import plot_companions as PC
 
 logger = logging.getLogger(__name__)
 
@@ -92,21 +98,27 @@ def run(worker, job_id: str, p: dict, client, bucket: str) -> dict:
     shots: list[F.Shot] = []
     crs = None
     dsms: list[str] = []
+    without: list[str] = []
     for ortho in orthos:
         folder, odm_job = _job_suffix(ortho)
         try:
             gj = json.loads(client.get_object(bucket, f"{folder}/odm_shots-{odm_job}.geojson").read())
             cams = json.loads(client.get_object(bucket, f"{folder}/odm_cameras-{odm_job}.json").read())
         except Exception:
-            raise ValueError(f"the ODM run of {ortho.rsplit('/', 1)[-1]} did not keep its camera positions "
-                             "(runs before this feature): build the orthomosaic again, e.g. with the Quick "
-                             "preset, then place the boundaries on it") from None
+            # An older orthomosaic of the same flight (built before camera positions were kept):
+            # the others give the frames; only when none has them is that an error.
+            without.append(ortho.rsplit("/", 1)[-1])
+            continue
         here = _shot_crs(gj)
         if crs and here != crs:
             raise ValueError("the orthomosaics' camera positions are in different UTM zones")
         crs = here
         shots += F.read_shots(gj, F.read_lenses(cams))
         dsms.append(f"{folder}/odm_dsm-{odm_job}.tif")
+    if not shots and without:
+        raise ValueError(f"the ODM run of {without[0]} did not keep its camera positions "
+                         "(runs before this feature): build the orthomosaic again, e.g. with the Quick "
+                         "preset, then place the boundaries on it")
     if not shots:
         raise ValueError("no placed frames in the ODM run's camera positions")
 
@@ -114,6 +126,11 @@ def run(worker, job_id: str, p: dict, client, bucket: str) -> dict:
     platform, sensor = parts[6], parts[7]
     raw_prefix = f"Raw/{year}/{experiment}/{location}/{population}/{date}/{platform}/{sensor}/"
     out_prefix = f"Processed/{year}/{experiment}/{location}/{population}/{date}/{platform}/{sensor}/PlotFrames/"
+    # One of several flights that day (a diurnal run, a treatment flown on its own): its own folder,
+    # so the day's runs do not overwrite each other's plot images.
+    run_key = re.sub(r"[^A-Za-z0-9]+", "-", str(p.get("run_key") or "")).strip("-")
+    if run_key:
+        out_prefix += f"{run_key}/"
 
     worker.report_progress(job_id, 6, {"stage": "finding_raw_frames"})
     raw: dict[str, str] = {}
@@ -124,6 +141,12 @@ def run(worker, job_id: str, p: dict, client, bucket: str) -> dict:
     shots = [s for s in shots if s.filename in raw]
     if not shots:
         raise ValueError(f"none of the ODM run's frames are under {raw_prefix}")
+    # The flight's other cameras (thermal beside RGB): every other sensor uploaded for this
+    # date and platform, unless `companions` names some (or is [] / false for none).
+    wanted = p.get("companions")
+    others = {} if wanted is False or wanted == [] else PC.sensors_beside(
+        client, bucket, raw_prefix[: -len(sensor) - 1], sensor, wanted if isinstance(wanted, list) else None)
+    span = 45 if others else 80
 
     with tempfile.TemporaryDirectory() as tmp:
         # Plots in the shots' CRS, and their ground height.
@@ -134,7 +157,7 @@ def run(worker, job_id: str, p: dict, client, bucket: str) -> dict:
                 continue
             geom = transform_geom("EPSG:4326", crs, feat["geometry"])
             ring = np.array(geom["coordinates"][0], float)[:, :2]
-            plots.append({"plot": props.get("plot", props.get("Plot", i + 1)),
+            plots.append({"feature": feat, "plot": props.get("plot", props.get("Plot", i + 1)),
                           "accession": props.get("accession", props.get("Accession",
                                                  props.get("Label", props.get("label", "unknown")))),
                           "ring": ring, "geom": geom})
@@ -173,36 +196,101 @@ def run(worker, job_id: str, p: dict, client, bucket: str) -> dict:
                     flat, (gx, gy, gsd) = F.straighten(img, c.shot, pl["ring"], pl["ground"], c.gsd_m)
                     pl["straightened"] = f"{out_prefix}straightened/{base}.png"
                     pl["straightened_origin"] = {"crs": crs, "x_min": gx, "y_max": gy, "gsd_m": gsd}
+                    if others:
+                        # Where the plants are, for the other cameras' canopy temperature (1 byte a cell).
+                        pl["_plant"] = PC.plant_mask(flat)
                     _put_image(client, bucket, pl["straightened"], flat, "PNG")
             os.remove(local)
             done += len(uses)
-            worker.report_progress(job_id, 15 + int(80 * (n + 1) / max(1, len(need))),
+            worker.report_progress(job_id, 15 + int(span * (n + 1) / max(1, len(need))),
                                    {"stage": "cutting", "frames_done": n + 1, "frames_total": len(need)})
 
+        loaded: dict[str, np.ndarray] = {}
+
+        def rgb_frame(fname: str) -> np.ndarray:
+            if fname not in loaded:
+                loaded.clear()                   # one at a time: a frame is ~36 MB as an array
+                local = os.path.join(tmp, "rgb" + os.path.splitext(fname)[1])
+                client.fget_object(bucket, raw[fname], local)
+                with Image.open(local) as im:
+                    loaded[fname] = np.asarray(im.convert("RGB"))
+                os.remove(local)
+            return loaded[fname]
+
+        sections = PC.run(worker, job_id, client, bucket, others=others, shots=shots, raw=raw, plots=plots,
+                          out_prefix=out_prefix, keep=keep, tmp=tmp, safe=_safe, rgb_loader=rgb_frame,
+                          run_label=str(p.get("run_label") or "").strip(),
+                          progress=lambda f, info: worker.report_progress(
+                              job_id, 15 + span + int((95 - 15 - span) * f), {"stage": "other_sensors", **info}))
+        if worker.is_cancelled(job_id):
+            return {"status": "cancelled"}
+
         manifest = {
-            "orthomosaics": orthos, "crs": crs, "frames_per_plot": keep,
+            "orthomosaics": orthos, "crs": crs, "frames_per_plot": keep, "sensor": sensor,
+            "run_key": run_key or None, "run_label": p.get("run_label") or None,
+            "flown_at": _flown_at(shots),
+            "companions": sections,
             "ground": sorted({pl["ground_from"] for pl in plots}),
             "plots": [{"plot": pl["plot"], "accession": pl["accession"], "ground_z": round(pl["ground"], 2),
                        "straightened": pl.get("straightened"), "straightened_origin": pl.get("straightened_origin"),
-                       "frames": sorted(pl.get("frames", []), key=lambda f: f["rank"])} for pl in plots],
+                       "frames": sorted(pl.get("frames", []), key=lambda f: f["rank"]),
+                       **({"companions": pl["companions"]} if pl.get("companions") else {})} for pl in plots],
         }
         _put_bytes(client, bucket, f"{out_prefix}manifest.json", json.dumps(manifest, indent=1).encode(),
                    "application/json")
         rows = io.StringIO()
         w = csv.writer(rows)
+        # Each other sensor: its frame at the same rank, and (best frame) the plot's canopy temperature.
+        extra = [s for s, sec in sections.items() if sec.get("plots_seen")]
         w.writerow(["plot", "accession", "rank", "raw_image", "crop", "straightened", "inside", "off_nadir_deg",
-                    "center_offset", "gsd_cm"])
+                    "center_offset", "gsd_cm"]
+                   + [c for s in extra for c in (f"{s}_image", f"{s}_crop", f"{s}_canopy_temp_c")])
         for pl in manifest["plots"]:
             for f in pl["frames"] or [{}]:
+                more = []
+                for s in extra:
+                    e = (pl.get("companions") or {}).get(s) or {}
+                    cf = next((x for x in e.get("frames", []) if x["rank"] == f.get("rank")), {})
+                    more += [cf.get("image", ""), cf.get("crop", cf.get("crop_preview", "")),
+                             (e.get("canopy") or {}).get("canopy_mean_c", "") if f.get("rank") == 1 else ""]
                 w.writerow([pl["plot"], pl["accession"], f.get("rank", ""), f.get("image", ""), f.get("crop", ""),
                             pl["straightened"] if f.get("rank") == 1 else "", f.get("inside", ""),
-                            f.get("off_nadir_deg", ""), f.get("center_offset", ""), f.get("gsd_cm", "")])
+                            f.get("off_nadir_deg", ""), f.get("center_offset", ""), f.get("gsd_cm", "")] + more)
         _put_bytes(client, bucket, f"{out_prefix}manifest.csv", rows.getvalue().encode(), "text/csv")
+        for s in extra:
+            # One row per plot: what the trait holds, and how it was measured.
+            t = io.StringIO()
+            tw = csv.writer(t)
+            tw.writerow(["plot", "accession", "canopy_temp_mean_c", "canopy_temp_median_c", "canopy_temp_iqr_c",
+                         "soil_temp_mean_c", "plant_share", "plant_cells_used", "cover", "frames_pieced",
+                         "best_frame", "straightened"])
+            for pl in manifest["plots"]:
+                e = (pl.get("companions") or {}).get(s) or {}
+                ct = e.get("canopy") or {}
+                tw.writerow([pl["plot"], pl["accession"], ct.get("canopy_mean_c", ""), ct.get("canopy_median_c", ""),
+                             ct.get("canopy_iqr_c", ""), ct.get("soil_mean_c", ""), ct.get("plant_share", ""),
+                             ct.get("plant_cells", ""), e.get("cover", ""), e.get("frames_pieced", ""),
+                             (e.get("frames") or [{}])[0].get("image", ""), e.get("straightened", "")])
+            _put_bytes(client, bucket, f"{sections[s]['prefix']}plots.csv", t.getvalue().encode(), "text/csv")
 
     unseen = [str(pl["plot"]) for pl in plots if not pl.get("frames")]
     worker.report_progress(job_id, 100, {"stage": "complete"})
     return {"plots_processed": len(plots) - len(unseen), "plots_unseen": unseen[:50],
-            "frames_used": len(need), "output_prefix": out_prefix, "source": "frames"}
+            "frames_used": len(need), "output_prefix": out_prefix, "source": "frames",
+            "companions": {s: {k: v for k, v in sec.items() if k in ("frames", "matched", "plots_seen", "values",
+                                                                    "canopy_temperature_plots", "error",
+                                                                    "trait_error", "alignment")}
+                           for s, sec in sections.items()}}
+
+
+def _flown_at(shots) -> Optional[str]:
+    """When the flight was, from its frames' names (the median capture time), as ISO time."""
+    from datetime import datetime
+
+    from .companions import frame_key
+
+    times = sorted(t for t, _ in (frame_key(s.filename) for s in shots) if t is not None)
+    return datetime.fromtimestamp(times[len(times) // 2]).isoformat(timespec="seconds") if times else None
 
 
 def _ground_heights(client, bucket, dsms, plots, crs, shots, raw, tmp) -> None:
