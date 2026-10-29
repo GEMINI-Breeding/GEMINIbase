@@ -231,10 +231,23 @@ class UsersController(Controller):
         data: Annotated[UserExperimentInput, Body],
     ) -> MessageOutput:
         try:
+            from gemini.api.experiment import Experiment
+
+            experiment = Experiment.get_by_id(id=data.experiment_id)
+            if experiment is None:
+                return Response(content=RESTAPIError(error="Experiment not found",
+                                                     error_description="No experiment with that ID."),
+                                status_code=404)
+            if people.belongs_to(str(experiment.id), current_user) and not current_user.is_superuser:
+                return MessageOutput(message="Already associated.")
+            refusal = people.self_link_refusal(experiment, current_user, data.role)
+            if refusal:
+                return Response(content=RESTAPIError(error="Not allowed", error_description=refusal),
+                                status_code=403)
             info = str_to_dict(data.info) if data.info is not None else None
             ok = current_user.associate_experiment(
                 experiment_id=data.experiment_id,
-                role=data.role,
+                role=data.role if current_user.is_superuser else (data.role or "member"),
                 info=info,
             )
             if not ok:
@@ -250,6 +263,33 @@ class UsersController(Controller):
                 error_description="An error occurred while associating the experiment.",
             )
             return Response(content=error, status_code=500)
+
+    @post(path="/id/{user_id:str}/experiments", sync_to_thread=True)
+    def associate_user_experiment(
+        self,
+        current_user: User,
+        user_id: str,
+        data: Annotated[UserExperimentInput, Body],
+    ) -> MessageOutput:
+        """Add someone to an experiment (member, or owner): its owner or an administrator."""
+        role = data.role or "member"
+        if role not in people.ROLES:
+            return Response(content=RESTAPIError(error="Bad role", error_description="member or owner"),
+                            status_code=400)
+        if not people.is_owner(data.experiment_id, current_user):
+            return Response(content=RESTAPIError(
+                error="Not the owner",
+                error_description="Only the experiment's owner (or an administrator) adds people to it."),
+                status_code=403)
+        person = User.get_by_id(id=user_id)
+        if person is None:
+            return Response(content=RESTAPIError(error="User not found", error_description="No such account."),
+                            status_code=404)
+        if not person.associate_experiment(experiment_id=data.experiment_id, role=role):
+            return Response(content=RESTAPIError(error="Association failed",
+                                                 error_description="Could not add the person to the experiment."),
+                            status_code=500)
+        return MessageOutput(message=f"Added as {role}.")
 
     @delete(path="/me/experiments/{experiment_id:str}", sync_to_thread=True, status_code=200)
     def unassociate_my_experiment(

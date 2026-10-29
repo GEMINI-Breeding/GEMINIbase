@@ -95,6 +95,24 @@ def is_owner(experiment_id: str, user: Any) -> bool:
     return any((r.role or "") == "owner" for r in rows)
 
 
+ROLES = ("member", "owner")
+
+
+def self_link_refusal(experiment: Any, user: Any, role: Optional[str]) -> Optional[str]:
+    """Why a person may not link themselves to an experiment, or None when they may.
+    Joining a public experiment as a member is open to everyone; being made owner, or
+    joining a private experiment, takes its owner or an administrator."""
+    if user is None or getattr(user, "is_superuser", False):
+        return None
+    if belongs_to(str(experiment.id), user):
+        return None                                # already in it: nothing changes
+    if (role or "member") != "member":
+        return "Only the experiment's owner (or an administrator) can make someone its owner."
+    if visibility_of(experiment) == "private":
+        return "This experiment is private: its owner (or an administrator) adds people to it."
+    return None
+
+
 def belongs_to(experiment_id: str, user: Any) -> bool:
     """Whether a person works on an experiment (any role). Administrators and an app
     without sign-in: always."""
