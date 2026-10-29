@@ -1,4 +1,4 @@
-from litestar import Response
+from litestar import Request, Response
 from litestar.handlers import get, post, patch, delete
 from litestar.params import Body
 from litestar.controller import Controller
@@ -8,6 +8,7 @@ from litestar.enums import RequestEncodingType
 
 
 from gemini.api.dataset import Dataset
+from gemini.rest_api import people
 from gemini.api.dataset_record import DatasetRecord
 from gemini.api.enums import GEMINIDatasetType
 from gemini.rest_api.models import (
@@ -160,7 +161,7 @@ class DatasetController(Controller):
     # Delete Dataset
     @delete(path="/id/{dataset_id:str}", sync_to_thread=True)
     def delete_dataset(
-        self, dataset_id: str
+        self, request: Request, dataset_id: str
     ) -> None:
         try:
             dataset = Dataset.get_by_id(id=dataset_id)
@@ -170,6 +171,14 @@ class DatasetController(Controller):
                     error_description="No dataset was found with the given ID"
                 )
                 return Response(content=error, status_code=404)
+            # Seeing a public experiment is not working on it: deleting its data
+            # takes belonging to it (or an administrator).
+            if not people.may_change_dataset(dataset, _viewer(request)):
+                return Response(content=RESTAPIError(
+                    error="Not in this experiment",
+                    error_description="Only people who belong to the experiment (or an administrator) "
+                                      "can delete its uploads and results."),
+                    status_code=403)
             is_deleted = dataset.delete()
             if not is_deleted:
                 error = RESTAPIError(
@@ -602,3 +611,13 @@ class DatasetController(Controller):
                 content=RESTAPIError(error=str(e), error_description="Upload not moved"),
                 status_code=500,
             )
+
+
+def _viewer(request: Request):
+    """The signed-in person, or None when the app runs without sign-in."""
+    from gemini.rest_api.dependencies import provide_current_user
+
+    try:
+        return provide_current_user(request)
+    except Exception:
+        return None

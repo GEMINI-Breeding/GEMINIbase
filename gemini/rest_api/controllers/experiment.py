@@ -279,7 +279,7 @@ class ExperimentController(Controller):
     # Delete Experiment
     @delete(path="/id/{experiment_id:str}", sync_to_thread=True)
     def delete_experiment(
-        self, experiment_id: str
+        self, request: Request, experiment_id: str
     ) -> None:
         try:
             experiment = Experiment.get_by_id(id=experiment_id)
@@ -289,6 +289,13 @@ class ExperimentController(Controller):
                     error_description="No experiment was found with the given ID"
                 )
                 return Response(content=error, status_code=404)
+            # Deleting removes everything the experiment owns, for everyone who uses it:
+            # its owner or an administrator only (as for changing who sees it).
+            if not people.is_owner(experiment_id, _viewer(request)):
+                return Response(content=RESTAPIError(
+                    error="Not the owner",
+                    error_description="Only the experiment's owner (or an administrator) can delete it."),
+                    status_code=403)
             # `Experiment.delete()` swallows its own exceptions and returns
             # False on failure (e.g. a mid-cascade FK violation rolls the
             # transaction back). Without this check the handler's implicit

@@ -140,6 +140,15 @@ class TestDeleteDataset:
         response = test_client.delete("/api/datasets/id/missing")
         assert response.status_code == 404
 
+    @patch("gemini.rest_api.controllers.dataset.people.may_change_dataset", return_value=False)
+    @patch(API_PATH)
+    def test_only_people_in_the_experiment_delete(self, mock_cls, _may, test_client):
+        mock_obj = MagicMock()
+        mock_cls.get_by_id.return_value = mock_obj
+        response = test_client.delete("/api/datasets/id/ds-uuid")
+        assert response.status_code == 403
+        mock_obj.delete.assert_not_called()
+
     @patch(API_PATH)
     def test_delete_fails(self, mock_cls, test_client):
         mock_obj = MagicMock()

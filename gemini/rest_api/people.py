@@ -95,6 +95,25 @@ def is_owner(experiment_id: str, user: Any) -> bool:
     return any((r.role or "") == "owner" for r in rows)
 
 
+def belongs_to(experiment_id: str, user: Any) -> bool:
+    """Whether a person works on an experiment (any role). Administrators and an app
+    without sign-in: always."""
+    if user is None or getattr(user, "is_superuser", False):
+        return True
+    from gemini.db.models.associations import UserExperimentModel
+
+    return bool(UserExperimentModel.search(user_id=str(user.id), experiment_id=str(experiment_id)))
+
+
+def may_change_dataset(dataset: Any, user: Any) -> bool:
+    """Whether a person may delete an upload or result: they belong to one of the
+    experiments it is part of (an administrator, or an app without sign-in: always)."""
+    if user is None or getattr(user, "is_superuser", False):
+        return True
+    experiments = dataset.get_associated_experiments() or []
+    return any(belongs_to(str(e.id), user) for e in experiments)
+
+
 def claim(experiment_id: str, user: Any, role: str = "owner") -> None:
     """Link a person to an experiment (its creator as owner); best effort."""
     if user is None:

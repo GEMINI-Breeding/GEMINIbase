@@ -151,6 +151,15 @@ class TestDeleteExperiment:
         response = test_client.delete("/api/experiments/id/missing")
         assert response.status_code == 404
 
+    @patch("gemini.rest_api.controllers.experiment.people.is_owner", return_value=False)
+    @patch(EXP_API_PATH)
+    def test_only_the_owner_or_an_administrator_deletes(self, mock_cls, _owner, test_client):
+        mock_exp = MagicMock()
+        mock_cls.get_by_id.return_value = mock_exp
+        response = test_client.delete("/api/experiments/id/exp-uuid")
+        assert response.status_code == 403
+        mock_exp.delete.assert_not_called()
+
     @patch(EXP_API_PATH)
     def test_error(self, mock_cls, test_client):
         mock_cls.get_by_id.side_effect = Exception("DB error")
