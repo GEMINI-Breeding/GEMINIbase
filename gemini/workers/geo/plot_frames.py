@@ -219,7 +219,7 @@ def run(worker, job_id: str, p: dict, client, bucket: str) -> dict:
 
         sections = PC.run(worker, job_id, client, bucket, others=others, shots=shots, raw=raw, plots=plots,
                           out_prefix=out_prefix, keep=keep, tmp=tmp, safe=_safe, rgb_loader=rgb_frame,
-                          run_label=str(p.get("run_label") or "").strip(),
+                          run_label=str(p.get("run_label") or "").strip(), merge=bool(p.get("merge")),
                           progress=lambda f, info: worker.report_progress(
                               job_id, 15 + span + int((95 - 15 - span) * f), {"stage": "other_sensors", **info}))
         if worker.is_cancelled(job_id):
@@ -236,6 +236,16 @@ def run(worker, job_id: str, p: dict, client, bucket: str) -> dict:
                        "frames": sorted(pl.get("frames", []), key=lambda f: f["rank"]),
                        **({"companions": pl["companions"]} if pl.get("companions") else {})} for pl in plots],
         }
+        if p.get("merge"):
+            # Some plots only (added ones, or those without images yet): the plots of the earlier
+            # run that this one did not redo stay in the manifest (and so in the tables below).
+            try:
+                old = json.loads(client.get_object(bucket, f"{out_prefix}manifest.json").read())
+            except Exception:
+                old = {}
+            before = len(manifest["plots"])
+            manifest["plots"] = merge_by_plot(old.get("plots") or [], manifest["plots"], lambda pl: pl.get("plot"))
+            manifest["merged"] = {"kept": len(manifest["plots"]) - before, "redone": before}
         _put_bytes(client, bucket, f"{out_prefix}manifest.json", json.dumps(manifest, indent=1).encode(),
                    "application/json")
         rows = io.StringIO()
@@ -281,6 +291,13 @@ def run(worker, job_id: str, p: dict, client, bucket: str) -> dict:
                                                                     "canopy_temperature_plots", "error",
                                                                     "trait_error", "alignment")}
                            for s, sec in sections.items()}}
+
+
+def merge_by_plot(old: list, new: list, plot_of) -> list:
+    """A run of some plots only: the earlier entries of the plots it did not redo, then its own
+    (a plot redone replaces its earlier entry). Plots compared as text ("12" = 12)."""
+    done = {str(plot_of(x)) for x in new}
+    return [x for x in old if str(plot_of(x)) not in done] + list(new)
 
 
 def _flown_at(shots) -> Optional[str]:

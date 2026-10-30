@@ -158,7 +158,7 @@ def plant_mask(flat: np.ndarray) -> np.ndarray:
 def run(worker, job_id: str, client, bucket: str, *, others: dict[str, dict[str, str]], shots: list[F.Shot],
         raw: dict[str, str], plots: list[dict], out_prefix: str, keep: int, tmp: str,
         progress: Callable[[float, dict], None], safe: Callable[[Any], str],
-        rgb_loader: Callable[[str], np.ndarray], run_label: str = "") -> dict[str, dict]:
+        rgb_loader: Callable[[str], np.ndarray], run_label: str = "", merge: bool = False) -> dict[str, dict]:
     """Every other sensor of the flight (``others``, from sensors_beside), cut per plot.
     Returns {sensor: manifest section}; each plot dict gains plot["companions"][sensor]. A
     sensor that cannot be matched or lined up is reported in its section ("error") and
@@ -176,7 +176,7 @@ def run(worker, job_id: str, client, bucket: str, *, others: dict[str, dict[str,
         out[other] = section
         try:
             _one_sensor(client, bucket, other, files, by_name, primary, raw, plots, out_prefix, keep, tmp,
-                        section, step, safe, rgb_loader, worker, job_id, run_label)
+                        section, step, safe, rgb_loader, worker, job_id, run_label, merge)
         except Exception as e:                       # one sensor's trouble does not lose the RGB plot images
             logger.exception("companion sensor %s", other)
             section["error"] = str(e)[:400]
@@ -184,7 +184,7 @@ def run(worker, job_id: str, client, bucket: str, *, others: dict[str, dict[str,
 
 
 def _one_sensor(client, bucket, other, files, by_name, primary, raw, plots, out_prefix, keep, tmp, section,
-                step, safe, rgb_loader, worker, job_id, run_label: str = "") -> None:
+                step, safe, rgb_loader, worker, job_id, run_label: str = "", merge: bool = False) -> None:
     step(0.0, {"stage": "matching_frames"})
     comp_keys = _keys(client, bucket, files)
     pairs = C.pair(primary, comp_keys)
@@ -363,6 +363,18 @@ def _one_sensor(client, bucket, other, files, by_name, primary, raw, plots, out_
             props.update({TRAIT[0]: ct["canopy_mean_c"], "Temp_veg_median_C": ct.get("canopy_median_c"),
                           "Temp_soil_avg_C": ct.get("soil_mean_c"), "plant_share": ct.get("plant_share")})
             feats.append({"type": "Feature", "geometry": pl["feature"]["geometry"], "properties": props})
+        if merge:
+            # Some plots only (added ones, or those without images yet): the earlier run's other
+            # plots are kept, so the file and the stored trait still hold every plot (storing it
+            # replaces the earlier run's records).
+            from .plot_frames import merge_by_plot
+
+            try:
+                old = json.loads(client.get_object(bucket, f"{sub}traits.geojson").read())
+            except Exception:
+                old = {}
+            feats = merge_by_plot(old.get("features") or [], feats,
+                                  lambda f: (f.get("properties") or {}).get("plot"))
         section["canopy_temperature_plots"] = len(feats)
         if feats:
             path = f"{sub}traits.geojson"

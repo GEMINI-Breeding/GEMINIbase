@@ -215,3 +215,15 @@ def test_refine_finds_one_frames_own_shift_near_the_flights():
     # Too far from the flight's alignment: not taken.
     assert C.refine(rgb, comp, {"k": 2.5, "x0": x0 + 300, "y0": y0}, search_px=60) is None or \
         C.refine(rgb, comp, {"k": 2.5, "x0": x0 + 300, "y0": y0}, search_px=60).score < 0.8
+
+
+def test_a_run_of_some_plots_keeps_the_others():
+    """Plot images for added plots only (or those without images yet): the earlier plots stay,
+    a plot redone replaces its earlier entry."""
+    from gemini.workers.geo.plot_frames import merge_by_plot
+
+    old = [{"plot": 1, "v": "a"}, {"plot": "2", "v": "b"}, {"plot": 3, "v": "c"}]
+    new = [{"plot": "2", "v": "B"}, {"plot": 4, "v": "D"}]
+    merged = merge_by_plot(old, new, lambda x: x["plot"])
+    assert [(str(x["plot"]), x["v"]) for x in merged] == [("1", "a"), ("3", "c"), ("2", "B"), ("4", "D")]
+    assert merge_by_plot([], new, lambda x: x["plot"]) == new
