@@ -14,6 +14,7 @@ Design notes captured in the plan at .claude/plans/polished-shimmying-lake.md:
   `{"status": "too_large", ...}` so the UI can prompt the user to narrow.
 """
 
+import logging
 from datetime import date, datetime
 from typing import List, Literal, Optional
 
@@ -33,6 +34,8 @@ from sqlalchemy import text
 from gemini.api.trait_record import TraitRecord
 from gemini.db.core.base import db_engine
 from gemini.rest_api.models import RESTAPIBase, RESTAPIError
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -291,6 +294,49 @@ class ManovaResponse(RESTAPIBase):
 # ---------------------------------------------------------------------------
 
 
+# Field-design columns a plot's saved properties name its accession by.
+_DESIGN_ACCESSION_KEYS = ("accession_name", "accession", "Accession", "Label", "Genotype", "genotype")
+
+
+def _plot_accessions(plot_ids: set[str]) -> dict[str, str]:
+    """Accession per plot, for records that carry none: the plot's linked
+    accession, else the label its field design gave it (kept in the plot's
+    saved properties). Trait extraction records are linked to the plot only,
+    and a design's labels need not exist as accessions, so without this the
+    table's Accession column stayed empty (Interspecific Kearney 2022)."""
+    if not plot_ids:
+        return {}
+    from sqlalchemy import select as _select
+
+    from gemini.db.core.base import db_engine
+    from gemini.db.models.accessions import AccessionModel
+    from gemini.db.models.plots import PlotModel
+
+    out: dict[str, str] = {}
+    ids = list(plot_ids)
+    with db_engine.get_session() as session:
+        for i in range(0, len(ids), 1000):
+            chunk = ids[i : i + 1000]
+            rows = session.execute(
+                _select(PlotModel.id, AccessionModel.accession_name, PlotModel.plot_geometry_info)
+                .outerjoin(AccessionModel, AccessionModel.id == PlotModel.accession_id)
+                .where(PlotModel.id.in_(chunk))
+            ).all()
+            for pid, acc_name, info in rows:
+                name = acc_name
+                if not name and isinstance(info, dict):
+                    props = info.get("properties") or {}
+                    if isinstance(props, dict):
+                        name = next(
+                            (str(props[k]).strip() for k in _DESIGN_ACCESSION_KEYS
+                             if props.get(k) not in (None, "") and str(props[k]).strip()),
+                            None,
+                        )
+                if name:
+                    out[str(pid)] = name
+    return out
+
+
 def _fetch_long(req: MultivariateRequest) -> tuple[pd.DataFrame, int]:
     """Pull the long-form trait-record frame and the raw fetched-count.
 
@@ -342,6 +388,17 @@ def _fetch_long(req: MultivariateRequest) -> tuple[pd.DataFrame, int]:
             "timestamp": r.timestamp,
             "collection_date": r.collection_date,
         })
+
+    missing = {row["plot_id"] for row in rows if not row["accession_name"] and row["plot_id"]}
+    if missing:
+        try:
+            by_plot = _plot_accessions(missing)
+        except Exception as e:  # the table still shows, without these names
+            logger.warning(f"plot accession lookup failed: {e}")
+            by_plot = {}
+        for row in rows:
+            if not row["accession_name"] and row["plot_id"] in by_plot:
+                row["accession_name"] = by_plot[row["plot_id"]]
 
     return pd.DataFrame(rows), n_fetched
 

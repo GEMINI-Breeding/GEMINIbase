@@ -210,6 +210,28 @@ def _ensure_dataset(
         logger.warning(f"Dataset ensure failed for {dataset_name!r}: {e}")
 
 
+def _ensure_season_and_site(
+    http: WorkerSession, *, experiment_name: str, season_name: str, site_name: str
+) -> None:
+    """The season and site belong to the experiment, or every record is
+    refused ("Invalid trait, dataset, experiment, season, or site
+    combination"). Both creates reuse what exists and link a site that
+    only another experiment had. Best effort: the save reports a failure."""
+    for route, body in (
+        ("/api/seasons", {"season_name": season_name, "experiment_name": experiment_name}),
+        ("/api/sites", {"site_name": site_name, "experiment_name": experiment_name}),
+    ):
+        try:
+            resp = http.post(route, json=body)
+            if not resp.ok:
+                logger.warning(
+                    f"Trait ingest: ensuring {body} via {route} returned "
+                    f"{resp.status_code}: {(resp.text or '')[:200]}"
+                )
+        except Exception as e:
+            logger.warning(f"Trait ingest: ensuring {body} via {route} raised: {e}")
+
+
 def _ensure_trait(
     http: WorkerSession,
     *,
@@ -527,6 +549,12 @@ def ingest_trait_features(
         collection_date=scope["date"],
         source=source,
         run_id=run_id,
+    )
+    _ensure_season_and_site(
+        http,
+        experiment_name=scope["experiment_name"],
+        season_name=scope["year"],
+        site_name=scope["site_name"],
     )
 
     counts: dict[str, int] = {}

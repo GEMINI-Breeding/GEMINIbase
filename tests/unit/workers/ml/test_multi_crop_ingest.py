@@ -64,3 +64,35 @@ def test_records_are_posted_per_population_and_missing_ones_are_made():
     for c in http.post.call_args_list:
         for rec in (c.kwargs.get("json") or {}).get("records", []):
             assert "_population" not in rec
+
+
+def test_season_and_site_are_linked_to_the_experiment_before_records():
+    """A site of the same name that only another experiment had made every
+    record fail ("Invalid trait, dataset, experiment, season, or site")."""
+    order = []
+    http = MagicMock()
+
+    def get(path, params=None):
+        r = MagicMock(ok=True)
+        r.json.return_value = [{"id": "t1", "trait_name": "VF"}] if path == "/api/traits" else [{"population_name": "Mixed"}]
+        return r
+
+    def post(path, json=None):
+        order.append((path, json.get("site_name") or json.get("season_name")))
+        r = MagicMock(ok=True, status_code=200)
+        r.json.return_value = {"inserted_count": 1}
+        return r
+
+    http.get.side_effect = get
+    http.post.side_effect = post
+    ingest_trait_features(
+        http,
+        output_path=PATH,
+        geojson={"type": "FeatureCollection", "features": [_feature(1)]},
+        trait_columns=[("VF", "")],
+        source="EXTRACT_TRAITS",
+    )
+    paths = [p for p, _ in order]
+    assert ("/api/seasons", "2024") in order and ("/api/sites", "Davis") in order
+    bulk = next(i for i, p in enumerate(paths) if p.endswith("/records/bulk"))
+    assert paths.index("/api/sites") < bulk and paths.index("/api/seasons") < bulk

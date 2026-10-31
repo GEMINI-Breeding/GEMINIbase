@@ -980,3 +980,19 @@ def test_catalog_maps_rows_and_blanks(monkeypatch):
     assert (e.plot_count, e.record_count) == (4, 8)
     # Must read the heap IMMV, never the columnar table directly.
     assert "trait_records_immv" in seen["sql"]
+
+
+def test_fetch_long_fills_accession_from_the_plot(monkeypatch):
+    """Trait extraction records are linked to the plot only: the table's
+    accession comes from the plot (its accession, or its design label)."""
+    from gemini.rest_api.controllers import multivariate_analysis as mv
+
+    a, b = _rec(1, "P", None), _rec(2, "P", None)
+    a.plot_id, a.accession_name = "p1", None
+    b.plot_id = "p2"  # keeps its own "A"
+    monkeypatch.setattr(mv.TraitRecord, "filter", lambda **kw: iter([a, b]))
+    asked = []
+    monkeypatch.setattr(mv, "_plot_accessions", lambda ids: asked.append(ids) or {"p1": "NE-80-21-74"})
+    df, _ = mv._fetch_long(mv.MultivariateRequest(trait_names=["t"]))
+    assert asked == [{"p1"}]
+    assert dict(zip(df["plot_number"], df["accession_name"])) == {1: "NE-80-21-74", 2: "A"}

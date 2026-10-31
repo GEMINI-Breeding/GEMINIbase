@@ -146,7 +146,12 @@ def _materialize_plots_from_snapshot(
                 )
                 return
 
-        sit = Site.get(site_name=scope["site_name"])
+        # The site must belong to this experiment: a site of this name that
+        # only another experiment uses is linked here too (trait records
+        # are refused for a site the experiment doesn't have).
+        sit = Site.get(
+            site_name=scope["site_name"], experiment_name=scope["experiment_name"]
+        )
         if sit is None or sit.id is None:
             try:
                 Site.create(
@@ -159,7 +164,9 @@ def _materialize_plots_from_snapshot(
                     f"{scope['site_name']!r}: {e}; skipping."
                 )
                 return
-            sit = Site.get(site_name=scope["site_name"])
+            sit = Site.get(
+                site_name=scope["site_name"], experiment_name=scope["experiment_name"]
+            )
             if sit is None or sit.id is None:
                 logger.info(
                     f"Plot materialization: site {scope['site_name']!r} still "

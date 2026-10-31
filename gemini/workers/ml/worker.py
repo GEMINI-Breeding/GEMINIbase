@@ -610,6 +610,9 @@ class MlWorker(BaseWorker):
         output_path = parameters["output_traits_geojson_path"]
 
         client = _get_minio_client()
+        # Cancelled from the app: stop at the next stage, and never save the
+        # records of a run the person called off.
+        stopped = {"status": "cancelled", "output_traits_geojson_path": output_path}
         with tempfile.TemporaryDirectory() as tmpdir:
             self.report_progress(job_id, 5, {"stage": "downloading"})
             local_rgb = os.path.join(tmpdir, "ortho.tif")
@@ -627,6 +630,8 @@ class MlWorker(BaseWorker):
                 local_thermal = os.path.join(tmpdir, "thermal.tif")
                 client.fget_object(STORAGE_BUCKET, thermal_path, local_thermal)
 
+            if self.is_cancelled(job_id):
+                return stopped
             self.report_progress(job_id, 30, {"stage": "extracting traits"})
             records, geojson_dict = extract_traits_from_ortho(
                 rgb_path=local_rgb,
@@ -636,6 +641,8 @@ class MlWorker(BaseWorker):
                 thermal_path=local_thermal,
             )
 
+            if self.is_cancelled(job_id):
+                return stopped
             self.report_progress(job_id, 80, {"stage": "uploading"})
             local_out = os.path.join(tmpdir, "traits.geojson")
             with open(local_out, "w") as f:
@@ -648,6 +655,8 @@ class MlWorker(BaseWorker):
             # extracted traits into DB" step. A failure fails the job: it
             # used to be swallowed into result["ingest_error"], which no UI
             # reads, so a run that saved nothing showed as COMPLETED.
+            if self.is_cancelled(job_id):
+                return stopped
             self.report_progress(job_id, 92, {"stage": "ingesting"})
             from gemini.workers.ml.trait_ingest import ingest_extracted_traits
 
