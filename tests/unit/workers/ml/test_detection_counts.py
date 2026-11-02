@@ -158,3 +158,63 @@ def test_a_real_hostname_is_left_alone():
         resolve_inference_api_url("http://gpu-box.lab:9001")
         == "http://gpu-box.lab:9001"
     )
+
+
+class _Resp:
+    def __init__(self, data):
+        self._data = data
+
+    def read(self):
+        return self._data
+
+    def close(self):
+        pass
+
+    def release_conn(self):
+        pass
+
+
+def test_recount_keeps_the_runs_traits_and_counts_at_the_new_threshold():
+    import json
+
+    saved = {
+        "1": {"predictions": [
+            {"class": "pod", "confidence": 0.9},
+            {"class": "pod", "confidence": 0.3},
+            {"class": "flower", "confidence": 0.2},
+        ]},
+        "2": {"predictions": [{"class": "pod", "confidence": 0.35}]},
+    }
+
+    class Client:
+        def get_object(self, bucket, path):
+            return _Resp(json.dumps(saved).encode())
+
+    w = MlWorker.__new__(MlWorker)
+    w._http = object()
+    w.report_progress = lambda *a, **k: None
+    with patch("gemini.workers.ml.worker._get_minio_client", return_value=Client()), patch(
+        "gemini.workers.ml.trait_ingest.ingest_trait_features",
+        side_effect=lambda http, **kw: kw,
+    ):
+        out = MlWorker._recount_batch(
+            w,
+            "job12345",
+            {
+                "output_predictions_path": "Processed/2024/E/S/P/2024-06-01/Drone/RGB/predictions/x.json",
+                "boundaries": BOUNDS,
+                "confidence_threshold": 0.4,
+                "count_label": "Pods",
+                "task_type": "detection",
+            },
+        )
+    kw = out["ingested"]
+    # flower vanished at 0.4, but its trait (and the total) stay: same traits
+    cols = [c for c, _ in kw["trait_columns"]]
+    assert cols == ["detections (Pods)", "flower count (Pods)", "pod count (Pods)"]
+    props = _props_by_plot(kw)
+    assert props[1]["pod count (Pods)"] == 1
+    assert props[1]["flower count (Pods)"] == 0
+    assert props[2]["detections (Pods)"] == 0
+    assert out["total_detections"] == 1
+    assert kw["run_id"] == "job12345"

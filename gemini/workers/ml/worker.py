@@ -209,6 +209,8 @@ class MlWorker(BaseWorker):
                 returns the summary). In batch mode this receives the
                 per-plot mapping instead.
         """
+        if parameters.get("recount"):
+            return self._recount_batch(job_id, parameters)
         if parameters.get("images_prefix") and not parameters.get("image_path"):
             return self._locate_plants_batch(job_id, parameters)
 
@@ -360,6 +362,10 @@ class MlWorker(BaseWorker):
                 )
 
                 key = _plot_key(object_name)
+                # Several images of one plot (the raw frames' crops, best
+                # frame first in name order): the first that infers counts.
+                if key in by_plot:
+                    continue
                 local_image = os.path.join(tmpdir, f"{idx}_{Path(object_name).name}")
                 try:
                     client.fget_object(STORAGE_BUCKET, object_name, local_image)
@@ -465,6 +471,81 @@ class MlWorker(BaseWorker):
                 result["predictions_by_plot"] = by_plot
 
             return result
+
+    def _recount_batch(self, job_id: str, parameters: dict) -> dict:
+        """Count a finished run's detections again at another confidence
+        threshold, and put those counts in Analyze in place of the run's.
+
+        No model runs: the run's predictions file (``output_predictions_path``)
+        already holds every detection at or above the threshold it ran with,
+        so a higher threshold only drops some. The trait names stay the run's
+        (the classes come from all its detections, not just the kept ones),
+        and ingesting replaces the earlier records of that flight and model.
+
+        Parameters: ``output_predictions_path``, ``boundaries``,
+        ``confidence_threshold``, ``count_label``, ``task_type``.
+        """
+        path = parameters.get("output_predictions_path")
+        boundaries = parameters.get("boundaries")
+        label = parameters.get("count_label")
+        if not path or not boundaries or not label:
+            raise ValueError(
+                "A recount needs the run's output_predictions_path, "
+                "boundaries and count_label."
+            )
+        task_type = parameters.get("task_type") or "detection"
+        if task_type == "classification":
+            raise ValueError("Classification results have no count to redo.")
+        threshold = float(parameters.get("confidence_threshold") or 0)
+
+        client = _get_minio_client()
+        self.report_progress(job_id, 10, {"stage": "reading predictions"})
+        resp = client.get_object(STORAGE_BUCKET, path)
+        try:
+            saved = json.loads(resp.read())
+        finally:
+            resp.close()
+            resp.release_conn()
+        if not isinstance(saved, dict):
+            raise ValueError(f"{path} isn't a per-plot predictions file.")
+
+        classes: set = set()
+        by_plot: dict = {}
+        counts_by_class: dict = {}
+        total = 0
+        for key, hit in saved.items():
+            preds = (hit or {}).get("predictions") or []
+            classes.update(p.get("class", "") for p in preds)
+            kept = [p for p in preds if float(p.get("confidence", 0)) >= threshold]
+            per_class = _class_counts(kept, task_type)
+            for cls, n in per_class.items():
+                counts_by_class[cls] = counts_by_class.get(cls, 0) + n
+            total += len(kept)
+            by_plot[key] = {"count": len(kept), "counts_by_class": per_class}
+
+        self.report_progress(job_id, 60, {"stage": "ingesting_counts"})
+        ingested = self._ingest_detection_counts(
+            boundaries=boundaries,
+            by_plot=by_plot,
+            classes=sorted(classes),
+            label=label,
+            output_path=path,
+            run_id=job_id,
+        )
+        return {
+            "recount": True,
+            "recount_of": parameters.get("recount_of"),
+            "confidence_threshold": threshold,
+            "model_id": parameters.get("model_id") or label,
+            "task_type": task_type,
+            "plots_processed": len(by_plot),
+            "total_detections": total,
+            "counts_by_class": counts_by_class,
+            "counts_by_plot": {k: v["count"] for k, v in by_plot.items()},
+            "output_predictions_path": path,
+            "ingested": ingested,
+            "dataset_name": _run_dataset_name("LOCATE_PLANTS", path, job_id, label),
+        }
 
     def _ingest_detection_counts(
         self,

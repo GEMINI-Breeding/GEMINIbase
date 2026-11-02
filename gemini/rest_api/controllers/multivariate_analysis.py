@@ -69,6 +69,11 @@ class MultivariateRequest(RESTAPIBase):
     aggregation: Aggregation = "mean"
     aggregation_date: Optional[date] = None
     collapse_replicates: bool = False
+    # One row per plot per collection date (each row carries its date),
+    # instead of collapsing the dates with `aggregation`. One read of the
+    # records for a whole season, where a request per date read them all
+    # each time.
+    per_date: bool = False
 
 
 class TraitMatrixRow(RESTAPIBase):
@@ -81,6 +86,8 @@ class TraitMatrixRow(RESTAPIBase):
     site_name: Optional[str] = None
     accession_name: Optional[str] = None
     population: Optional[str] = None
+    # ISO date, set only for `per_date` requests.
+    collection_date: Optional[str] = None
     values: dict  # {trait_name: float | None}
 
 
@@ -428,7 +435,16 @@ def _aggregate_per_plot(df: pd.DataFrame, req: MultivariateRequest) -> pd.DataFr
 
     work = df.copy()
 
-    if req.aggregation == "date":
+    if req.per_date:
+        # Each date its own row; only same-day duplicates are averaged.
+        work["collection_date"] = (
+            pd.to_datetime(work["collection_date"]).dt.date.astype("string")
+        )
+        work = work[work["collection_date"].notna()]
+        key_cols = key_cols + ["collection_date"]
+        agg_fn = "mean"
+        sort_col = None
+    elif req.aggregation == "date":
         if req.aggregation_date is None:
             raise ValueError("aggregation_date is required when aggregation == 'date'")
         work["_cd"] = pd.to_datetime(work["collection_date"]).dt.date
@@ -492,6 +508,10 @@ def _aggregate_per_plot(df: pd.DataFrame, req: MultivariateRequest) -> pd.DataFr
     for c in key_cols:
         if c not in wide.columns:
             wide[c] = None
+    if req.per_date and "collection_date" in wide.columns:
+        wide = wide.sort_values(
+            ["collection_date", "plot_number"], na_position="last"
+        ).reset_index(drop=True)
     if "_row" in wide.columns:
         wide.drop(columns=["_row"], inplace=True)
 
@@ -572,6 +592,12 @@ def _wide_to_rows(wide: pd.DataFrame, trait_names: List[str]) -> List[TraitMatri
             site_name=r.get("site_name"),
             accession_name=r.get("accession_name"),
             population=r.get("population"),
+            collection_date=(
+                str(r.get("collection_date"))
+                if r.get("collection_date") is not None
+                and not (isinstance(r.get("collection_date"), float) and np.isnan(r.get("collection_date")))
+                else None
+            ),
             values=values,
         ))
     return out

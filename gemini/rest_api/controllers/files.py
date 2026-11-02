@@ -1,4 +1,5 @@
 import io
+import re
 import hashlib
 import logging
 import threading
@@ -34,7 +35,7 @@ from gemini.manager import GEMINIManager, GEMINIComponentType
 from gemini.storage.providers.minio_storage import MinioStorageProvider
 from gemini.storage.config.storage_config import MinioStorageConfig
 
-from typing import Annotated, List
+from typing import Annotated, List, Optional
 
 # In-memory session state for in-flight S3 multipart uploads. One entry per
 # file_identifier, populated when the first chunk arrives and torn down on
@@ -528,6 +529,75 @@ def _drop_experiment_file_row(bucket_name: str, object_name: str) -> None:
         )
 
 
+
+_DATE_DIR = re.compile(r"(^|/)\d{4}-\d{2}-\d{2}/$")
+_IMAGE = re.compile(r"\.(png|jpe?g)$", re.IGNORECASE)
+_FRAME = re.compile(r"_frame(\d+)_")
+
+
+def plot_image_files(list_folder, root: str, workers: int = 16) -> list:
+    """Plot images under ``root`` (a site or population folder), walking
+    one level at a time: down to each flight's ``{date}/{platform}/{sensor}/``
+    and then only its plot image folders. ``list_folder(prefix)`` returns
+    ``(sub-folders, files)`` one level down. Of the raw frames' crops, only
+    each plot's best (lowest-numbered) frame is kept."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    def children(prefixes):
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            return list(pool.map(list_folder, prefixes))
+
+    # Down to the date folders: the root itself, a crop below it, or one
+    # more level (a site listing).
+    level = [root]
+    dates: list = []
+    for _ in range(3):
+        if not level:
+            break
+        nxt = []
+        for folders, _files in children(level):
+            for f in folders:
+                (dates if _DATE_DIR.search(f) else nxt).append(f)
+        level = [] if dates and not nxt else nxt
+        if dates:
+            break
+    # {date}/ -> {platform}/ -> {sensor}/
+    sensors = [f for folders, _ in children(dates) for f in folders]
+    sensors = [f for folders, _ in children(sensors) for f in folders]
+
+    # The sensor folders' children: PlotImages/ and PlotFrames/.
+    leaves = []
+    frames_dirs = []
+    for folders, _ in children(sensors):
+        for f in folders:
+            if f.endswith("/PlotImages/"):
+                leaves.append(f)
+            elif f.endswith("/PlotFrames/"):
+                frames_dirs.append(f)
+    for folders, _ in children(frames_dirs):
+        for f in folders:
+            name = f.rstrip("/").rsplit("/", 1)[-1]
+            if name in ("straightened", "crops"):
+                leaves.append(f)
+            else:  # another camera of the flight: its top-down views
+                leaves.append(f + "straightened/")
+
+    out = []
+    for prefix, (_folders, files) in zip(leaves, children(leaves)):
+        images = [f for f in files if _IMAGE.search(f["object_name"])]
+        if prefix.endswith("/crops/"):
+            best: dict = {}
+            for f in images:
+                base = f["object_name"].rsplit("/", 1)[-1]
+                m = _FRAME.search(base)
+                plot = base.split("_accession_", 1)[0]
+                n = int(m.group(1)) if m else 0
+                if plot not in best or n < best[plot][0]:
+                    best[plot] = (n, f)
+            images = [f for _, f in best.values()]
+        out.extend(images)
+    return sorted(out, key=lambda f: f["object_name"])
+
 class FileController(Controller):
 
     @get(path="/metadata/{file_path:path}", sync_to_thread=True)
@@ -576,9 +646,19 @@ class FileController(Controller):
     @get(path="/list/{file_path:path}", sync_to_thread=True)
     def list_files(
         self,
-        file_path: str
+        file_path: str,
+        match: Optional[str] = Parameter(
+            default=None,
+            max_length=300,
+            description=(
+                "Only object names this regular expression finds a match in "
+                "(e.g. the plot images of a folder of many files): a smaller "
+                "answer to send."
+            ),
+        ),
     ) -> List[FileMetadata]:
         try:
+            wanted = re.compile(match) if match else None
             bucket_name = file_path.split('/')[1]
             if not minio_storage_provider.bucket_exists(bucket_name):
                 error = RESTAPIError(
@@ -605,7 +685,16 @@ class FileController(Controller):
                     etag=entry["etag"],
                 )
                 for entry in entries
+                if wanted is None or wanted.search(entry["object_name"])
             ]
+        except re.error as e:
+            return Response(
+                content=RESTAPIError(
+                    error="invalid_match",
+                    error_description=f"Not a valid pattern: {e}",
+                ),
+                status_code=400,
+            )
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),
@@ -613,6 +702,57 @@ class FileController(Controller):
             )
             return Response(content=error, status_code=500)
         
+    @get(path="/plot_images/{file_path:path}", sync_to_thread=True)
+    def list_plot_images(self, file_path: str) -> List[FileMetadata]:
+        """The plot images under a Processed/ site or population folder, for
+        the Analyze Query view: each flight's ``PlotImages/``, the raw
+        frames' ``PlotFrames/straightened/`` (and each other camera's), and
+        the best frame of ``PlotFrames/crops/``.
+
+        Walks the folders one level at a time and reads only those, so the
+        thousands of frame crops, TIFFs and other files beside them are never
+        listed (a recursive listing of a site took ~8 s, nearly all of it on
+        the server).
+        """
+        try:
+            bucket_name = file_path.split('/')[1]
+            if not minio_storage_provider.bucket_exists(bucket_name):
+                return Response(
+                    content=RESTAPIError(
+                        error="Bucket not found",
+                        error_description=f"Bucket {bucket_name} does not exist",
+                    ),
+                    status_code=404,
+                )
+            root = '/'.join(file_path.split('/')[2:])
+            if root and not root.endswith('/'):
+                root += '/'
+            files = plot_image_files(
+                lambda prefix: minio_storage_provider.list_folder(
+                    prefix, bucket_name=bucket_name
+                ),
+                root,
+            )
+            return [
+                FileMetadata(
+                    bucket_name=f["bucket_name"],
+                    object_name=f["object_name"],
+                    size=f["size"],
+                    last_modified=f["last_modified"],
+                    content_type="application/octet-stream",
+                    etag=f["etag"],
+                )
+                for f in files
+            ]
+        except Exception as e:
+            return Response(
+                content=RESTAPIError(
+                    error=str(e),
+                    error_description="An error occurred while listing plot images",
+                ),
+                status_code=500,
+            )
+
     @get(path="/image-gps/{file_path:path}", sync_to_thread=True)
     def list_image_gps(self, file_path: str) -> ImageGpsResponse:
         """Return per-image basename + GPS for every image at the given

@@ -86,6 +86,33 @@ class TestListFiles:
         assert response.json() == []
 
     @patch(MINIO_PATH)
+    def test_match_keeps_only_matching_names(self, mock_minio, test_client):
+        mock_minio.bucket_exists.return_value = True
+        entry = lambda n: {
+            "bucket_name": "test-bucket",
+            "object_name": n,
+            "size": 1,
+            "last_modified": "2026-10-31T00:00:00Z",
+            "etag": "e",
+        }
+        mock_minio.list_files_with_metadata.return_value = [
+            entry("a/2026-06-15/D/RGB/PlotImages/plot_1_accession_A.png"),
+            entry("a/2026-06-15/D/RGB/PlotFrames/Thermal/crops/plot_1_x.tif"),
+            entry("a/2026-06-15/D/RGB/traits/v1.geojson"),
+        ]
+        response = test_client.get(
+            "/api/files/list/test-bucket/a", params={"match": r"/PlotImages/"}
+        )
+        assert response.status_code == 200
+        assert [f["object_name"] for f in response.json()] == [
+            "a/2026-06-15/D/RGB/PlotImages/plot_1_accession_A.png"
+        ]
+        bad = test_client.get(
+            "/api/files/list/test-bucket/a", params={"match": "("}
+        )
+        assert bad.status_code == 400
+
+    @patch(MINIO_PATH)
     def test_error(self, mock_minio, test_client):
         mock_minio.bucket_exists.side_effect = Exception("Connection error")
         response = test_client.get("/api/files/list/test-bucket/path")
@@ -560,3 +587,61 @@ class TestPresignUrl:
         mock_minio.get_download_url.side_effect = Exception("File not found")
         response = test_client.get("/api/files/presign/test-bucket/missing.txt")
         assert response.status_code == 500
+
+
+def test_plot_image_walk_reads_only_plot_image_folders():
+    from gemini.rest_api.controllers.files import plot_image_files
+
+    S = "Processed/2026/E/Davis/"
+    tree = {
+        S: ["Cowpea/", "Sorghum/"],
+        S + "Cowpea/": ["2026-06-15/"],
+        S + "Sorghum/": ["2026-07-23/"],
+        S + "Cowpea/2026-06-15/": ["Drone/"],
+        S + "Sorghum/2026-07-23/": ["Drone/"],
+        S + "Cowpea/2026-06-15/Drone/": ["RGB/"],
+        S + "Sorghum/2026-07-23/Drone/": ["RGB/"],
+        S + "Cowpea/2026-06-15/Drone/RGB/": ["PlotFrames/", "traits/"],
+        S + "Sorghum/2026-07-23/Drone/RGB/": ["PlotImages/"],
+        S + "Cowpea/2026-06-15/Drone/RGB/PlotFrames/": ["crops/", "straightened/", "Thermal/"],
+    }
+    files = {
+        S + "Sorghum/2026-07-23/Drone/RGB/PlotImages/": ["plot_1_accession_A.png"],
+        S + "Cowpea/2026-06-15/Drone/RGB/PlotFrames/straightened/": ["plot_1_accession_B.png"],
+        S + "Cowpea/2026-06-15/Drone/RGB/PlotFrames/crops/": [
+            "plot_1_accession_B_frame2_DJI_2_V.jpg",
+            "plot_1_accession_B_frame1_DJI_1_V.jpg",
+            "plot_10_accession_C_frame3_DJI_3_V.jpg",
+        ],
+        S + "Cowpea/2026-06-15/Drone/RGB/PlotFrames/Thermal/straightened/": [
+            "plot_1_accession_B.png",
+            "plot_1_accession_B.tif",
+        ],
+    }
+    asked = []
+
+    def list_folder(prefix):
+        asked.append(prefix)
+        return (
+            [prefix + c for c in tree.get(prefix, [])],
+            [
+                {"bucket_name": "g", "object_name": prefix + n, "size": 1,
+                 "last_modified": None, "etag": ""}
+                for n in files.get(prefix, [])
+            ],
+        )
+
+    names = [f["object_name"].replace(S, "") for f in plot_image_files(list_folder, S)]
+    assert names == [
+        "Cowpea/2026-06-15/Drone/RGB/PlotFrames/Thermal/straightened/plot_1_accession_B.png",
+        "Cowpea/2026-06-15/Drone/RGB/PlotFrames/crops/plot_10_accession_C_frame3_DJI_3_V.jpg",
+        "Cowpea/2026-06-15/Drone/RGB/PlotFrames/crops/plot_1_accession_B_frame1_DJI_1_V.jpg",
+        "Cowpea/2026-06-15/Drone/RGB/PlotFrames/straightened/plot_1_accession_B.png",
+        "Sorghum/2026-07-23/Drone/RGB/PlotImages/plot_1_accession_A.png",
+    ]
+    assert not any("traits" in a for a in asked)
+    # A population folder works the same.
+    one = plot_image_files(list_folder, S + "Sorghum/")
+    assert [f["object_name"] for f in one] == [
+        S + "Sorghum/2026-07-23/Drone/RGB/PlotImages/plot_1_accession_A.png"
+    ]

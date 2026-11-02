@@ -126,6 +126,24 @@ class TestAggregation:
         assert by_plot.loc["plotA", "trait_a"] == 1.0
         assert by_plot.loc["plotB", "trait_b"] == 14.0
 
+    def test_per_date_keeps_each_date(self, sample_long_df):
+        from gemini.rest_api.controllers.multivariate_analysis import (
+            MultivariateRequest,
+            _aggregate_per_plot,
+            _wide_to_rows,
+        )
+        req = MultivariateRequest(
+            trait_names=["trait_a", "trait_b"], per_date=True
+        )
+        wide = _aggregate_per_plot(sample_long_df, req)
+        assert len(wide) == 6  # 3 plots x 2 dates, nothing averaged
+        rows = _wide_to_rows(wide, req.trait_names)
+        by = {(r.plot_id, r.collection_date): r.values for r in rows}
+        assert by[("plotA", "2024-05-01")]["trait_a"] == 1.0
+        assert by[("plotA", "2024-05-08")]["trait_a"] == 2.0
+        assert by[("plotB", "2024-05-08")]["trait_b"] == 16.0
+        assert [r.collection_date for r in rows[:3]] == ["2024-05-01"] * 3
+
     def test_date_requires_aggregation_date(self, sample_long_df):
         from gemini.rest_api.controllers.multivariate_analysis import (
             _aggregate_per_plot,

@@ -659,6 +659,40 @@ class MinioStorageProvider(StorageProvider):
         except Exception as e:
             raise StorageError(f"Unexpected error while listing files: {e}")
 
+    def list_folder(
+        self,
+        prefix: str,
+        bucket_name: Optional[str] = None,
+    ) -> tuple[list[str], list[dict]]:
+        """One level under ``prefix``: its sub-folders (as prefixes ending in
+        ``/``) and its files (with the listing's metadata). Walking a tree
+        this way reads only the folders asked for, where a recursive listing
+        reads every object below."""
+        bn = self.bucket_name if bucket_name is None else bucket_name
+        folders: list[str] = []
+        files: list[dict] = []
+        try:
+            for obj in self.client.list_objects(
+                bucket_name=bn, prefix=prefix, recursive=False
+            ):
+                if obj.is_dir:
+                    folders.append(obj.object_name)
+                else:
+                    files.append({
+                        "bucket_name": bn,
+                        "object_name": obj.object_name,
+                        "size": obj.size or 0,
+                        "last_modified": obj.last_modified.isoformat() if obj.last_modified else None,
+                        "etag": (obj.etag or "").strip('"'),
+                    })
+        except S3Error as e:
+            if 'AccessDenied' in str(e):
+                raise StorageAuthError(f"Access denied while listing files: {e}")
+            raise StorageError(f"Failed to list files: {e}")
+        except ConnectionError as e:
+            raise StorageConnectionError(f"Connection failed while listing files: {e}")
+        return folders, files
+
     def list_files_paginated(
         self,
         prefix: Optional[str] = None,
