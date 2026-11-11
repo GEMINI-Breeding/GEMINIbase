@@ -10,9 +10,10 @@ Dispatches on job_type:
     - EXTRACT_TRAITS → ExG vegetation fraction + canopy height per plot,
                        from an orthomosaic (and optional DEM) against a
                        plot-boundary GeoJSON.
-    - TRAIN_MODEL    → not implemented (raises); TRAIN_MODEL requires a
-                       training framework + GPU scheduling that belongs in
-                       its own worker with elastic resources.
+    - TRAIN_MODEL    → fine-tune an Ultralytics YOLO model on a labelled set
+                       (COCO JSON in storage), from an app checkpoint or
+                       uploaded weights (training.py). Fast on a GPU worker;
+                       on a CPU it is capped at 40 epochs.
 
 Inputs/outputs are exchanged via MinIO: the caller submits MinIO object
 paths in ``parameters``; the worker downloads, processes, uploads
@@ -79,7 +80,21 @@ def _resolve_model_spec(client, parameters: dict):
     spec.validate()  # fail on bad config before downloading anything
     if spec.source == "local_weights":
         spec.weights_path = _download_weights(client, spec.weights_path)
+    elif spec.is_sam3:
+        spec.weights_path = _sam3_weights(client, spec.api_key)
     return spec
+
+
+def _sam3_weights(client, token=None, progress=None) -> str:
+    """SAM 3's weights: cached, or uploaded to storage, or from Hugging Face."""
+    from gemini.workers.ml import zero_shot
+
+    def fetch(object_path: str, dest: str) -> bool:
+        client.stat_object(STORAGE_BUCKET, object_path)
+        client.fget_object(STORAGE_BUCKET, object_path, dest)
+        return True
+
+    return zero_shot.sam3_weights(token, fetch, progress)
 
 
 def _predict(spec, image_path: str, parameters: dict) -> list:
@@ -154,13 +169,7 @@ class MlWorker(BaseWorker):
         if job_type == JobType.EXTRACT_TRAITS.value:
             return self._extract_traits_job(job_id, parameters)
         if job_type == JobType.TRAIN_MODEL.value:
-            # Deferred to a future worker rev (requires GPU scheduling +
-            # a training framework we haven't provisioned yet).
-            raise NotImplementedError(
-                "TRAIN_MODEL is not yet implemented in this worker. "
-                "Submit TRAIN_MODEL jobs only once the ml worker has the "
-                "training framework + GPU scheduling support."
-            )
+            return self._train_model_job(job_id, parameters)
         raise ValueError(f"Unsupported job type: {job_type}")
 
     # ------------------------------------------------------------------
@@ -232,6 +241,8 @@ class MlWorker(BaseWorker):
                 return {"prompted": "warmup", **prompted_models.warmup(progress)}
 
             client = _get_minio_client()
+            if p.get("mode") == "describe":
+                return self._describe(job_id, client, image_path, p, progress)
             with tempfile.TemporaryDirectory() as tmpdir:
                 local_image = os.path.join(tmpdir, Path(image_path).name)
                 client.fget_object(STORAGE_BUCKET, image_path, local_image)
@@ -281,6 +292,58 @@ class MlWorker(BaseWorker):
                     result["predictions"] = predictions
 
             return result
+
+    def _train_model_job(self, job_id: str, parameters: dict) -> dict:
+        from gemini.workers.ml import prompted, training
+
+        if not parameters.get("coco_path"):
+            raise ValueError("TRAIN_MODEL needs coco_path: the labelled set as COCO JSON in storage.")
+        client = _get_minio_client()
+
+        def fetch(object_path: str, dest: str) -> None:
+            client.fget_object(STORAGE_BUCKET, object_path, dest)
+
+        def upload(local: str, object_path: str) -> None:
+            client.fput_object(STORAGE_BUCKET, object_path, local)
+
+        def progress(pct: float, detail: dict) -> None:
+            self.report_progress(job_id, round(pct, 1), detail)
+
+        workdir = Path(tempfile.mkdtemp(prefix="gemi-train-"))
+        try:
+            return training.train(parameters, fetch, upload, progress, workdir,
+                                  base_weights=prompted.ensure_weights, job_id=job_id)
+        finally:
+            import shutil
+
+            shutil.rmtree(workdir, ignore_errors=True)
+
+    def _describe(self, job_id: str, client, image_path: str, p: dict, progress) -> dict:
+        """Labelling: every object matching a description on one image, as
+        proposals (SAM 3 with outlines by default; OWLv2 without a token).
+
+        ``p``: prompt (one class per line, ``name: description``), model
+        ("sam3" | "owlv2" | a Hugging Face id), conf, hf_token."""
+        from gemini.workers.ml.inference_utils import ModelSpec, run_inference_on_image
+
+        model = (p.get("model") or "sam3").strip()
+        model_id = {"sam3": "facebook/sam3", "owlv2": "google/owlv2-base-patch16-ensemble"}.get(model, model)
+        spec = ModelSpec(source="huggingface", task_type="segmentation" if "sam3" in model_id else "detection",
+                         model_id=model_id, api_key=p.get("hf_token") or os.environ.get("HF_TOKEN") or None,
+                         zero_shot=True, prompt=p.get("prompt") or "")
+        spec.validate()
+        if spec.is_sam3:
+            spec.weights_path = _sam3_weights(client, spec.api_key, progress)
+        conf = float(p.get("conf", 0.3 if spec.is_sam3 else 0.1))
+        with tempfile.TemporaryDirectory() as tmpdir:
+            local_image = os.path.join(tmpdir, Path(image_path).name)
+            client.fget_object(STORAGE_BUCKET, image_path, local_image)
+            self.report_progress(job_id, 40, {"stage": f"finding: {model}"})
+            predictions = run_inference_on_image(local_image, confidence_threshold=conf,
+                                                 crop_size=int(p.get("crop_size", 1008 if spec.is_sam3 else 640)),
+                                                 spec=spec)
+        return {"prompted": "describe", "model_id": model_id, "total_detections": len(predictions),
+                "predictions": predictions}
 
     def _locate_plants_batch(self, job_id: str, parameters: dict) -> dict:
         """Run inference over every image under ``images_prefix``.
@@ -336,7 +399,8 @@ class MlWorker(BaseWorker):
 
         def _plot_key(object_name: str) -> str:
             base = object_name.rsplit("/", 1)[-1]
-            m = re.match(r"^plot_(\d+)(?:_|\.)", base)
+            # plot_12_accession_X.png → "12"; plot_KD18_accession_X.png → "KD18".
+            m = re.match(r"^plot_(.+?)(?:_accession_.*)?\.[A-Za-z0-9]+$", base)
             return m.group(1) if m else base
 
         by_plot: dict = {}

@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ValidationError, ConfigDict, GetCoreSchemaHandler
+from pydantic import BaseModel, ValidationError, ConfigDict, GetCoreSchemaHandler, field_validator
 from pydantic.types import UUID4
 from pydantic.functional_validators import BeforeValidator
 from litestar.datastructures import UploadFile
@@ -1472,6 +1472,15 @@ class UserOutput(RESTAPIBase):
     is_active: Optional[bool] = True
     is_superuser: Optional[bool] = False
     user_info: Optional[JSONB] = None
+
+    @field_validator("user_info", mode="after")
+    @classmethod
+    def _no_credentials(cls, v):
+        """A person's saved keys (user_info.credentials) are read only through
+        /users/me/credentials, never in a user record."""
+        if isinstance(v, dict) and "credentials" in v:
+            return {k: val for k, val in v.items() if k != "credentials"}
+        return v
 
 
 class Token(RESTAPIBase):

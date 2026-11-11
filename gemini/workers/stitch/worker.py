@@ -322,6 +322,10 @@ class StitchWorker(BaseWorker):
                     if lanes > 1:
                         info.update({"lane": int(plot.get("lane") or 1), "lanes": lanes,
                                      "split": split, "band": band})
+                    # Marked from a drone plot boundary: which plot it is,
+                    # whatever the rover's GPS says (association uses it).
+                    if isinstance(plot.get("boundary"), dict):
+                        info["boundary"] = plot["boundary"]
 
                     tif = outer / f"georeferenced_plot_{pid}_utm.tif"
                     if georef.georeference_plot(found[0], rows, tif, band=band):
@@ -417,6 +421,18 @@ class StitchWorker(BaseWorker):
 
     # ── ASSOCIATE_BOUNDARIES ─────────────────────────────────────────────
 
+    @staticmethod
+    def _read_manifest(client, stitch_prefix: str) -> dict:
+        try:
+            resp = client.get_object(STORAGE_BUCKET, stitch_prefix + "stitch_manifest.json")
+            try:
+                return json.loads(resp.read())
+            finally:
+                resp.close()
+                resp.release_conn()
+        except Exception:
+            return {}
+
     def _associate_boundaries(self, job_id: str, p: dict) -> dict:
         """Match each stitched plot of a stitch version to the boundary
         polygon containing its centre (main's run_associate_boundaries).
@@ -470,6 +486,17 @@ class StitchWorker(BaseWorker):
 
             footprints, centres = gps_fix.apply(footprints, p["corrections"])
         matches = associate.match(centres, polygons)
+        # Plots marked from drone boundaries name their plot: that polygon,
+        # if this boundary version has it, wherever the GPS put the mosaic.
+        marked = associate.marked_plots(self._read_manifest(client, stitch_prefix))
+        by_label = associate.by_label(polygons)
+        named = 0
+        for pid, label in marked.items():
+            if pid in matches and label in by_label:
+                matches[pid] = dict(by_label[label].get("properties") or {})
+                named += 1
+        if named:
+            self._stage(job_id, 40, f"{named} plots taken from their drone plot boundary")
         matched = {pid: props for pid, props in matches.items() if props is not None}
         if not matched:
             raise RuntimeError(

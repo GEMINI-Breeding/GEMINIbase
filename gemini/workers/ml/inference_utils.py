@@ -126,9 +126,22 @@ class ModelSpec:
     prompt: Optional[str] = None
 
     @property
+    def prompt_pairs(self) -> List[tuple]:
+        """(class name, description) per class of a zero-shot model (see zero_shot.parse_prompts)."""
+        from gemini.workers.ml.zero_shot import parse_prompts
+
+        return parse_prompts(self.prompt)
+
+    @property
     def labels(self) -> List[str]:
-        """Candidate labels for zero-shot models, from the comma-separated prompt."""
-        return [s.strip() for s in (self.prompt or "").split(",") if s.strip()]
+        """What a zero-shot model is asked to find: one description per class."""
+        return [d for _, d in self.prompt_pairs]
+
+    @property
+    def is_sam3(self) -> bool:
+        from gemini.workers.ml.zero_shot import is_sam3
+
+        return self.source == "huggingface" and self.zero_shot and is_sam3(self.model_id)
 
     @property
     def display_id(self) -> str:
@@ -168,16 +181,18 @@ class ModelSpec:
                 raise InferenceConfigError("A Hugging Face model needs a model ID (e.g. facebook/detr-resnet-50).")
             if self.hf_mode not in ("local", "cloud"):
                 raise InferenceConfigError("Hugging Face mode must be 'local' or 'cloud'.")
-            if (self.task_type, self.zero_shot) not in _HF_PIPELINE_TASKS:
+            if (self.task_type, self.zero_shot) not in _HF_PIPELINE_TASKS and not self.is_sam3:
                 raise InferenceConfigError(
                     "Zero-shot segmentation isn't supported — Hugging Face has no "
                     "standard zero-shot segmentation pipeline."
                 )
             if self.zero_shot and not self.labels:
                 raise InferenceConfigError(
-                    "A zero-shot model needs a prompt: comma-separated labels, "
-                    "e.g. 'weed, crop, soil'."
+                    "A zero-shot model needs a prompt: one class per line, e.g. "
+                    "'pod: one green cowpea pod, not a leaf'."
                 )
+            if self.is_sam3 and self.hf_mode == "cloud":
+                raise InferenceConfigError("SAM 3 runs in the ML worker only: set it to run on this machine.")
             if self.hf_mode == "cloud" and not self.api_key:
                 raise InferenceConfigError(
                     "Hugging Face cloud inference needs an access token (hf_...)."
@@ -620,14 +635,15 @@ def _infer_hf_local(spec: ModelSpec, confidence_threshold: float, top_k: int = 5
                 if spec.zero_shot
                 else pipe(image, top_k=top_k)
             )
-            return _hf_outputs_to_predictions(out, "classification")[:top_k]
+            return _rename_zero_shot(_hf_outputs_to_predictions(out, "classification")[:top_k], spec)
         if spec.task_type == "detection":
             out = (
                 pipe(image, candidate_labels=spec.labels, threshold=confidence_threshold)
                 if spec.zero_shot
                 else pipe(image, threshold=confidence_threshold)
             )
-            return _hf_outputs_to_predictions(out, "detection")
+            preds = _hf_outputs_to_predictions(out, "detection")
+            return _rename_zero_shot(preds, spec)
         out = pipe(image)
         preds = _hf_outputs_to_predictions(out, "segmentation")
         return [p for p in preds if p["confidence"] >= confidence_threshold]
@@ -693,7 +709,7 @@ def _infer_hf_cloud(spec: ModelSpec, confidence_threshold: float, top_k: int = 5
         if spec.task_type == "segmentation":
             preds = _hf_outputs_to_predictions(out, "segmentation", _decode_b64_mask)
         else:
-            preds = _hf_outputs_to_predictions(out, spec.task_type)
+            preds = _rename_zero_shot(_hf_outputs_to_predictions(out, spec.task_type), spec)
         if spec.task_type == "classification":
             preds.sort(key=lambda p: p["confidence"], reverse=True)
             return preds[:top_k]
@@ -702,10 +718,35 @@ def _infer_hf_cloud(spec: ModelSpec, confidence_threshold: float, top_k: int = 5
     return _call
 
 
+def _rename_zero_shot(preds: List[dict], spec: ModelSpec) -> List[dict]:
+    """Zero-shot labels come back as the descriptions: give them the classes' names."""
+    if not spec.zero_shot:
+        return preds
+    from gemini.workers.ml.zero_shot import rename
+
+    return rename(preds, spec.prompt_pairs)
+
+
+def _infer_sam3(spec: ModelSpec, confidence_threshold: float) -> Callable[[str], List[dict]]:
+    """SAM 3 with text prompts (weights already fetched by the worker into
+    ``spec.weights_path``, else fetched here)."""
+    from gemini.workers.ml import zero_shot
+
+    weights = spec.weights_path or zero_shot.sam3_weights(spec.api_key)
+
+    def _call(crop_path: str) -> List[dict]:
+        return zero_shot.sam3_predict(crop_path, spec.prompt_pairs, confidence_threshold, weights,
+                                      keep_masks=spec.task_type == "segmentation")
+
+    return _call
+
+
 def _make_infer_fn(spec: ModelSpec, confidence_threshold: float) -> Callable[[str], List[dict]]:
     spec.validate()
     if spec.source == "local_weights":
         return _infer_local_weights(spec, confidence_threshold)
+    if spec.is_sam3:
+        return _infer_sam3(spec, confidence_threshold)
     if spec.source == "huggingface":
         if spec.hf_mode == "cloud":
             return _infer_hf_cloud(spec, confidence_threshold)

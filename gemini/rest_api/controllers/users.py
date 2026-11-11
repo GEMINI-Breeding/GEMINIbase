@@ -28,7 +28,7 @@ from typing import Annotated, List, Optional
 from litestar import Response
 from litestar.controller import Controller
 from litestar.di import Provide
-from litestar.handlers import delete, get, patch, post
+from litestar.handlers import delete, get, patch, post, put
 from litestar.params import Body
 
 from gemini.api.user import User
@@ -166,6 +166,10 @@ class UsersController(Controller):
             user_info = (
                 str_to_dict(data.user_info) if data.user_info is not None else None
             )
+            # Saved keys are set only through /me/credentials: keep them.
+            saved = (current_user.user_info or {}).get("credentials")
+            if user_info is not None and saved and "credentials" not in user_info:
+                user_info = {**user_info, "credentials": saved}
             updated = current_user.update(
                 email=data.email,
                 full_name=data.full_name,
@@ -184,6 +188,45 @@ class UsersController(Controller):
                 error_description="An error occurred while updating the current user.",
             )
             return Response(content=error, status_code=500)
+
+    # --------------------------------------------------------------
+    # The person's own keys and tokens (Hugging Face, Roboflow, …)
+    # --------------------------------------------------------------
+
+    @get(path="/me/credentials", sync_to_thread=True)
+    def read_my_credentials(self, current_user: User) -> dict:
+        """The keys this person saved in Settings (only ever returned to them)."""
+        creds = (current_user.user_info or {}).get("credentials") or {}
+        return {"credentials": {k: v for k, v in creds.items() if isinstance(v, str)}}
+
+    @put(path="/me/credentials", sync_to_thread=True)
+    def update_my_credentials(self, current_user: User, data: dict) -> dict:
+        """Merge keys into this person's saved ones; an empty value removes one.
+        Body: {"credentials": {"hf_token": "...", "roboflow_api_key": "..."}}."""
+        incoming = (data or {}).get("credentials")
+        if not isinstance(incoming, dict):
+            return Response(
+                content=RESTAPIError(error="Bad request", error_description="Send {credentials: {...}}"),
+                status_code=400,
+            )
+        info = dict(current_user.user_info or {})
+        creds = dict(info.get("credentials") or {})
+        for key, value in incoming.items():
+            if not isinstance(key, str) or len(key) > 64:
+                continue
+            value = (value or "").strip() if isinstance(value, str) else ""
+            if value:
+                creds[key] = value[:4096]
+            else:
+                creds.pop(key, None)
+        info["credentials"] = creds
+        updated = current_user.update(user_info=info)
+        if updated is None:
+            return Response(
+                content=RESTAPIError(error="Not saved", error_description="Could not save the keys."),
+                status_code=500,
+            )
+        return {"credentials": creds}
 
     @patch(path="/me/password", sync_to_thread=True)
     def update_me_password(

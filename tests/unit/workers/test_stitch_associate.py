@@ -48,3 +48,20 @@ def test_plot_image_name_matches_the_aerial_split():
         "plot_7_accession_IT_97_K.png"
     )
     assert associate.plot_image_name({}, "3") == "plot_3_accession_unknown.png"
+
+
+def test_plots_marked_from_drone_boundaries_keep_their_plot():
+    from gemini.workers.stitch.associate import by_label, marked_plots
+
+    manifest = {"plots": {
+        "1": {"boundary": {"label": "101", "properties": {"plot": "101"}}},
+        "2": {"frames": 30},
+        "3": {"boundary": {"label": ""}},
+    }}
+    assert marked_plots(manifest) == {"1": "101"}
+    assert marked_plots({}) == {}
+    feats = [{"properties": {"plot": "101"}, "geometry": {}},
+             {"properties": {"plot": "102"}, "geometry": {}},
+             {"properties": {"plot": "101", "dup": True}, "geometry": {}}]
+    lab = by_label(feats)
+    assert set(lab) == {"101", "102"} and "dup" not in lab["101"]["properties"]

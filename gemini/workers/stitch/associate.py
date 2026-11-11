@@ -80,3 +80,22 @@ def plot_image_name(props: dict, fallback: str) -> str:
     inference find ground plot images the same way."""
     safe = lambda s: re.sub(r"[/\s]+", "_", s)  # noqa: E731
     return f"plot_{safe(plot_label(props, fallback))}_accession_{safe(accession_of(props))}.png"
+
+
+def marked_plots(manifest: dict) -> Dict[str, str]:
+    """{stitched plot id: drone plot label} for plots marked from drone
+    plot boundaries (the stitch records the boundary each was marked from)."""
+    out: Dict[str, str] = {}
+    for pid, info in ((manifest or {}).get("plots") or {}).items():
+        b = (info or {}).get("boundary")
+        if isinstance(b, dict) and b.get("label") not in (None, ""):
+            out[str(pid)] = str(b["label"])
+    return out
+
+
+def by_label(features: List[dict]) -> Dict[str, dict]:
+    """Plot polygons by their label (the first of a repeated label)."""
+    out: Dict[str, dict] = {}
+    for i, f in enumerate(features):
+        out.setdefault(plot_label(f.get("properties") or {}, str(i + 1)), f)
+    return out
