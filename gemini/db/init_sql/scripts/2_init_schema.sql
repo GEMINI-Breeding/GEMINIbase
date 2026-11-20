@@ -154,7 +154,7 @@ CREATE TABLE IF NOT EXISTS gemini.plots (
     site_id uuid REFERENCES gemini.sites(id) ON DELETE SET NULL,
     accession_id uuid REFERENCES gemini.accessions(id) ON DELETE SET NULL,
     population_id uuid REFERENCES gemini.populations(id) ON DELETE SET NULL,
-    plot_number INTEGER,
+    plot_number TEXT,
     plot_row_number INTEGER,
     plot_column_number INTEGER,
     plot_geometry_info JSONB DEFAULT '{}',

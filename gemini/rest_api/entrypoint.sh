@@ -41,7 +41,32 @@ if [[ "${GEMINI_RUN_MIGRATIONS:-0}" == "1" ]]; then
     # `alembic current` exits 0 with empty stdout when the version table
     # is missing OR present-but-empty. INFO log lines go to stderr, so
     # plain stdout content == "DB has a stamped revision."
-    current_rev="$(alembic current 2>/dev/null | tr -d '[:space:]')"
+    # Bounded, with its messages kept: a check that never answers (database
+    # unreachable, slow storage) used to hang the start with nothing logged.
+    t0=$(date +%s)
+    alembic_out="$(mktemp)"
+    alembic_err="$(mktemp)"
+    PYTHONFAULTHANDLER=1 alembic current >"$alembic_out" 2>"$alembic_err" &
+    apid=$!
+    for _ in $(seq 1 12); do
+        kill -0 "$apid" 2>/dev/null || break
+        sleep 5
+    done
+    if kill -0 "$apid" 2>/dev/null; then
+        # Still waiting after a minute: have Python print where it hangs
+        # (PYTHONFAULTHANDLER), then stop it.
+        echo "[entrypoint] alembic current still running after 60 s; stopping it"
+        kill -ABRT "$apid" 2>/dev/null
+        sleep 5
+    fi
+    wait "$apid"
+    rc=$?
+    current_rev="$(tr -d '[:space:]' <"$alembic_out")"
+    echo "[entrypoint] alembic current took $(( $(date +%s) - t0 )) s (exit $rc)"
+    if [[ "$rc" -ne 0 ]]; then
+        echo "[entrypoint] alembic current failed or timed out; its messages:" >&2
+        tail -40 "$alembic_err" >&2
+    fi
     if [[ -z "$current_rev" ]]; then
         cat >&2 <<'ERR'
 [entrypoint] ERROR: gemini.alembic_version is empty or missing.

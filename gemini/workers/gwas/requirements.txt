@@ -10,7 +10,10 @@ boto3>=1.38,<2
 
 # ORM + DB drivers (imported by gemini/db/core/base.py + engine.py;
 # engine eagerly sets up both sync (psycopg2) and async (asyncpg) engines).
-sqlalchemy>=2.0.40,<3
+# [asyncio] brings greenlet, which SQLAlchemy 2.1 no longer installs by
+# default (the engine sets up an async engine at import). Held on 2.0.x,
+# the line the API's poetry.lock uses, until 2.1 is tested.
+sqlalchemy[asyncio]>=2.0.40,<2.1
 sqlalchemy-mixins>=2.0.5,<3
 psycopg2-binary>=2.9.10,<3
 asyncpg>=0.30,<0.31

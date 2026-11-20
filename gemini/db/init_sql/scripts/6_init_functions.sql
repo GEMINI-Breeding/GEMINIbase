@@ -7,7 +7,7 @@ CREATE OR REPLACE FUNCTION gemini.create_plot_if_not_exists(
     exp_name TEXT,
     sea_name TEXT,
     sit_name TEXT,
-    plt_num INTEGER,
+    plt_num TEXT,
     plt_row_num INTEGER,
     plt_col_num INTEGER
 ) RETURNS UUID AS $$
@@ -434,7 +434,7 @@ CREATE OR REPLACE FUNCTION gemini.check_plot_validity(
     exp_name TEXT,
     sea_name TEXT,
     sit_name TEXT,
-    plt_num INTEGER,
+    plt_num TEXT,
     plt_row_num INTEGER,
     plt_col_num INTEGER
 ) RETURNS BOOLEAN AS $$
@@ -1011,7 +1011,7 @@ RETURNS TABLE (
     "site_id" UUID,
     "site_name" TEXT,
     "plot_id" UUID,
-    "plot_number" INTEGER,
+    "plot_number" TEXT,
     "plot_row_number" INTEGER,
     "plot_column_number" INTEGER,
     "record_file" TEXT,
@@ -1080,7 +1080,7 @@ RETURNS TABLE (
     "site_id" UUID,
     "site_name" TEXT,
     "plot_id" UUID,
-    "plot_number" INTEGER,
+    "plot_number" TEXT,
     "plot_row_number" INTEGER,
     "plot_column_number" INTEGER,
     "accession_id" UUID,

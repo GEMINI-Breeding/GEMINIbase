@@ -56,15 +56,15 @@ class GEMINISettings(BaseSettings):
     GEMINI_API_KEY : str = ""
     GEMINI_CORS_ORIGINS : str = "*"
 
-    # Orphaned-job reaper. On REST-API startup we mark any PENDING/RUNNING job
-    # whose updated_at is older than this threshold as FAILED, so a worker that
-    # was killed mid-process() (compose down, OOM, container crash) doesn't
-    # leave a ghost job that the frontend keeps re-opening WebSockets to.
-    # Set to 0 to disable.
-    GEMINI_JOB_REAPER_STALE_AFTER_SECONDS : int = 3600
-    # How often the reaper re-runs after startup. Workers heartbeat running
-    # jobs, so this only has to catch workers that died. 0 = startup only.
-    GEMINI_JOB_REAPER_INTERVAL_SECONDS : float = 300
+    # Orphaned-job reaper. On REST-API startup, and then every
+    # GEMINI_JOB_REAPER_INTERVAL_SECONDS, RUNNING jobs whose updated_at is older
+    # than the threshold are marked FAILED: running workers heartbeat (every
+    # GEMINI_WORKER_HEARTBEAT_SECONDS, default 60), so a stale job's worker was
+    # killed mid-process() (app quit, OOM, container crash). PENDING jobs are
+    # never reaped: they are waiting for a worker. Set the threshold to 0 to
+    # disable; an interval of 0 sweeps on startup only.
+    GEMINI_JOB_REAPER_STALE_AFTER_SECONDS : int = 600
+    GEMINI_JOB_REAPER_INTERVAL_SECONDS : float = 60
 
     # JWT Auth
     # `geminibase setup` generates GEMINI_JWT_SECRET when it's empty. If the
@@ -86,6 +86,12 @@ class GEMINISettings(BaseSettings):
     # accounts start inactive and can't log in until a superuser approves
     # them (PATCH /api/users/id/{id} with is_active=true).
     GEMINI_SIGNUP_ENABLED : bool = False
+
+    # A lab's test setup: accounts made without a password sign in with their
+    # email alone, and "Continue as guest" signs in to a shared guest account.
+    # Anyone who can reach the API can then sign in: keep it off where the API
+    # is reachable by people outside the lab.
+    GEMINI_PASSWORDLESS_LOGIN : bool = False
 
     # Test-only: when "1", enables DELETE /api/e2e_cleanup so the
     # Playwright afterEach hook can sweep entities a single test run

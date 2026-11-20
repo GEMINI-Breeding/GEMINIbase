@@ -18,6 +18,7 @@ from gemini.db.core.base import BaseModel
 
 import uuid
 from datetime import datetime
+from gemini.db.core.plot_number import PlotNumberType
 
 class PlotModel(BaseModel):
   """
@@ -46,7 +47,7 @@ class PlotModel(BaseModel):
   site_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey('gemini.sites.id'))
   accession_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey('gemini.accessions.id'), nullable=True)
   population_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey('gemini.populations.id'), nullable=True)
-  plot_number: Mapped[int] = mapped_column(Integer)
+  plot_number: Mapped[object] = mapped_column(PlotNumberType)
   plot_row_number: Mapped[int] = mapped_column(Integer)
   plot_column_number: Mapped[int] = mapped_column(Integer)
   plot_geometry_info: Mapped[dict] = mapped_column(JSONB, default={})

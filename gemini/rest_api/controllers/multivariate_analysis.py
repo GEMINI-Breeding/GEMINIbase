@@ -14,6 +14,7 @@ Design notes captured in the plan at .claude/plans/polished-shimmying-lake.md:
   `{"status": "too_large", ...}` so the UI can prompt the user to narrow.
 """
 
+import logging
 from datetime import date, datetime
 from typing import List, Literal, Optional
 
@@ -33,6 +34,9 @@ from sqlalchemy import text
 from gemini.api.trait_record import TraitRecord
 from gemini.db.core.base import db_engine
 from gemini.rest_api.models import RESTAPIBase, RESTAPIError
+from gemini.db.core.plot_number import PlotNumber, normalize_plot_number, plot_number_key
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -66,11 +70,16 @@ class MultivariateRequest(RESTAPIBase):
     aggregation: Aggregation = "mean"
     aggregation_date: Optional[date] = None
     collapse_replicates: bool = False
+    # One row per plot per collection date (each row carries its date),
+    # instead of collapsing the dates with `aggregation`. One read of the
+    # records for a whole season, where a request per date read them all
+    # each time.
+    per_date: bool = False
 
 
 class TraitMatrixRow(RESTAPIBase):
     plot_id: Optional[str] = None
-    plot_number: Optional[int] = None
+    plot_number: Optional[PlotNumber] = None
     plot_row_number: Optional[int] = None
     plot_column_number: Optional[int] = None
     experiment_name: Optional[str] = None
@@ -78,6 +87,8 @@ class TraitMatrixRow(RESTAPIBase):
     site_name: Optional[str] = None
     accession_name: Optional[str] = None
     population: Optional[str] = None
+    # ISO date, set only for `per_date` requests.
+    collection_date: Optional[str] = None
     values: dict  # {trait_name: float | None}
 
 
@@ -125,7 +136,7 @@ class SpatialCell(RESTAPIBase):
     plot_column_number: int
     value: float
     accession_name: Optional[str] = None
-    plot_number: Optional[int] = None
+    plot_number: Optional[PlotNumber] = None
 
 
 class SpatialSite(RESTAPIBase):
@@ -291,6 +302,49 @@ class ManovaResponse(RESTAPIBase):
 # ---------------------------------------------------------------------------
 
 
+# Field-design columns a plot's saved properties name its accession by.
+_DESIGN_ACCESSION_KEYS = ("accession_name", "accession", "Accession", "Label", "Genotype", "genotype")
+
+
+def _plot_accessions(plot_ids: set[str]) -> dict[str, str]:
+    """Accession per plot, for records that carry none: the plot's linked
+    accession, else the label its field design gave it (kept in the plot's
+    saved properties). Trait extraction records are linked to the plot only,
+    and a design's labels need not exist as accessions, so without this the
+    table's Accession column stayed empty."""
+    if not plot_ids:
+        return {}
+    from sqlalchemy import select as _select
+
+    from gemini.db.core.base import db_engine
+    from gemini.db.models.accessions import AccessionModel
+    from gemini.db.models.plots import PlotModel
+
+    out: dict[str, str] = {}
+    ids = list(plot_ids)
+    with db_engine.get_session() as session:
+        for i in range(0, len(ids), 1000):
+            chunk = ids[i : i + 1000]
+            rows = session.execute(
+                _select(PlotModel.id, AccessionModel.accession_name, PlotModel.plot_geometry_info)
+                .outerjoin(AccessionModel, AccessionModel.id == PlotModel.accession_id)
+                .where(PlotModel.id.in_(chunk))
+            ).all()
+            for pid, acc_name, info in rows:
+                name = acc_name
+                if not name and isinstance(info, dict):
+                    props = info.get("properties") or {}
+                    if isinstance(props, dict):
+                        name = next(
+                            (str(props[k]).strip() for k in _DESIGN_ACCESSION_KEYS
+                             if props.get(k) not in (None, "") and str(props[k]).strip()),
+                            None,
+                        )
+                if name:
+                    out[str(pid)] = name
+    return out
+
+
 def _fetch_long(req: MultivariateRequest) -> tuple[pd.DataFrame, int]:
     """Pull the long-form trait-record frame and the raw fetched-count.
 
@@ -343,6 +397,17 @@ def _fetch_long(req: MultivariateRequest) -> tuple[pd.DataFrame, int]:
             "collection_date": r.collection_date,
         })
 
+    missing = {row["plot_id"] for row in rows if not row["accession_name"] and row["plot_id"]}
+    if missing:
+        try:
+            by_plot = _plot_accessions(missing)
+        except Exception as e:  # the table still shows, without these names
+            logger.warning(f"plot accession lookup failed: {e}")
+            by_plot = {}
+        for row in rows:
+            if not row["accession_name"] and row["plot_id"] in by_plot:
+                row["accession_name"] = by_plot[row["plot_id"]]
+
     return pd.DataFrame(rows), n_fetched
 
 
@@ -371,7 +436,16 @@ def _aggregate_per_plot(df: pd.DataFrame, req: MultivariateRequest) -> pd.DataFr
 
     work = df.copy()
 
-    if req.aggregation == "date":
+    if req.per_date:
+        # Each date its own row; only same-day duplicates are averaged.
+        work["collection_date"] = (
+            pd.to_datetime(work["collection_date"]).dt.date.astype("string")
+        )
+        work = work[work["collection_date"].notna()]
+        key_cols = key_cols + ["collection_date"]
+        agg_fn = "mean"
+        sort_col = None
+    elif req.aggregation == "date":
         if req.aggregation_date is None:
             raise ValueError("aggregation_date is required when aggregation == 'date'")
         work["_cd"] = pd.to_datetime(work["collection_date"]).dt.date
@@ -435,6 +509,12 @@ def _aggregate_per_plot(df: pd.DataFrame, req: MultivariateRequest) -> pd.DataFr
     for c in key_cols:
         if c not in wide.columns:
             wide[c] = None
+    if req.per_date and "collection_date" in wide.columns:
+        # Plot identifiers mix numbers and text (KW1): natural order.
+        wide = wide.sort_values(
+            ["collection_date", "plot_number"], na_position="last",
+            key=lambda c: c.map(plot_number_key) if c.name == "plot_number" else c,
+        ).reset_index(drop=True)
     if "_row" in wide.columns:
         wide.drop(columns=["_row"], inplace=True)
 
@@ -507,7 +587,7 @@ def _wide_to_rows(wide: pd.DataFrame, trait_names: List[str]) -> List[TraitMatri
                 values[t] = float(v)
         out.append(TraitMatrixRow(
             plot_id=r.get("plot_id"),
-            plot_number=_to_int(r.get("plot_number")),
+            plot_number=normalize_plot_number(r.get("plot_number")),
             plot_row_number=_to_int(r.get("plot_row_number")),
             plot_column_number=_to_int(r.get("plot_column_number")),
             experiment_name=r.get("experiment_name"),
@@ -515,6 +595,12 @@ def _wide_to_rows(wide: pd.DataFrame, trait_names: List[str]) -> List[TraitMatri
             site_name=r.get("site_name"),
             accession_name=r.get("accession_name"),
             population=r.get("population"),
+            collection_date=(
+                str(r.get("collection_date"))
+                if r.get("collection_date") is not None
+                and not (isinstance(r.get("collection_date"), float) and np.isnan(r.get("collection_date")))
+                else None
+            ),
             values=values,
         ))
     return out
@@ -556,7 +642,7 @@ def _build_spatial_sites(wide: pd.DataFrame, trait_name: str) -> List[SpatialSit
                 plot_column_number=int(c),
                 value=float(v),
                 accession_name=acc if isinstance(acc, str) else None,
-                plot_number=_to_int(pn),
+                plot_number=normalize_plot_number(pn),
             )
             for r, c, v, acc, pn in zip(
                 rows_arr,

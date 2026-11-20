@@ -8,23 +8,25 @@ Public routes (/, /settings, /schema) are excluded from authentication.
 When GEMINI_API_KEY is empty (default), authentication is disabled.
 """
 
-from litestar.middleware import ASGIMiddleware
-from litestar.types import Receive, Scope, Send
-from litestar.response import Response
+from litestar.types import ASGIApp, Receive, Scope, Send
 from litestar.enums import ScopeType
 
 
-class APIKeyAuthMiddleware(ASGIMiddleware):
-    """Middleware that enforces API key authentication on /api/* routes."""
+class APIKeyAuthMiddleware:
+    """Middleware that enforces API key authentication on /api/* routes.
 
-    scopes = {ScopeType.HTTP}
+    A plain ASGI wrapper (an app in, an app out), which every Litestar 2.x
+    accepts as middleware. It used to subclass ``ASGIMiddleware``, whose
+    newer releases make ``handle`` abstract: setting GEMINI_API_KEY then
+    stopped the API from starting.
+    """
 
-    def __init__(self, app, api_key: str = "") -> None:
-        super().__init__(app)
+    def __init__(self, app: ASGIApp, api_key: str = "") -> None:
+        self.app = app
         self.api_key = api_key
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if not self.api_key:
+        if not self.api_key or scope.get("type") != ScopeType.HTTP:
             # Auth disabled when no API key is configured
             await self.app(scope, receive, send)
             return
@@ -52,13 +54,15 @@ class APIKeyAuthMiddleware(ASGIMiddleware):
             await self.app(scope, receive, send)
             return
 
-        # Reject with 401
-        response = Response(
-            content={"error": "Invalid or missing API key. Provide via X-API-Key header."},
-            status_code=401,
-            media_type="application/json",
-        )
-        await response(scope, receive, send)
+        # Reject with 401 (sent as plain ASGI messages: a Litestar Response
+        # is not itself an ASGI app outside a route handler).
+        body = b'{"error": "Invalid or missing API key. Provide via X-API-Key header."}'
+        await send({
+            "type": "http.response.start",
+            "status": 401,
+            "headers": [(b"content-type", b"application/json"), (b"content-length", str(len(body)).encode())],
+        })
+        await send({"type": "http.response.body", "body": body})
 
 
 def create_api_key_middleware(api_key: str):

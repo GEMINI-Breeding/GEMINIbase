@@ -62,6 +62,8 @@ class GwasWorker(BaseWorker):
         return {JobType.RUN_GWAS}
 
     def process(self, job_id: str, job_type: str, parameters: dict) -> dict:
+        if parameters.get("source") == "tassel":
+            return self._import_tassel(job_id, parameters)
         model = parameters.get("model", "lmm")
         lmm_test = parameters.get("lmm_test", "wald")
         qc_params = parameters.get("qc") or {}
@@ -317,6 +319,66 @@ class GwasWorker(BaseWorker):
             artifacts["result_json"] = f"s3://{STORAGE_BUCKET}/{prefix}/result.json"
             result["artifacts"] = artifacts
 
+            return result
+
+
+    def _import_tassel(self, job_id: str, parameters: dict) -> dict:
+        """A GWAS run in TASSEL (GLM/MLM stats table, already in storage at
+        ``stats_path``) as a result like the app's own: Manhattan and QQ plots,
+        inflation, markers past Bonferroni, strongest markers. Nothing is
+        re-run; the p-values are TASSEL's."""
+        from gemini.api.genotyping_study import GenotypingStudy  # lazy: heavy import
+
+        study_id = parameters["study_id"]
+        study = GenotypingStudy.get_by_id(id=study_id)
+        if study is None:
+            raise ValueError(f"GenotypingStudy {study_id} not found")
+        stats_path = str(parameters["stats_path"]).lstrip("/")
+        if stats_path.startswith(f"{STORAGE_BUCKET}/"):
+            stats_path = stats_path[len(STORAGE_BUCKET) + 1:]
+        client = _get_minio_client()
+        prefix = f"gwas/{job_id}"
+        self.report_progress(job_id, 5.0, {"stage": "download", "study_name": study.study_name})
+        with tempfile.TemporaryDirectory(prefix=f"gwas-{job_id}-") as tmp:
+            work = Path(tmp)
+            local = work / Path(stats_path).name
+            client.fget_object(STORAGE_BUCKET, stats_path, str(local))
+            self.report_progress(job_id, 30.0, {"stage": "read"})
+            df, p_col, trait = plots.load_tassel_stats(local, parameters.get("tassel_trait"))
+            summary = plots.summarize(df, p_col)
+            label = str(parameters.get("trait_label") or trait)
+            self.report_progress(job_id, 60.0, {"stage": "plot", "n_variants": len(df)})
+            manhattan_path, qq_path = work / "manhattan.png", work / "qq.png"
+            plots.manhattan_plot(df, p_col, manhattan_path, title=f"{label} — TASSEL",
+                                 bonferroni=summary.bonferroni_threshold)
+            plots.qq_plot(df, p_col, qq_path, title=f"QQ — {label}")
+            artifacts = {
+                "manhattan": _upload(client, manhattan_path, f"{prefix}/manhattan.png", "image/png"),
+                "qq": _upload(client, qq_path, f"{prefix}/qq.png", "image/png"),
+                "assoc": f"s3://{STORAGE_BUCKET}/{stats_path}",
+            }
+            result = _json_safe({
+                "artifacts": artifacts,
+                "source": "tassel",
+                "study_id": str(study.id),
+                "study_name": study.study_name,
+                "trait_label": label,
+                "tassel_trait": trait,
+                "model": str(parameters.get("tassel_model") or "TASSEL MLM"),
+                "n_variants_input": int(len(df)),
+                "n_variants_passed_qc": int(len(df)),
+                "p_column": summary.p_column,
+                "genomic_inflation_lambda": summary.genomic_inflation_lambda,
+                "n_genome_wide_sig": summary.n_genome_wide,
+                "n_suggestive": summary.n_suggestive,
+                "bonferroni_threshold": summary.bonferroni_threshold,
+                "n_bonferroni_sig": summary.n_bonferroni,
+                "top_hits": summary.top_hits,
+            })
+            buf = io.BytesIO(json.dumps(result, indent=2, default=str).encode())
+            client.put_object(STORAGE_BUCKET, f"{prefix}/result.json", buf,
+                              length=buf.getbuffer().nbytes, content_type="application/json")
+            result["artifacts"]["result_json"] = f"s3://{STORAGE_BUCKET}/{prefix}/result.json"
             return result
 
 

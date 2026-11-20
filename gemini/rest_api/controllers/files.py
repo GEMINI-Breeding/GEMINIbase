@@ -1,8 +1,11 @@
 import io
+import re
 import hashlib
+import logging
 import shutil
 import tempfile
 import threading
+import time
 from datetime import timedelta
 
 from litestar import Response
@@ -19,6 +22,7 @@ from gemini.rest_api.models import (
     RESTAPIError,
     FileMetadata,
     PaginatedFileList,
+    UploadFolder,
     UploadFileRequest,
     ChunkUploadRequest,
     ChunkStatusResponse,
@@ -35,7 +39,7 @@ from gemini.manager import GEMINIManager, GEMINIComponentType
 from gemini.storage.providers.minio_storage import MinioStorageProvider
 from gemini.storage.config.storage_config import MinioStorageConfig
 
-from typing import Annotated, List
+from typing import Annotated, List, Optional
 
 # In-memory session state for in-flight S3 multipart uploads. One entry per
 # file_identifier, populated when the first chunk arrives and torn down on
@@ -48,11 +52,20 @@ from typing import Annotated, List
 #       "object_name": str,
 #       "parts":       dict[int, str],      # part_number (1-indexed) -> etag
 #       "total":       int,                 # expected total_chunks
+#       "touched":     float,               # time.monotonic() of last chunk
 #     }
 #   }
 #
+# A session is bound to its destination: a chunk or resume check for the
+# same file_identifier but another object/bucket/total never joins it (see
+# `_session_for_chunk`). Sessions idle for _CHUNK_SESSION_TTL_SECONDS are
+# aborted by `_sweep_stale_sessions`, so an upload abandoned by a closed tab
+# doesn't hold MinIO parts until the next API restart.
+#
 # Single-process safe (Uvicorn runs --workers=1). If we ever scale horizontally
 # this needs to move to Redis.
+logger = logging.getLogger(__name__)
+
 _chunk_uploads: dict[str, dict] = {}
 
 # Guard for the create_multipart_upload + session-dict write that
@@ -69,6 +82,49 @@ _chunk_uploads: dict[str, dict] = {}
 # hold the lock across the actual `upload_part` MinIO call.
 _chunk_uploads_lock = threading.Lock()
 _chunk_uploads_per_id_locks: dict[str, threading.Lock] = {}
+
+
+_CHUNK_SESSION_TTL_SECONDS = 24 * 3600
+
+
+def _abort_session(session: dict) -> None:
+    """Best-effort abort of a session's MinIO multipart upload."""
+    try:
+        minio_storage_provider.abort_multipart_upload(
+            object_name=session["object_name"],
+            upload_id=session["upload_id"],
+            bucket_name=session["bucket_name"],
+        )
+    except Exception:
+        pass
+
+
+def _drop_session(file_id: str) -> None:
+    """Forget a session and abort its multipart upload."""
+    session = _chunk_uploads.pop(file_id, None)
+    with _chunk_uploads_lock:
+        _chunk_uploads_per_id_locks.pop(file_id, None)
+    if session is not None:
+        _abort_session(session)
+
+
+def _sweep_stale_sessions() -> None:
+    """Abort sessions no chunk has touched for the TTL."""
+    now = time.monotonic()
+    stale = [
+        fid
+        for fid, sess in list(_chunk_uploads.items())
+        if now - sess.get("touched", now) > _CHUNK_SESSION_TTL_SECONDS
+    ]
+    for fid in stale:
+        _drop_session(fid)
+
+
+def _session_matches(session: dict, object_name: str, bucket_name: str) -> bool:
+    return (
+        session["object_name"] == object_name
+        and session["bucket_name"] == bucket_name
+    )
 
 
 def _lock_for_file(file_id: str) -> threading.Lock:
@@ -282,12 +338,18 @@ EXIF_HEAD_BYTES = 256 * 1024
 THUMBNAIL_MAX_SOURCE_BYTES = 256 * 1024 * 1024
 
 
+# A TIFF's IFDs can sit anywhere: past the head, read the whole file only
+# when it's small (a drone frame, not an orthomosaic).
+_EXIF_TIFF_FULL_READ_MAX_BYTES = 64 * 1024 * 1024
+
+
 def _read_image_gps(bucket: str, object_name: str) -> dict:
     """GPS from the head of an image in MinIO; ``{}`` when it has none.
 
-    Reads only the first ``EXIF_HEAD_BYTES``. Raises if MinIO can't be read,
-    so callers can tell "no GPS" (worth caching) from a transient failure
-    (not worth caching).
+    Reads only the first ``EXIF_HEAD_BYTES`` (EXIF sits at the start of a
+    JPEG); a small TIFF whose tags lie further in is read whole. Raises if
+    MinIO can't be read, so callers can tell "no GPS" (worth caching) from a
+    transient failure (not worth caching).
     """
     resp = minio_storage_provider.client.get_object(
         bucket_name=bucket, object_name=object_name, offset=0, length=EXIF_HEAD_BYTES,
@@ -297,7 +359,18 @@ def _read_image_gps(bucket: str, object_name: str) -> dict:
     finally:
         resp.close()
         resp.release_conn()
-    return _extract_image_gps(head) or {}
+    gps = _extract_image_gps(head)
+    if gps is not None or len(head) < EXIF_HEAD_BYTES or not object_name.lower().endswith((".tif", ".tiff")):
+        return gps or {}
+    size = minio_storage_provider.get_file_metadata(object_name=object_name, bucket_name=bucket)["size"]
+    if size > _EXIF_TIFF_FULL_READ_MAX_BYTES:
+        return {}
+    stream = minio_storage_provider.download_file_stream(object_name=object_name, bucket_name=bucket)
+    try:
+        return _extract_image_gps(stream.read()) or {}
+    finally:
+        stream.close()
+        stream.release_conn()
 
 
 def _extract_image_gps(blob: bytes) -> dict | None:
@@ -466,6 +539,75 @@ def _drop_experiment_file_row(bucket_name: str, object_name: str) -> None:
         )
 
 
+
+_DATE_DIR = re.compile(r"(^|/)\d{4}-\d{2}-\d{2}/$")
+_IMAGE = re.compile(r"\.(png|jpe?g)$", re.IGNORECASE)
+_FRAME = re.compile(r"_frame(\d+)_")
+
+
+def plot_image_files(list_folder, root: str, workers: int = 16) -> list:
+    """Plot images under ``root`` (a site or population folder), walking
+    one level at a time: down to each flight's ``{date}/{platform}/{sensor}/``
+    and then only its plot image folders. ``list_folder(prefix)`` returns
+    ``(sub-folders, files)`` one level down. Of the raw frames' crops, only
+    each plot's best (lowest-numbered) frame is kept."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    def children(prefixes):
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            return list(pool.map(list_folder, prefixes))
+
+    # Down to the date folders: the root itself, a crop below it, or one
+    # more level (a site listing).
+    level = [root]
+    dates: list = []
+    for _ in range(3):
+        if not level:
+            break
+        nxt = []
+        for folders, _files in children(level):
+            for f in folders:
+                (dates if _DATE_DIR.search(f) else nxt).append(f)
+        level = [] if dates and not nxt else nxt
+        if dates:
+            break
+    # {date}/ -> {platform}/ -> {sensor}/
+    sensors = [f for folders, _ in children(dates) for f in folders]
+    sensors = [f for folders, _ in children(sensors) for f in folders]
+
+    # The sensor folders' children: PlotImages/ and PlotFrames/.
+    leaves = []
+    frames_dirs = []
+    for folders, _ in children(sensors):
+        for f in folders:
+            if f.endswith("/PlotImages/"):
+                leaves.append(f)
+            elif f.endswith("/PlotFrames/"):
+                frames_dirs.append(f)
+    for folders, _ in children(frames_dirs):
+        for f in folders:
+            name = f.rstrip("/").rsplit("/", 1)[-1]
+            if name in ("straightened", "crops"):
+                leaves.append(f)
+            else:  # another camera of the flight: its top-down views
+                leaves.append(f + "straightened/")
+
+    out = []
+    for prefix, (_folders, files) in zip(leaves, children(leaves)):
+        images = [f for f in files if _IMAGE.search(f["object_name"])]
+        if prefix.endswith("/crops/"):
+            best: dict = {}
+            for f in images:
+                base = f["object_name"].rsplit("/", 1)[-1]
+                m = _FRAME.search(base)
+                plot = base.split("_accession_", 1)[0]
+                n = int(m.group(1)) if m else 0
+                if plot not in best or n < best[plot][0]:
+                    best[plot] = (n, f)
+            images = [f for _, f in best.values()]
+        out.extend(images)
+    return sorted(out, key=lambda f: f["object_name"])
+
 def _thumbnail_too_large(detail: str) -> Response:
     return Response(
         content=RESTAPIError(error="Image too large for a thumbnail", error_description=detail),
@@ -521,9 +663,19 @@ class FileController(Controller):
     @get(path="/list/{file_path:path}", sync_to_thread=True)
     def list_files(
         self,
-        file_path: str
+        file_path: str,
+        match: Optional[str] = Parameter(
+            default=None,
+            max_length=300,
+            description=(
+                "Only object names this regular expression finds a match in "
+                "(e.g. the plot images of a folder of many files): a smaller "
+                "answer to send."
+            ),
+        ),
     ) -> List[FileMetadata]:
         try:
+            wanted = re.compile(match) if match else None
             bucket_name = file_path.split('/')[1]
             if not minio_storage_provider.bucket_exists(bucket_name):
                 error = RESTAPIError(
@@ -550,7 +702,16 @@ class FileController(Controller):
                     etag=entry["etag"],
                 )
                 for entry in entries
+                if wanted is None or wanted.search(entry["object_name"])
             ]
+        except re.error as e:
+            return Response(
+                content=RESTAPIError(
+                    error="invalid_match",
+                    error_description=f"Not a valid pattern: {e}",
+                ),
+                status_code=400,
+            )
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),
@@ -558,17 +719,115 @@ class FileController(Controller):
             )
             return Response(content=error, status_code=500)
         
+    @get(path="/upload_folders/{bucket_name:str}", sync_to_thread=True)
+    def list_upload_folders(
+        self,
+        bucket_name: str,
+        prefix: str = Parameter(default="Raw/", max_length=500),
+    ) -> List[UploadFolder]:
+        """Every folder under ``prefix`` that holds uploaded files, with a
+        count per file extension, from the experiment_files register.
+
+        The New Run dialog groups uploads by folder. Listing the bucket to
+        find them walks every object (minutes once there are a few hundred
+        thousand); the register answers the same question in about a second.
+        An empty answer means the register holds nothing there (an older
+        stack): the caller falls back to the listing.
+        """
+        from sqlalchemy import text
+
+        from gemini.db.core.base import db_engine
+
+        try:
+            with db_engine.get_session() as session:
+                rows = session.execute(
+                    text(
+                        "SELECT regexp_replace(object_name, '/[^/]*$', '') AS folder, "
+                        "lower(substring(object_name from '\\.([^./]+)$')) AS extension, "
+                        "count(*) AS n "
+                        "FROM gemini.experiment_files "
+                        "WHERE bucket = :bucket AND object_name LIKE :prefix "
+                        "GROUP BY 1, 2"
+                    ),
+                    {
+                        "bucket": bucket_name,
+                        "prefix": prefix.replace("%", "").replace("_", "\\_") + "%",
+                    },
+                ).all()
+            return [
+                UploadFolder(folder=r.folder, extension=r.extension, count=int(r.n))
+                for r in rows
+            ]
+        except Exception as e:
+            return Response(
+                content=RESTAPIError(
+                    error=str(e),
+                    error_description="An error occurred while listing upload folders",
+                ),
+                status_code=500,
+            )
+
+    @get(path="/plot_images/{file_path:path}", sync_to_thread=True)
+    def list_plot_images(self, file_path: str) -> List[FileMetadata]:
+        """The plot images under a Processed/ site or population folder, for
+        the Analyze Query view: each flight's ``PlotImages/``, the raw
+        frames' ``PlotFrames/straightened/`` (and each other camera's), and
+        the best frame of ``PlotFrames/crops/``.
+
+        Walks the folders one level at a time and reads only those, so the
+        thousands of frame crops, TIFFs and other files beside them are never
+        listed (a recursive listing of a site took ~8 s, nearly all of it on
+        the server).
+        """
+        try:
+            bucket_name = file_path.split('/')[1]
+            if not minio_storage_provider.bucket_exists(bucket_name):
+                return Response(
+                    content=RESTAPIError(
+                        error="Bucket not found",
+                        error_description=f"Bucket {bucket_name} does not exist",
+                    ),
+                    status_code=404,
+                )
+            root = '/'.join(file_path.split('/')[2:])
+            if root and not root.endswith('/'):
+                root += '/'
+            files = plot_image_files(
+                lambda prefix: minio_storage_provider.list_folder(
+                    prefix, bucket_name=bucket_name
+                ),
+                root,
+            )
+            return [
+                FileMetadata(
+                    bucket_name=f["bucket_name"],
+                    object_name=f["object_name"],
+                    size=f["size"],
+                    last_modified=f["last_modified"],
+                    content_type="application/octet-stream",
+                    etag=f["etag"],
+                )
+                for f in files
+            ]
+        except Exception as e:
+            return Response(
+                content=RESTAPIError(
+                    error=str(e),
+                    error_description="An error occurred while listing plot images",
+                ),
+                status_code=500,
+            )
+
     @get(path="/image-gps/{file_path:path}", sync_to_thread=True)
     def list_image_gps(self, file_path: str) -> ImageGpsResponse:
         """Return per-image basename + GPS for every image at the given
         ``{bucket}/{prefix}``.
 
         Reads from the ``experiment_files.metadata_json`` cache when
-        present; otherwise streams the image from MinIO, extracts EXIF
-        GPS server-side, persists the result back to the cache, and
-        includes it in the response. The first call for a freshly-
-        uploaded scope can therefore be slow; subsequent calls are a
-        single DB query.
+        present; otherwise reads the image's EXIF header from MinIO
+        (a ranged GET, in parallel), persists the result back to the
+        cache, and includes it in the response. "No GPS" is cached too
+        (``gps: null``), so those images aren't re-read on every call.
         """
         try:
             from sqlalchemy import select
@@ -622,31 +881,43 @@ class FileController(Controller):
                         ExperimentFileModel.object_name.in_(object_names),
                     )
                 ).all()
+            # obj → gps dict, or None for "checked, no GPS". Objects not
+            # in here have never been checked.
             cached = {
-                r.object_name: (r.metadata_json or {}).get("gps")
+                r.object_name: r.metadata_json["gps"]
                 for r in rows
+                if isinstance(r.metadata_json, dict) and "gps" in r.metadata_json
             }
 
             synced = _synced_positions(bucket_name, prefix)
+            missing = [
+                e["object_name"]
+                for e in image_entries
+                if e["object_name"].rsplit("/", 1)[-1] not in synced
+                and e["object_name"] not in cached
+            ]
+
+            def backfill(obj: str) -> tuple[str, dict | None]:
+                try:
+                    gps = _read_image_gps(bucket_name, obj)
+                except Exception:
+                    return obj, None  # transient: don't cache, retry next call
+                _update_experiment_file_metadata(
+                    bucket=bucket_name, object_name=obj, patch={"gps": gps}
+                )
+                return obj, gps
+
+            if missing:
+                from concurrent.futures import ThreadPoolExecutor
+
+                with ThreadPoolExecutor(max_workers=8) as pool:
+                    cached.update(pool.map(backfill, missing))
+
             out: list[ImageGpsEntry] = []
             for entry in image_entries:
                 obj = entry["object_name"]
                 basename = obj.rsplit("/", 1)[-1]
                 gps = synced.get(basename) or cached.get(obj)
-                if gps is None:
-                    # Lazy backfill — extract once, persist, return. An
-                    # image without GPS is cached as {} so it isn't read
-                    # again on every call; a failed read isn't cached.
-                    try:
-                        gps = _read_image_gps(bucket_name, obj)
-                    except Exception:
-                        gps = None
-                    if gps is not None:
-                        _update_experiment_file_metadata(
-                            bucket=bucket_name,
-                            object_name=obj,
-                            patch={"gps": gps},
-                        )
                 if gps:
                     out.append(ImageGpsEntry(
                         name=basename,
@@ -879,6 +1150,7 @@ class FileController(Controller):
             total = data.total_chunks
             part_number = chunk_idx + 1  # S3 parts are 1-indexed
             bucket_name = data.bucket_name or minio_storage_config.bucket_name
+            _sweep_stale_sessions()
 
             # Per-file_identifier lock prevents two parallel "first
             # chunk" requests from each creating a fresh multipart
@@ -889,6 +1161,16 @@ class FileController(Controller):
             file_lock = _lock_for_file(file_id)
             with file_lock:
                 session = _chunk_uploads.get(file_id)
+                if session is not None and not (
+                    _session_matches(session, data.object_name, bucket_name)
+                    and session["total"] == total
+                ):
+                    # A leftover session for another destination (or a
+                    # different chunking). Joining it would assemble this
+                    # file at the old path; start over instead.
+                    _chunk_uploads.pop(file_id, None)
+                    _abort_session(session)
+                    session = None
                 if session is None:
                     upload_id = minio_storage_provider.create_multipart_upload(
                         object_name=data.object_name,
@@ -900,8 +1182,10 @@ class FileController(Controller):
                         "object_name": data.object_name,
                         "parts": {},
                         "total": total,
+                        "touched": time.monotonic(),
                     }
                     _chunk_uploads[file_id] = session
+                session["touched"] = time.monotonic()
 
             # Idempotent re-send of an already-uploaded part: skip the upload but
             # still report current progress.
@@ -935,27 +1219,53 @@ class FileController(Controller):
                     _chunk_uploads.pop(file_id, None)
 
             if should_finalize:
+                # Assemble what MinIO actually holds. A part sent twice at
+                # once (a browser retry of a slow chunk) keeps the last
+                # write, whose etag need not be the one recorded; assembling
+                # with a stale etag fails with InvalidPart.
+                try:
+                    stored = minio_storage_provider.list_parts(
+                        object_name=session["object_name"],
+                        upload_id=session["upload_id"],
+                        bucket_name=session["bucket_name"],
+                    )
+                except Exception:
+                    logger.exception("list_parts failed; assembling with the recorded etags")
+                    stored = dict(session["parts"])
+                stale = [n for n, e in session["parts"].items()
+                         if n in stored and stored[n].strip('"') != str(e).strip('"')]
+                missing = [n for n in range(1, total + 1) if n not in stored]
+                if stale:
+                    logger.warning("Upload %s: %d recorded part etag(s) differ from MinIO's "
+                                   "(e.g. part %s); assembling with MinIO's", session["object_name"],
+                                   len(stale), stale[0])
+                if missing:
+                    # Parts recorded but not stored: ask the client for them
+                    # again instead of failing the whole upload.
+                    logger.warning("Upload %s: MinIO lacks %d part(s) (e.g. %s); asking the client to "
+                                   "send them again", session["object_name"], len(missing), missing[:5])
+                    with file_lock:
+                        session["parts"] = {n: e for n, e in stored.items()}
+                        _chunk_uploads.setdefault(file_id, session)
+                    return ChunkStatusResponse(
+                        file_identifier=file_id,
+                        uploaded_part_numbers=sorted(stored),
+                        total_chunks=total,
+                        complete=False,
+                    )
                 try:
                     minio_storage_provider.complete_multipart_upload(
                         object_name=session["object_name"],
                         upload_id=session["upload_id"],
-                        parts=list(session["parts"].items()),
+                        parts=list(stored.items()),
                         bucket_name=session["bucket_name"],
                     )
                 except Exception:
-                    # The session was already popped, so no retry can land
-                    # in this multipart upload: abort it so MinIO drops the
-                    # parts, then let the handler below report the 500.
-                    with _chunk_uploads_lock:
-                        _chunk_uploads_per_id_locks.pop(file_id, None)
-                    try:
-                        minio_storage_provider.abort_multipart_upload(
-                            object_name=session["object_name"],
-                            upload_id=session["upload_id"],
-                            bucket_name=session["bucket_name"],
-                        )
-                    except Exception:
-                        pass
+                    # Put the session back so the client's retry of this
+                    # chunk (already stored, so skipped) re-attempts the
+                    # assembly. The TTL sweep aborts it if nobody retries.
+                    with file_lock:
+                        _chunk_uploads.setdefault(file_id, session)
                     raise
                 # Phase 9j: write the authoritative pointer row so the
                 # experiment-delete cascade can sweep this object by row
@@ -980,15 +1290,16 @@ class FileController(Controller):
                     # /image-gps endpoint covers any image we miss here.
                     if _is_image_object(session["object_name"]):
                         try:
-                            gps = _read_image_gps(session["bucket_name"], session["object_name"])
-                        except Exception:
-                            gps = None
-                        if gps is not None:
+                            gps = _read_image_gps(
+                                session["bucket_name"], session["object_name"]
+                            )
                             _update_experiment_file_metadata(
                                 bucket=session["bucket_name"],
                                 object_name=session["object_name"],
                                 patch={"gps": gps},
                             )
+                        except Exception:
+                            pass  # /image-gps backfills it later
                 # Session was popped under the lock at the
                 # finalize-decision point above; drop the per-file
                 # lock too so the dict doesn't grow unbounded.
@@ -1008,12 +1319,10 @@ class FileController(Controller):
                 complete=False,
             )
         except Exception as e:
-            # Fail only this chunk. The session and its multipart upload are
-            # kept so the client can retry the chunk into the same upload;
-            # aborting here would discard every part already stored (and
-            # break the file's other chunks still in flight). Abandoned
-            # uploads are dropped by /abort_upload, or by MinIO's stale-
-            # upload expiry.
+            # The session and its stored parts are kept: the client retries
+            # the failed chunk, and one bad chunk used to discard every part
+            # of a multi-GB upload. A client that gives up sends
+            # /abort_upload; one that vanishes is swept after the TTL.
             return Response(
                 content=RESTAPIError(error=str(e), error_description="Chunk upload failed"),
                 status_code=500,
@@ -1028,12 +1337,40 @@ class FileController(Controller):
 
         If the in-memory session is gone (e.g. API container restarted), we
         cannot recover the upload_id, so resume from MinIO is not possible and
-        we report nothing uploaded — the client will start fresh.
+        we report nothing uploaded — the client will start fresh. Parts are
+        also withheld when the caller names a different destination
+        (``object_name`` / ``bucket_name``) or chunk count than the session:
+        they belong to another upload, and skipping them would assemble this
+        file at that upload's path.
         """
         file_id = data.get("file_identifier", "")
         total = int(data.get("total_chunks", 0) or 0)
         session = _chunk_uploads.get(file_id)
+        object_name = data.get("object_name")
+        if session is not None and (
+            session["total"] != total
+            or (
+                object_name is not None
+                and not _session_matches(
+                    session,
+                    object_name,
+                    data.get("bucket_name") or minio_storage_config.bucket_name,
+                )
+            )
+        ):
+            session = None
         uploaded_part_numbers = sorted(session["parts"].keys()) if session else []
+        if session is not None:
+            # What MinIO holds, not just what was recorded.
+            try:
+                stored = minio_storage_provider.list_parts(
+                    object_name=session["object_name"],
+                    upload_id=session["upload_id"],
+                    bucket_name=session["bucket_name"],
+                )
+                uploaded_part_numbers = sorted(n for n in stored if n in session["parts"])
+            except Exception:
+                pass
         return ChunkStatusResponse(
             file_identifier=file_id,
             uploaded_part_numbers=uploaded_part_numbers,
@@ -1117,18 +1454,7 @@ class FileController(Controller):
         data: AbortUploadRequest,
     ) -> dict:
         """Cancel an in-progress multipart upload and free its session state."""
-        session = _chunk_uploads.pop(data.file_identifier, None)
-        with _chunk_uploads_lock:
-            _chunk_uploads_per_id_locks.pop(data.file_identifier, None)
-        if session is not None:
-            try:
-                minio_storage_provider.abort_multipart_upload(
-                    object_name=session["object_name"],
-                    upload_id=session["upload_id"],
-                    bucket_name=session["bucket_name"],
-                )
-            except Exception:
-                pass
+        _drop_session(data.file_identifier)
         return {"status": "ok", "file_identifier": data.file_identifier}
 
     @post(path="/clear_upload_cache", sync_to_thread=True)
@@ -1138,18 +1464,7 @@ class FileController(Controller):
     ) -> dict:
         """Backwards-compatible alias for /abort_upload."""
         file_id = data.get("file_identifier", "")
-        session = _chunk_uploads.pop(file_id, None)
-        with _chunk_uploads_lock:
-            _chunk_uploads_per_id_locks.pop(file_id, None)
-        if session is not None:
-            try:
-                minio_storage_provider.abort_multipart_upload(
-                    object_name=session["object_name"],
-                    upload_id=session["upload_id"],
-                    bucket_name=session["bucket_name"],
-                )
-            except Exception:
-                pass
+        _drop_session(file_id)
         return {"status": "ok", "file_identifier": file_id}
 
     @get(path="/presign/{file_path:path}", sync_to_thread=True)
@@ -1236,7 +1551,9 @@ class FileController(Controller):
         """Download many files as one ZIP.
 
         Body: ``{"files": [object names]}`` or ``{"prefix": "..."}`` (every
-        object under it), plus an optional ``"filename"`` for the download.
+        object under it), or ``{"entries": [{"object", "name"}]}`` (each object
+        under that name in the archive; one object may come several times),
+        plus an optional ``"filename"`` for the download.
 
         The archive is spooled to a temp file rather than built in memory —
         a flight's images run to gigabytes. Entries keep their path relative
@@ -1254,6 +1571,13 @@ class FileController(Controller):
             bucket = minio_storage_config.bucket_name
             files = [f for f in (data.get("files") or []) if f]
             prefix = data.get("prefix", "") or ""
+            # Or entries with their names in the archive ([{"object", "name"}]), the same
+            # object more than once allowed: raw frames named by each plot they show.
+            entries = [(str(e.get("object") or ""), str(e.get("name") or ""))
+                       for e in (data.get("entries") or []) if isinstance(e, dict)]
+            entries = [(o, n) for o, n in entries if o and n and ".." not in n and not n.startswith("/")]
+            if entries:
+                files = [o for o, _ in entries]
 
             if prefix and not files:
                 items = minio_storage_provider.list_files(
@@ -1276,8 +1600,9 @@ class FileController(Controller):
             spool = tempfile.SpooledTemporaryFile(max_size=64 * 1024 * 1024)
             missing: list = []
             with zipfile.ZipFile(spool, "w", zipfile.ZIP_DEFLATED, allowZip64=True) as zf:
-                for file_path in files:
-                    arcname = file_path[len(root):] if file_path.startswith(root) else file_path
+                for i, file_path in enumerate(files):
+                    arcname = entries[i][1] if entries else (
+                        file_path[len(root):] if file_path.startswith(root) else file_path)
                     compress = (
                         zipfile.ZIP_STORED
                         if arcname.lower().endswith(stored)

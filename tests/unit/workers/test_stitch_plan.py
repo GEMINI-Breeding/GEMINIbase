@@ -123,3 +123,23 @@ def test_base_config_drops_keys_agrowstitch_would_crash_on():
 def test_direction_map_covers_the_ui_values():
     for ui, expected in [("down", "DOWN"), ("up", "UP"), ("left", "LEFT"), ("right", "RIGHT")]:
         assert plan.DIRECTION_MAP[ui] == expected
+
+
+def test_lane_masks_split_the_frame():
+    from gemini.workers.stitch import plan
+
+    # [left, right, top, bottom]
+    assert plan.lane_mask(1, 2, "top_bottom", 1920, 1080) == [0, 0, 0, 540]
+    assert plan.lane_mask(2, 2, "top_bottom", 1920, 1080) == [0, 0, 540, 0]
+    assert plan.lane_mask(2, 3, "left_right", 1920, 1080) == [640, 640, 0, 0]
+    assert plan.lane_mask(1, 1, "top_bottom", 1920, 1080) == [0, 0, 0, 0]
+
+
+def test_lane_mask_merges_with_a_crop_rule_and_offsets_follow():
+    from gemini.workers.stitch import plan
+
+    mask = plan.merge_masks([0, 0, 100, 0], plan.lane_mask(1, 2, "top_bottom", 1920, 1080))
+    assert mask == [0, 0, 100, 540]
+    # Kept band: rows 100..540, centre 320 → 220 px above the frame centre.
+    assert plan.band_offset_px(mask, "top_bottom", 1920, 1080) == -220
+    assert plan.band_size_px(mask, "top_bottom", 1920, 1080) == 440

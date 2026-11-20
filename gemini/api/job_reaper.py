@@ -1,11 +1,10 @@
 """
 Orphaned-job reaper.
 
-A worker that's killed mid-`process()` (compose down, OOM, container crash,
-network partition during the final PATCH) leaves its job sitting in
-PENDING/RUNNING with no one to drive it. The frontend's ProcessContext
-rehydration query then picks it up on every mount, opens a WebSocket to
-`/api/jobs/{id}/progress` for the ghost, and the row never disappears.
+A worker that's killed mid-`process()` (app quit, compose down, OOM,
+container crash) leaves its job in RUNNING with no one to drive it; the
+restarted worker only claims PENDING jobs, so without this the job — and
+the UI spinner — stays RUNNING forever.
 
 The REST API runs the reaper on startup and then every
 GEMINI_JOB_REAPER_INTERVAL_SECONDS, since a worker can die at any time,
@@ -14,6 +13,8 @@ workers bump it on every progress event and, while process() runs, with a
 heartbeat (`touch_running_job`), so a job whose worker is alive always has
 a fresh value even during a long step that reports no progress. Anything
 older than the threshold cannot have a live worker behind it.
+PENDING jobs are never reaped: they are waiting in the queue, and with one
+worker per job type a queue behind a multi-hour ODM run is normal.
 """
 from typing import List, Tuple
 
@@ -23,7 +24,6 @@ from sqlalchemy import text
 from gemini.db.core.base import db_engine
 
 logger = logging.getLogger(__name__)
-
 
 def touch_running_job(job_id: str) -> bool:
     """Record that a RUNNING job's worker is still alive.
@@ -51,7 +51,7 @@ def touch_running_job(job_id: str) -> bool:
 
 
 def reap_orphaned_jobs(stale_after_seconds: int) -> List[Tuple[str, str]]:
-    """Mark stale PENDING/RUNNING jobs as FAILED.
+    """Mark RUNNING jobs with no worker activity for the threshold as FAILED.
 
     Args:
         stale_after_seconds: A job is reaped if its updated_at is older than
@@ -64,8 +64,9 @@ def reap_orphaned_jobs(stale_after_seconds: int) -> List[Tuple[str, str]]:
         return []
 
     error_message = (
-        f"Orphaned: no worker activity for {stale_after_seconds}s; "
-        "reaped by the REST API"
+        f"Interrupted: the worker stopped responding (no heartbeat for "
+        f"{stale_after_seconds}s), e.g. because the app or its container was "
+        "stopped. Run the step again."
     )
 
     with db_engine.get_session() as session:
@@ -77,7 +78,7 @@ def reap_orphaned_jobs(stale_after_seconds: int) -> List[Tuple[str, str]]:
                     error_message = :error_message,
                     completed_at = NOW(),
                     updated_at = NOW()
-                WHERE status IN ('PENDING', 'RUNNING')
+                WHERE status = 'RUNNING'
                   AND updated_at < NOW() - make_interval(secs => :stale_after_seconds)
                 RETURNING id, job_type
                 """
@@ -96,6 +97,4 @@ def reap_orphaned_jobs(stale_after_seconds: int) -> List[Tuple[str, str]]:
             stale_after_seconds,
             reaped,
         )
-    else:
-        logger.info("Reaper found no orphaned jobs (threshold %ds)", stale_after_seconds)
     return reaped

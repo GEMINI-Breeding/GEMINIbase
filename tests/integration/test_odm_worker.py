@@ -635,12 +635,13 @@ class TestOdmWorkerPipeline:
     def test_skip_gcps_ignores_sidecars_left_in_minio(
         self, mock_nodeodm, minio_client
     ):
-        """`skip_gcps=true` must override sidecar files at the scope root.
+        """`skip_gcps=true` must override a gcp_list.txt at the scope root.
 
         The user clicked "Skip" in the GcpPicker. Without honoring the
         flag the worker auto-sniffs `Raw/.../{sensor}/gcp_list.txt` and
-        `geo.txt` and silently re-applies GCPs across runs — there's no
-        UI to delete sidecars and the user should never touch MinIO.
+        silently re-applies GCPs across runs — there's no UI to delete
+        sidecars and the user should never touch MinIO. geo.txt (camera
+        positions, not GCPs) is still forwarded.
         """
         scope_root = "Raw/test_skip_gcps/2024/exp/loc/pop/2024-06-15/DJI/RGB/"
         image_prefix = f"{scope_root}Images/"
@@ -688,8 +689,8 @@ class TestOdmWorkerPipeline:
                 },
             )
 
-            assert captured["extra_files"] == [], (
-                "skip_gcps=true must suppress sidecar forwarding to NodeODM; "
+            assert [os.path.basename(p) for p in captured["extra_files"]] == ["geo.txt"], (
+                "skip_gcps=true must drop gcp_list.txt but keep geo.txt; "
                 f"got {captured['extra_files']!r}"
             )
 

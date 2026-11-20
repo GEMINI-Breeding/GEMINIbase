@@ -109,6 +109,7 @@ def test_chunk_finalize_reads_only_the_exif_head(minio, test_client):
         "total": 2,
     }
     minio.upload_part.return_value = "etag-2"
+    minio.list_parts.return_value = {1: "etag-1", 2: "etag-2"}   # what MinIO holds when assembling
     with patch.object(files, "_record_experiment_file"), \
          patch.object(files, "_update_experiment_file_metadata"):
         res = test_client.post(

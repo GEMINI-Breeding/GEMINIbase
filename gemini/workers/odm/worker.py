@@ -10,6 +10,7 @@ Requires: NodeODM sidecar service (opendronemap/nodeodm).
 
 import logging
 import os
+import re
 import tempfile
 import time
 from typing import Set
@@ -108,6 +109,35 @@ QUALITY_PRESETS: dict[str, list[dict]] = {
         {"name": "pc-quality", "value": "ultra"},
         {"name": "orthophoto-resolution", "value": 1},
         {"name": "dem-resolution", "value": 1},
+    ],
+    # For placing plot boundaries, and plot images from the raw frames: a quick
+    # orthomosaic from the sparse reconstruction (no dense point cloud, which is
+    # where wind-blown plants turn into ghosts and seams), at 5 cm. Its camera
+    # positions are kept like every run's, so each plot's best raw frames can be
+    # picked once the boundaries sit right on it.
+    "Quick (boundaries + raw frames)": [
+        {"name": "fast-orthophoto", "value": True},
+        {"name": "feature-quality", "value": "medium"},
+        {"name": "skip-3dmodel", "value": True},
+        {"name": "orthophoto-resolution", "value": 5},
+        {"name": "dem-resolution", "value": 5},
+    ],
+    # A fine map with a light reconstruction: the orthophoto at 1 cm/px (what
+    # object detection and per-plot traits use), while the parts that cost
+    # memory and are used less are kept light — fewer image features for
+    # matching, a low-density point cloud and mesh, no textured 3D model, a
+    # 5 cm DSM (canopy height), and fewer parallel processes. Ultra on a field
+    # of ~3,700 images ran out of memory in OpenSfM at 56 GB; this keeps the
+    # same orthophoto detail within it.
+    "Detailed map": [
+        {"name": "feature-quality", "value": "medium"},
+        {"name": "min-num-features", "value": 8000},
+        {"name": "pc-quality", "value": "low"},
+        {"name": "mesh-size", "value": 100000},
+        {"name": "skip-3dmodel", "value": True},
+        {"name": "max-concurrency", "value": 8},
+        {"name": "orthophoto-resolution", "value": 1},
+        {"name": "dem-resolution", "value": 5},
     ],
 }
 
@@ -393,6 +423,24 @@ def _diagnose_odm_failure(log_lines: list[str]) -> str:
     # Search the tail first — failures are almost always near the end.
     tail = "\n".join(log_lines[-200:])
 
+    # OOM in structure-from-motion (OpenSfM matching / reconstruction): many
+    # images with many features each. ODM still prints its generic "Whoops!
+    # You ran out of memory" block, so this must come before the texturing
+    # check below, which would otherwise take the blame.
+    # The stage is the last "Running <stage> stage" line: later stages' command
+    # lines name files under opensfm/ (texrecon reads opensfm/undistorted/…),
+    # so the word alone doesn't say OpenSfM was running.
+    stages = re.findall(r"Running (\w+) stage", tail)
+    stage = stages[-1].lower() if stages else ""
+    in_opensfm = stage == "opensfm" or (not stage and ("run_opensfm" in tail or "opensfm" in tail.lower()))
+    if "Killed" in tail and in_opensfm:
+        return (
+            "out-of-memory while matching the images (OpenSfM), before the "
+            "orthophoto is made. Use the \"Detailed map\" quality (fewer image "
+            "features, light point cloud and mesh, same 1 cm orthophoto), or "
+            "give the worker more memory."
+        )
+
     # OOM-killer SIGKILL on a sub-process. Most common ODM failure on
     # large flights: OpenMVS depth-fusion or PoissonRecon spikes RAM
     # past Docker's container limit, the kernel kills the subprocess,
@@ -638,22 +686,20 @@ class OdmWorker(BaseWorker):
                 f"from {len(image_prefixes)} prefix(es)"
             )
 
-            # Pull GCP sidecar files (gcp_list.txt, geo.txt) from the scope
-            # root (sibling of every dataset subdir) so NodeODM can use
-            # them. Absent files are skipped. When the user clicked
-            # "Skip" in the GCP picker the frontend sends `skip_gcps:
-            # true`; honor that even if the files are still sitting in
-            # MinIO from a prior session — the UI state is the source
-            # of truth, not the sidecars on disk.
+            # Pull the sidecars (gcp_list.txt, geo.txt) from the scope root
+            # (sibling of every dataset subdir) so NodeODM can use them.
+            # Absent files are skipped. When the user clicked "Skip" in the
+            # GCP picker the frontend sends `skip_gcps: true`; then a
+            # gcp_list.txt left in MinIO from a prior session is not used.
+            # geo.txt is still sent: it holds the camera positions (e.g. from
+            # the platform's flight log), not ground control points, and
+            # without it ODM falls back to the photos' own, often coarser, GPS.
             skip_gcps = bool(parameters.get("skip_gcps"))
-            gcp_paths = (
-                []
-                if skip_gcps
-                else self._download_gcp_files(client, scope_prefix, images_dir)
-            )
+            gcp_paths = self._download_gcp_files(client, scope_prefix, images_dir)
             if skip_gcps:
+                gcp_paths = [p for p in gcp_paths if os.path.basename(p) != "gcp_list.txt"]
                 logger.info(
-                    f"skip_gcps=true; not forwarding GCP sidecars to NodeODM "
+                    f"skip_gcps=true; not forwarding gcp_list.txt to NodeODM "
                     f"for job {job_id}"
                 )
             if gcp_paths:
@@ -743,6 +789,18 @@ class OdmWorker(BaseWorker):
                         dsm_path = os.path.join(tmpdir, "dsm.tif")
                         with zf.open(dsm_entry) as src, open(dsm_path, "wb") as dst:
                             shutil.copyfileobj(src, dst)
+                    # Where each frame was taken and the lens: what places raw frames
+                    # on the plots (plot images from raw frames, for flights whose
+                    # orthomosaic is unusable in detail, e.g. wind). Same frame of
+                    # reference as this orthomosaic.
+                    camera_files = {}
+                    for suffix, local in (("odm_report/shots.geojson", "shots.geojson"),
+                                          ("cameras.json", "cameras.json")):
+                        entry = next((n for n in zf.namelist() if n.endswith(suffix)), None)
+                        if entry is not None:
+                            camera_files[local] = os.path.join(tmpdir, local)
+                            with zf.open(entry) as src, open(camera_files[local], "wb") as dst:
+                                shutil.copyfileobj(src, dst)
             except zipfile.BadZipFile:
                 raise RuntimeError("NodeODM returned invalid zip file")
 
@@ -781,6 +839,19 @@ class OdmWorker(BaseWorker):
                 )
                 logger.info(f"Uploaded DSM to {dsm_object_path}")
 
+            cameras_object_paths = {}
+            if {"shots.geojson", "cameras.json"} <= set(camera_files):
+                for local, stem, ext in (("shots.geojson", "odm_shots", "geojson"),
+                                         ("cameras.json", "odm_cameras", "json")):
+                    obj = f"{output_prefix}{stem}-{job_id}.{ext}"
+                    client.fput_object(STORAGE_BUCKET, obj, camera_files[local],
+                                       content_type="application/json")
+                    cameras_object_paths[stem] = obj
+                logger.info("Saved camera positions: %s", cameras_object_paths)
+            else:
+                logger.warning("NodeODM gave no camera positions (shots.geojson / cameras.json): "
+                               "raw frames cannot be placed on plots for this run")
+
             # Phase 6: Save final log to MinIO (95-98%)
             self.report_progress(job_id, 96, {"stage": "saving_log"})
             self._save_log(task_id, output_prefix, client)
@@ -804,6 +875,9 @@ class OdmWorker(BaseWorker):
             }
             if dsm_object_path:
                 result["dsm_path"] = dsm_object_path
+            if cameras_object_paths:
+                result["shots_path"] = cameras_object_paths["odm_shots"]
+                result["cameras_path"] = cameras_object_paths["odm_cameras"]
             if cog_job_id:
                 result["cog_job_id"] = cog_job_id
             return result

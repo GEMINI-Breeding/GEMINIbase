@@ -21,6 +21,7 @@ from gemini.rest_api.controllers.files import FileController
 from gemini.rest_api.controllers.geojson import GeoJsonController
 from gemini.rest_api.controllers.csv_data import CsvController
 from gemini.rest_api.controllers.jobs import JobController
+from gemini.rest_api.controllers.legacy_import import LegacyImportController
 from gemini.rest_api.controllers.plot_geometry import PlotGeometryController
 from gemini.rest_api.controllers.model_management import ModelManagementController
 from gemini.rest_api.controllers.annotations import AnnotationsController
@@ -32,6 +33,7 @@ from gemini.rest_api.controllers.users import UsersController
 from gemini.rest_api.controllers.utils import UtilsController
 from gemini.rest_api.controllers.reference_data import ReferenceDataController
 from gemini.rest_api.controllers.e2e_cleanup import E2ECleanupController
+from gemini.rest_api.controllers.kit_rename import KitRenameController
 from gemini.rest_api.controllers.migrate_dataset_paths import MigrateDatasetPathsController
 from gemini.rest_api.controllers.multivariate_analysis import MultiVariateAnalysisController
 from gemini.rest_api.controllers.process_state import ProcessStateController
@@ -60,6 +62,7 @@ controllers = {
     "geojson": GeoJsonController,
     "csv": CsvController,
     "jobs": JobController,
+    "legacy_import": LegacyImportController,
     "plot_geometry": PlotGeometryController,
     "model_management": ModelManagementController,
     "annotations": AnnotationsController,
@@ -72,6 +75,7 @@ controllers = {
     "reference_data": ReferenceDataController,
     "e2e_cleanup": E2ECleanupController,
     "migrate_dataset_paths": MigrateDatasetPathsController,
+    "kit_rename": KitRenameController,
     "multivariate_analysis": MultiVariateAnalysisController,
     "process_state": ProcessStateController,
 }

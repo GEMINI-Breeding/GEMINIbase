@@ -4,9 +4,14 @@ Ship worker log lines to the in-app console.
 Each worker runs in its own container, so the REST API's in-memory log
 buffer never saw them — the console showed the API alone, and a failed
 ODM or ML job left no trace a user could read. Workers already talk to
-Redis (the "logger" service); this handler pushes each record onto one
-capped list, and ``GET /api/utils/logs`` merges it with the API's own
-lines. No Docker socket involved, so it works under a production compose.
+Redis (the "logger" service); this handler pushes each record onto its
+worker's own capped list, and ``GET /api/utils/logs`` merges them with the
+API's own lines. No Docker socket involved, so it works under a production
+compose.
+
+One list per worker, not one shared list: with a shared cap, a noisy
+worker (e.g. every worker retrying while the API restarts) pushed a quiet
+worker's lines out entirely, so its history vanished from the console.
 """
 from __future__ import annotations
 
@@ -16,8 +21,9 @@ import threading
 import time
 from typing import Callable, List
 
-LOG_KEY = "gemini:logs:workers"
-MAX_LINES = 2000
+LOG_KEY = "gemini:logs:workers"  # + ":{source}"; also the pre-split shared list
+SOURCES_KEY = "gemini:logs:workers:sources"
+MAX_LINES = 1000  # per worker
 # After a failed push, stay quiet this long before trying Redis again, so an
 # outage (or a unit test with no Redis) doesn't pay a connect per record.
 RETRY_AFTER_S = 30.0
@@ -52,9 +58,11 @@ class RedisLogHandler(logging.Handler):
                     "source": self.source,
                 }
             )
+            key = source_key(self.source)
             pipe = self._client.pipeline()
-            pipe.lpush(LOG_KEY, entry)
-            pipe.ltrim(LOG_KEY, 0, MAX_LINES - 1)
+            pipe.lpush(key, entry)
+            pipe.ltrim(key, 0, MAX_LINES - 1)
+            pipe.sadd(SOURCES_KEY, self.source)
             pipe.execute()
         except Exception:
             # Logging must never take a worker down: drop the line, back off,
@@ -79,20 +87,32 @@ def install(source: str, client_factory: Callable[[], object]) -> None:
         root.setLevel(logging.INFO)
 
 
+def source_key(source: str) -> str:
+    return f"{LOG_KEY}:{source}"
+
+
 def read_worker_logs(client, limit: int = MAX_LINES) -> List[dict]:
-    """Newest ``limit`` shipped lines, oldest first. [] if Redis is down."""
+    """Every worker's newest ``limit`` lines, merged oldest first. Also
+    reads the shared list older workers wrote. [] if Redis is down."""
     try:
-        raw = client.lrange(LOG_KEY, 0, max(limit, 1) - 1)
+        sources = sorted(
+            s.decode() if isinstance(s, bytes) else str(s)
+            for s in (client.smembers(SOURCES_KEY) or [])
+        )
+        raws = [client.lrange(source_key(s), 0, max(limit, 1) - 1) for s in sources]
+        raws.append(client.lrange(LOG_KEY, 0, max(limit, 1) - 1))
     except Exception:
         return []
     out: List[dict] = []
-    for item in reversed(raw or []):
-        try:
-            line = json.loads(item)
-        except (TypeError, ValueError):
-            continue
-        if isinstance(line, dict):
-            out.append(line)
+    for raw in raws:
+        for item in raw or []:
+            try:
+                line = json.loads(item)
+            except (TypeError, ValueError):
+                continue
+            if isinstance(line, dict):
+                out.append(line)
+    out.sort(key=lambda l: l.get("ts") or 0)
     return out
 
 

@@ -128,9 +128,20 @@ def _reap_orphaned_jobs_once() -> None:
     REST-API that won't boot is catastrophic.
     """
     try:
-        reap_orphaned_jobs(settings.GEMINI_JOB_REAPER_STALE_AFTER_SECONDS)
+        reaped = reap_orphaned_jobs(settings.GEMINI_JOB_REAPER_STALE_AFTER_SECONDS)
     except Exception as exc:
         logger.warning("Orphaned-job reaper failed: %s", exc)
+        return
+    if reaped:
+        from gemini.rest_api.controllers.jobs import _publish_job_event
+
+        for job_id, _job_type in reaped:
+            # Open job views (WebSocket subscribers) see the failure now
+            # instead of spinning on their last progress frame.
+            try:
+                _publish_job_event(job_id, "FAILED", {"error_message": "Interrupted: the worker stopped responding."})
+            except Exception as exc:
+                logger.warning("Could not announce reaped job %s: %s", job_id, exc)
 
 
 async def _reap_orphaned_jobs_periodically(interval: float) -> None:

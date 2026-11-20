@@ -46,20 +46,31 @@ class TestSeasonExists:
 class TestSeasonCreate:
     @patch(f"{MODULE}.SeasonModel")
     def test_success(self, m):
-        m.get_or_create.return_value = _make_db()
+        m.get_by_parameters.return_value = None
+        m.create.return_value = _make_db()
         result = Season.create(season_name="Summer 2024")
         assert result is not None
+        assert m.create.call_args.kwargs["experiment_id"] is None
 
     @patch(f"{MODULE}.SeasonModel")
-    def test_with_experiment(self, m):
-        m.get_or_create.return_value = _make_db()
-        with patch.object(Season, "associate_experiment", return_value=MagicMock()):
+    def test_existing_season_of_the_experiment_is_reused(self, m):
+        exp = MagicMock(id=uuid4())
+        m.get_by_parameters.return_value = _make_db(experiment_id=exp.id)
+        with patch("gemini.api.experiment.Experiment.get", return_value=exp):
             result = Season.create(season_name="Summer 2024", experiment_name="Exp1")
-            assert result is not None
+        assert result is not None
+        m.get_by_parameters.assert_called_once_with(season_name="Summer 2024", experiment_id=exp.id)
+        m.create.assert_not_called()
+
+    @patch(f"{MODULE}.SeasonModel")
+    def test_unknown_experiment(self, m):
+        with patch("gemini.api.experiment.Experiment.get", return_value=None):
+            assert Season.create(season_name="X", experiment_name="Nope") is None
+        m.create.assert_not_called()
 
     @patch(f"{MODULE}.SeasonModel")
     def test_exception(self, m):
-        m.get_or_create.side_effect = Exception("err")
+        m.get_by_parameters.side_effect = Exception("err")
         assert Season.create(season_name="X") is None
 
 

@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ValidationError, ConfigDict, GetCoreSchemaHandler
+from pydantic import BaseModel, ValidationError, ConfigDict, GetCoreSchemaHandler, field_validator
 from pydantic.types import UUID4
 from pydantic.functional_validators import BeforeValidator
 from litestar.datastructures import UploadFile
@@ -8,6 +8,7 @@ from typing_extensions import Annotated
 from uuid import UUID
 from datetime import datetime
 import json
+from gemini.db.core.plot_number import PlotNumber
 
 
 # Pydantic 2.11+ needs an explicit core schema for UploadFile
@@ -79,6 +80,12 @@ class FileMetadata(RESTAPIBase):
     etag: str
     size: int
     content_type: Optional[str] = None
+
+class UploadFolder(RESTAPIBase):
+    """One folder of uploaded files and how many of each kind it holds."""
+    folder: str
+    extension: Optional[str] = None
+    count: int
 
 class UploadFileRequest(RESTAPIBase):
     file: UploadFile
@@ -565,7 +572,7 @@ class AliasBulkResponse(RESTAPIBase):
 # --------------------------------
 
 class PlotInput(RESTAPIBase):
-    plot_number: int
+    plot_number: PlotNumber
     plot_row_number: int
     plot_column_number: int
     plot_info: Optional[JSONB] = {}
@@ -584,14 +591,14 @@ class PlotBulkResponse(RESTAPIBase):
     skipped_count: int
 
 class PlotUpdate(RESTAPIBase):
-    plot_number: Optional[int] = None
+    plot_number: Optional[PlotNumber] = None
     plot_row_number: Optional[int] = None
     plot_column_number: Optional[int] = None
     plot_info: Optional[JSONB] = None
     plot_geometry_info: Optional[JSONB] = None
 
 class PlotSearch(RESTAPIBase):
-    plot_number: Optional[int] = None
+    plot_number: Optional[PlotNumber] = None
     plot_row_number: Optional[int] = None
     plot_column_number: Optional[int] = None
     plot_info: Optional[JSONB] = None
@@ -609,7 +616,7 @@ class PlotOutput(RESTAPIBase):
     site_id: Optional[ID] = None
     accession_id: Optional[ID] = None
     population_id: Optional[ID] = None
-    plot_number: int = None
+    plot_number: PlotNumber = None
     plot_row_number: int = None
     plot_column_number: int = None
     plot_info: Optional[JSONB] = None
@@ -1103,7 +1110,7 @@ class SensorRecordInput(RESTAPIBase):
     experiment_name: Optional[str] = None
     season_name: Optional[str] = None
     site_name: Optional[str] = None
-    plot_number: Optional[int] = None
+    plot_number: Optional[PlotNumber] = None
     plot_row_number: Optional[int] = None
     plot_column_number: Optional[int] = None
     record_file: Optional[UploadFile] = None
@@ -1116,7 +1123,7 @@ class SensorRecordSearch(RESTAPIBase):
     experiment_name: Optional[str] = None
     season_name: Optional[str] = None
     site_name: Optional[str] = None
-    plot_number: Optional[int] = None
+    plot_number: Optional[PlotNumber] = None
     plot_row_number: Optional[int] = None
     plot_column_number: Optional[int] = None
     collection_date: Optional[datetime] = None
@@ -1137,7 +1144,7 @@ class SensorRecordUpdate(RESTAPIBase):
     experiment_name: Optional[str] = None
     season_name: Optional[str] = None
     site_name: Optional[str] = None
-    plot_number: Optional[int] = None
+    plot_number: Optional[PlotNumber] = None
     plot_row_number: Optional[int] = None
     plot_column_number: Optional[int] = None
 
@@ -1157,7 +1164,7 @@ class SensorRecordOutput(RESTAPIBase):
     site_id: Optional[ID] = None
     site_name: Optional[str] = None
     plot_id: Optional[ID] = None
-    plot_number: Optional[int] = None
+    plot_number: Optional[PlotNumber] = None
     plot_row_number: Optional[int] = None
     plot_column_number: Optional[int] = None
     record_file: Optional[str] = None
@@ -1176,7 +1183,7 @@ class TraitRecordInput(RESTAPIBase):
     experiment_name: Optional[str] = None
     season_name: Optional[str] = None
     site_name: Optional[str] = None
-    plot_number: Optional[int] = None
+    plot_number: Optional[PlotNumber] = None
     plot_row_number: Optional[int] = None
     plot_column_number: Optional[int] = None
     record_info: Optional[JSONB] = {}
@@ -1188,7 +1195,7 @@ class TraitRecordSearch(RESTAPIBase):
     experiment_name: Optional[str] = None
     season_name: Optional[str] = None
     site_name: Optional[str] = None
-    plot_number: Optional[int] = None
+    plot_number: Optional[PlotNumber] = None
     plot_row_number: Optional[int] = None
     plot_column_number: Optional[int] = None
     collection_date: Optional[datetime] = None
@@ -1209,7 +1216,7 @@ class TraitRecordUpdate(RESTAPIBase):
     experiment_name: Optional[str] = None
     season_name: Optional[str] = None
     site_name: Optional[str] = None
-    plot_number: Optional[int] = None
+    plot_number: Optional[PlotNumber] = None
     plot_row_number: Optional[int] = None
     plot_column_number: Optional[int] = None
 
@@ -1229,7 +1236,7 @@ class TraitRecordOutput(RESTAPIBase):
     site_id: Optional[ID] = None
     site_name: Optional[str] = None
     plot_id: Optional[ID] = None
-    plot_number: Optional[int] = None
+    plot_number: Optional[PlotNumber] = None
     plot_row_number: Optional[int] = None
     plot_column_number: Optional[int] = None
     record_info: Optional[JSONB] = None
@@ -1431,7 +1438,8 @@ class GenotypeRecordOutput(RESTAPIBase):
 
 class UserInput(RESTAPIBase):
     email: str
-    password: str
+    # Empty: an account that signs in without a password (GEMINI_PASSWORDLESS_LOGIN).
+    password: str = ""
     full_name: Optional[str] = None
     is_active: Optional[bool] = True
     is_superuser: Optional[bool] = False
@@ -1472,6 +1480,15 @@ class UserOutput(RESTAPIBase):
     is_superuser: Optional[bool] = False
     user_info: Optional[JSONB] = None
 
+    @field_validator("user_info", mode="after")
+    @classmethod
+    def _no_credentials(cls, v):
+        """A person's saved keys (user_info.credentials) are read only through
+        /users/me/credentials, never in a user record."""
+        if isinstance(v, dict) and "credentials" in v:
+            return {k: val for k, val in v.items() if k != "credentials"}
+        return v
+
 
 class Token(RESTAPIBase):
     access_token: str
@@ -1480,7 +1497,7 @@ class Token(RESTAPIBase):
 
 class LoginInput(RESTAPIBase):
     email: str
-    password: str
+    password: str = ""
 
 
 class UserExperimentInput(RESTAPIBase):
@@ -1503,6 +1520,10 @@ class ParseHeadersRequest(RESTAPIBase):
 
 class ParseHeadersResponse(RESTAPIBase):
     headers: List[str]
+    sheets: List[str] = []  # Excel only
+    preview: List[List[Optional[str]]] = []  # first rows, in `headers` order
+    numeric_columns: List[str] = []
+    row_count: int = 0
 
 
 class ReferenceUploadRequest(RESTAPIBase):
@@ -1513,6 +1534,7 @@ class ReferenceMatchReport(RESTAPIBase):
     total: int
     matched: int
     unmatched: int
+    unmatched_examples: List[str] = []
 
 
 class ReferenceDatasetOutput(RESTAPIBase):
@@ -1527,6 +1549,8 @@ class ReferenceDatasetOutput(RESTAPIBase):
     dataset_info: Optional[JSONB] = None
     created_at: Optional[datetime] = None
     match_report: Optional[ReferenceMatchReport] = None
+    warnings: List[str] = []  # upload only
+    skipped_empty_rows: int = 0  # upload only
 
 
 class ReferencePlotOutput(RESTAPIBase):

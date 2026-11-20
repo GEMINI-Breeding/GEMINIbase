@@ -82,3 +82,23 @@ def test_list_nested_processed_builds_tree_from_names(mock_minio, test_client):
     res = test_client.get("/api/files/list_nested_processed")
     assert res.status_code == 200, res.text
     assert res.json() == {"S": {"E": {"D": {"P": ["2024-06-01", "2024-07-01"]}}}}
+
+
+@patch(MINIO)
+def test_entries_name_each_file_and_may_repeat_one(mock_minio, test_client):
+    # A raw frame that is the best view of two plots goes in once per plot, named by each.
+    frame = "Processed/S/E/D/P/2024-06-01/DJI/RGB/PlotImages/plot_1.png"
+    mock_minio.download_file_stream.side_effect = _stream
+    res = test_client.post(
+        "/api/files/download_zip",
+        json={"entries": [
+            {"object": frame, "name": "plot_1_accession_A_frame1_DJI_0001.png"},
+            {"object": frame, "name": "plot_2_accession_B_frame1_DJI_0001.png"},
+            {"object": frame, "name": "../escape.png"},
+        ], "filename": "frames"},
+    )
+    assert res.status_code == 201, res.text
+    zf = zipfile.ZipFile(io.BytesIO(res.content))
+    assert sorted(zf.namelist()) == ["plot_1_accession_A_frame1_DJI_0001.png",
+                                     "plot_2_accession_B_frame1_DJI_0001.png"]
+    assert zf.read("plot_2_accession_B_frame1_DJI_0001.png") == b"png-a"

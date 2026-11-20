@@ -37,6 +37,7 @@ from gemini.db.models.associations import ExperimentSensorModel, SensorPlatformS
 from gemini.db.models.views.dataset_views import SensorDatasetsViewModel
 from gemini.db.models.views.sensor_platform_sensors_view import SensorPlatformSensorsViewModel
 from datetime import date, datetime
+from gemini.db.core.plot_number import PlotNumber
 
 if TYPE_CHECKING:
     from gemini.api.experiment import Experiment
@@ -901,7 +902,7 @@ class Sensor(APIBase):
         experiment_name: str = None,
         season_name: str = None,
         site_name: str = None,
-        plot_number: int = -1,
+        plot_number: PlotNumber = -1,
         plot_row_number: int = -1,
         plot_column_number: int = -1,
         record_file: str = None,
@@ -993,7 +994,7 @@ class Sensor(APIBase):
         experiment_name: str = None,
         season_name: str = None,
         site_name: str = None,
-        plot_numbers: List[int] = None,
+        plot_numbers: List[PlotNumber] = None,
         plot_row_numbers: List[int] = None,
         plot_column_numbers: List[int] = None,
         record_files: List[str] = None,
@@ -1068,6 +1069,8 @@ class Sensor(APIBase):
                     record_info=record_info[i] if record_info else {},
                     insert_on_create=False
                 )
+                if sensor_record is None:  # create() logged why
+                    raise ValueError(f"Record {i + 1} of {timestamps_length} is invalid; nothing was inserted.")
                 sensor_records.append(sensor_record)
 
             success, inserted_record_ids = SensorRecord.insert(sensor_records)
@@ -1083,7 +1086,7 @@ class Sensor(APIBase):
         experiment_name: str = None,
         season_name: str = None,
         site_name: str = None,
-        plot_number: int = None,
+        plot_number: PlotNumber = None,
         plot_row_number: int = None,
         plot_column_number: int = None,
         record_info: dict = None

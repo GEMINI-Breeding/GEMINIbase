@@ -146,7 +146,12 @@ def _materialize_plots_from_snapshot(
                 )
                 return
 
-        sit = Site.get(site_name=scope["site_name"])
+        # The site must belong to this experiment: a site of this name that
+        # only another experiment uses is linked here too (trait records
+        # are refused for a site the experiment doesn't have).
+        sit = Site.get(
+            site_name=scope["site_name"], experiment_name=scope["experiment_name"]
+        )
         if sit is None or sit.id is None:
             try:
                 Site.create(
@@ -159,7 +164,9 @@ def _materialize_plots_from_snapshot(
                     f"{scope['site_name']!r}: {e}; skipping."
                 )
                 return
-            sit = Site.get(site_name=scope["site_name"])
+            sit = Site.get(
+                site_name=scope["site_name"], experiment_name=scope["experiment_name"]
+            )
             if sit is None or sit.id is None:
                 logger.info(
                     f"Plot materialization: site {scope['site_name']!r} still "
@@ -183,15 +190,6 @@ def _materialize_plots_from_snapshot(
             )
             if isinstance(name, str) and name:
                 accession_names.add(name)
-        acc_id_by_name: dict = {}
-        if accession_names:
-            for name in accession_names:
-                try:
-                    acc = Accession.get(accession_name=name)
-                    if acc is not None and acc.id is not None:
-                        acc_id_by_name[name] = acc.id
-                except Exception:
-                    continue
 
         # Resolve population by name (4th path segment). Population names
         # are globally unique. Auto-create if missing so the analyze map can
@@ -217,6 +215,25 @@ def _materialize_plots_from_snapshot(
                     pop = None
             if pop is not None and pop.id is not None:
                 pop_id = str(pop.id)
+
+        # The field design names the line in each plot; an accession the app
+        # doesn't have yet is created (in this population), as the season,
+        # site and population are above. Without it the plot has no
+        # accession and the plot's trait records no genotype.
+        acc_id_by_name: dict = {}
+        for name in sorted(accession_names):
+            try:
+                acc = Accession.get(accession_name=name)
+                if acc is None or acc.id is None:
+                    acc = Accession.create(
+                        accession_name=name,
+                        population_name=pop_name if pop_id else None,
+                    )
+                if acc is not None and acc.id is not None:
+                    acc_id_by_name[name] = acc.id
+            except Exception as e:
+                logger.info(f"Plot materialization: accession {name!r}: {e}")
+                continue
 
         ok, upserted, skipped = Plot.upsert_from_features(
             experiment_id=str(exp.id),

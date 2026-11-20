@@ -16,6 +16,7 @@ from litestar.controller import Controller
 
 from gemini.api.job import Job
 from gemini.api.job_reaper import touch_running_job
+from gemini.workers.types import JobType
 from gemini.rest_api.models import (
     JobSubmitInput,
     JobClaimInput,
@@ -96,6 +97,36 @@ def _sweep_gwas_artifacts(job_id: str) -> int:
 _worker_seen: dict[str, float] = {}
 
 
+def _job_name(job_type: object, job_id: object) -> str:
+    """"RUN_ODM 3f2a9c1b" — how a job is named in the Console."""
+    return f"{job_type} {str(job_id)[:8]}"
+
+
+def _stage(detail: object) -> str:
+    """The step a worker says it is on, from its progress_detail."""
+    if isinstance(detail, dict):
+        for k in ("stage", "message", "step", "status"):
+            if detail.get(k):
+                return str(detail[k])[:200]
+        return ""
+    return str(detail or "")[:200]
+
+
+def _log_status(job, status: str, progress: object, detail: object, error: object) -> None:
+    """One Console line when a job changes state or step (not for every percent)."""
+    before = (job.status, _stage(job.progress_detail))
+    after = (status, _stage(detail) if detail is not None else before[1])
+    if before == after and not error:
+        return
+    pct = f" {round(float(progress))}%" if progress is not None else ""
+    step = f" — {after[1]}" if after[1] else ""
+    line = f"job {_job_name(job.job_type, job.id)}: {status.lower()}{pct}{step}"
+    if error:
+        logger.error(f"{line}: {str(error)[:500]}")
+    else:
+        logger.info(line)
+
+
 def workers_seen() -> dict[str, float]:
     """{job_type: seconds since a worker last polled for it}."""
     import time as _time
@@ -104,23 +135,9 @@ def workers_seen() -> dict[str, float]:
     return {t: round(now - ts, 1) for t, ts in _worker_seen.items()}
 
 
-# Valid job types that workers can process
-VALID_JOB_TYPES = {
-    "TRAIN_MODEL",
-    "LOCATE_PLANTS",
-    "EXTRACT_TRAITS",
-    "RUN_STITCH",
-    "RUN_ODM",
-    "SPLIT_ORTHOMOSAIC",
-    "PROCESS_DRONE_TIFF",
-    "TIF_TO_PNG",
-    "CREATE_COG",
-    "EXTRACT_BINARY",
-    "RUN_GWAS",
-    "THERMAL_EXTRACT",
-    "ASSOCIATE_BOUNDARIES",
-    "DATA_SYNC",
-}
+# Valid job types that workers can process: every JobType. (A hand-kept list here
+# fell behind the enum: GROUND_PLOT_FRAMES was refused with "Invalid job type".)
+VALID_JOB_TYPES = {t.value for t in JobType}
 
 
 class JobController(Controller):
@@ -150,6 +167,7 @@ class JobController(Controller):
                     ),
                     status_code=500,
                 )
+            logger.info(f"job {_job_name(data.job_type, job.id)}: submitted")
             # Publish job to Redis so workers can pick it up
             _publish_job_event(str(job.id), "SUBMITTED", {"job_type": data.job_type})
             return job
@@ -190,6 +208,7 @@ class JobController(Controller):
                     ),
                     status_code=404,
                 )
+            logger.info(f"job {_job_name(data.job_type, job.id)}: started by {data.worker_id}")
             _publish_job_event(str(job.id), "RUNNING", {"worker_id": data.worker_id})
             return job
         except Exception as e:
@@ -270,6 +289,7 @@ class JobController(Controller):
                     ),
                     status_code=409,
                 )
+            logger.info(f"job {_job_name(job.job_type, job_id)}: cancelled")
             _publish_job_event(job_id, "CANCELLED", {})
             return updated
         except Exception as e:
@@ -324,6 +344,7 @@ class JobController(Controller):
             if data.status in terminal_states and job.completed_at is None:
                 update_kwargs["completed_at"] = datetime.now()
 
+            _log_status(job, data.status, data.progress, data.progress_detail, data.error_message)
             updated = job.update(**update_kwargs)
             if updated is None:
                 return Response(

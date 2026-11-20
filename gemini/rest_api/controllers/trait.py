@@ -1,14 +1,12 @@
 from litestar import Response
+from gemini.db.core.plot_number import normalize_plot_number
 from litestar.handlers import get, post, patch, delete
 from litestar.params import Body
 from litestar.controller import Controller
 from litestar.response import Stream
-from litestar.serialization import encode_json
 from litestar.enums import RequestEncodingType
 
 from pydantic import BaseModel
-
-from collections.abc import AsyncGenerator, Generator
 
 from sqlalchemy.exc import DBAPIError
 
@@ -34,7 +32,6 @@ class TraitDatasetInput(BaseModel):
     dataset_info: Optional[JSONB] = None
     collection_date: Optional[str] = None
     experiment_name: Optional[str] = 'Experiment A'
-
 
 
 class TraitController(Controller):
@@ -381,7 +378,7 @@ class TraitController(Controller):
         season_name: Optional[str] = None,
         site_name: Optional[str] = None,
         population_name: Optional[str] = None,
-        plot_number: Optional[int] = None,
+        plot_number: Optional[str] = None,
         plot_row_number: Optional[int] = None,
         plot_column_number: Optional[int] = None,
         collection_date: Optional[str] = None
@@ -399,7 +396,7 @@ class TraitController(Controller):
                 season_name=season_name,
                 site_name=site_name,
                 population_name=population_name,
-                plot_number=plot_number,
+                plot_number=normalize_plot_number(plot_number),
                 plot_row_number=plot_row_number,
                 plot_column_number=plot_column_number,
                 collection_date=collection_date

@@ -126,6 +126,24 @@ class TestAggregation:
         assert by_plot.loc["plotA", "trait_a"] == 1.0
         assert by_plot.loc["plotB", "trait_b"] == 14.0
 
+    def test_per_date_keeps_each_date(self, sample_long_df):
+        from gemini.rest_api.controllers.multivariate_analysis import (
+            MultivariateRequest,
+            _aggregate_per_plot,
+            _wide_to_rows,
+        )
+        req = MultivariateRequest(
+            trait_names=["trait_a", "trait_b"], per_date=True
+        )
+        wide = _aggregate_per_plot(sample_long_df, req)
+        assert len(wide) == 6  # 3 plots x 2 dates, nothing averaged
+        rows = _wide_to_rows(wide, req.trait_names)
+        by = {(r.plot_id, r.collection_date): r.values for r in rows}
+        assert by[("plotA", "2024-05-01")]["trait_a"] == 1.0
+        assert by[("plotA", "2024-05-08")]["trait_a"] == 2.0
+        assert by[("plotB", "2024-05-08")]["trait_b"] == 16.0
+        assert [r.collection_date for r in rows[:3]] == ["2024-05-01"] * 3
+
     def test_date_requires_aggregation_date(self, sample_long_df):
         from gemini.rest_api.controllers.multivariate_analysis import (
             _aggregate_per_plot,
@@ -980,3 +998,19 @@ def test_catalog_maps_rows_and_blanks(monkeypatch):
     assert (e.plot_count, e.record_count) == (4, 8)
     # Must read the heap IMMV, never the columnar table directly.
     assert "trait_records_immv" in seen["sql"]
+
+
+def test_fetch_long_fills_accession_from_the_plot(monkeypatch):
+    """Trait extraction records are linked to the plot only: the table's
+    accession comes from the plot (its accession, or its design label)."""
+    from gemini.rest_api.controllers import multivariate_analysis as mv
+
+    a, b = _rec(1, "P", None), _rec(2, "P", None)
+    a.plot_id, a.accession_name = "p1", None
+    b.plot_id = "p2"  # keeps its own "A"
+    monkeypatch.setattr(mv.TraitRecord, "filter", lambda **kw: iter([a, b]))
+    asked = []
+    monkeypatch.setattr(mv, "_plot_accessions", lambda ids: asked.append(ids) or {"p1": "NE-80-21-74"})
+    df, _ = mv._fetch_long(mv.MultivariateRequest(trait_names=["t"]))
+    assert asked == [{"p1"}]
+    assert dict(zip(df["plot_number"], df["accession_name"])) == {1: "NE-80-21-74", 2: "A"}

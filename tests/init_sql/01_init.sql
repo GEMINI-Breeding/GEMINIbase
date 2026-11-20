@@ -227,7 +227,7 @@ CREATE TABLE IF NOT EXISTS gemini.plots (
     site_id uuid REFERENCES gemini.sites(id) ON DELETE SET NULL,
     accession_id uuid REFERENCES gemini.accessions(id) ON DELETE SET NULL,
     population_id uuid REFERENCES gemini.populations(id) ON DELETE SET NULL,
-    plot_number INTEGER,
+    plot_number TEXT,
     plot_row_number INTEGER,
     plot_column_number INTEGER,
     plot_geometry_info JSONB DEFAULT '{}',
@@ -707,7 +707,7 @@ CREATE TABLE IF NOT EXISTS gemini.sensor_records (
     experiment_id UUID, experiment_name TEXT,
     season_id UUID, season_name TEXT,
     site_id UUID, site_name TEXT,
-    plot_id UUID, plot_number INTEGER, plot_row_number INTEGER, plot_column_number INTEGER,
+    plot_id UUID, plot_number TEXT, plot_row_number INTEGER, plot_column_number INTEGER,
     record_file TEXT,
     record_info JSONB NOT NULL DEFAULT '{}'
 );
@@ -727,7 +727,7 @@ CREATE TABLE IF NOT EXISTS gemini.trait_records (
     experiment_id UUID, experiment_name TEXT,
     season_id UUID, season_name TEXT,
     site_id UUID, site_name TEXT,
-    plot_id UUID, plot_number INTEGER, plot_row_number INTEGER, plot_column_number INTEGER,
+    plot_id UUID, plot_number TEXT, plot_row_number INTEGER, plot_column_number INTEGER,
     -- Mirrors alembic 0006_trait_records_accession + the matching
     -- block in init_sql/scripts/4_init_columnar.sql. The ORM model
     -- (db/models/columnar/trait_records.py) writes these on every
@@ -918,4 +918,4 @@ CREATE TABLE IF NOT EXISTS gemini.alembic_version (
     version_num VARCHAR(32) NOT NULL,
     CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num)
 );
-INSERT INTO gemini.alembic_version (version_num) VALUES ('0011_process_entities');
+INSERT INTO gemini.alembic_version (version_num) VALUES ('0012_plot_number_text');

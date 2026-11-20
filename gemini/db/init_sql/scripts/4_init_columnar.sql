@@ -58,7 +58,7 @@ CREATE TABLE IF NOT EXISTS gemini.sensor_records (
     site_id UUID,
     site_name TEXT,
     plot_id UUID,
-    plot_number INTEGER,
+    plot_number TEXT,
     plot_row_number INTEGER,
     plot_column_number INTEGER,
     record_file TEXT,
@@ -106,7 +106,7 @@ CREATE TABLE IF NOT EXISTS gemini.trait_records (
     site_id UUID,
     site_name TEXT,
     plot_id UUID,
-    plot_number INTEGER,
+    plot_number TEXT,
     plot_row_number INTEGER,
     plot_column_number INTEGER,
     -- Direct trait_record -> accession link, populated by the

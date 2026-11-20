@@ -20,6 +20,8 @@ class TestGeoWorkerInit:
             JobType.PROCESS_DRONE_TIFF,
             JobType.SPLIT_ORTHOMOSAIC,
             JobType.DATA_SYNC,
+            JobType.IMPORT_LEGACY,
+            JobType.GROUND_PLOT_FRAMES,
         }
 
     def test_worker_id_default(self):

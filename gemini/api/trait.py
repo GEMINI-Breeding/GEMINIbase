@@ -38,6 +38,7 @@ from gemini.db.models.views.experiment_views import ExperimentTraitsViewModel
 from gemini.db.models.views.dataset_views import TraitDatasetsViewModel
 from gemini.db.models.associations import ExperimentTraitModel, TraitDatasetModel
 from datetime import date, datetime
+from gemini.db.core.plot_number import PlotNumber
 
 if TYPE_CHECKING:
     from gemini.api.experiment import Experiment
@@ -728,7 +729,7 @@ class Trait(APIBase):
         experiment_name: str = None,
         season_name: str = None,
         site_name: str = None,
-        plot_number: int = -1,
+        plot_number: PlotNumber = -1,
         plot_row_number: int = -1,
         plot_column_number: int = -1,
         record_info: dict = None
@@ -796,6 +797,8 @@ class Trait(APIBase):
                 record_info=record_info if record_info else {},
                 insert_on_create=False
             )
+            if trait_record is None:  # create() logged why
+                raise ValueError("The record is invalid; nothing was inserted.")
             success, inserted_record_ids = TraitRecord.insert([trait_record])
             if not success:
                 logger.info(f"Failed to insert record for trait {trait_name}.")
@@ -814,7 +817,7 @@ class Trait(APIBase):
         experiment_name: str = None,
         season_name: str = None,
         site_name: str = None,
-        plot_numbers: List[int] = None,
+        plot_numbers: List[PlotNumber] = None,
         plot_row_numbers: List[int] = None,
         plot_column_numbers: List[int] = None,
         accession_names: List[str] = None,
@@ -895,6 +898,8 @@ class Trait(APIBase):
                     record_info=record_info[i] if record_info else {},
                     insert_on_create=False
                 )
+                if trait_record is None:  # create() logged why
+                    raise ValueError(f"Record {i + 1} of {timestamps_length} is invalid; nothing was inserted.")
                 trait_records.append(trait_record)
 
             success, inserted_record_ids = TraitRecord.insert(trait_records)
@@ -917,7 +922,7 @@ class Trait(APIBase):
         season_name: str = None,
         site_name: str = None,
         population_name: str = None,
-        plot_number: int = None,
+        plot_number: PlotNumber = None,
         plot_row_number: int = None,
         plot_column_number: int = None,
         record_info: dict = None

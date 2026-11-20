@@ -63,6 +63,15 @@ _ring_handler.setFormatter(
 _root_logger = logging.getLogger()
 if not any(isinstance(h, _RingBufferHandler) for h in _root_logger.handlers):
     _root_logger.addHandler(_ring_handler)
+# The root logger starts at WARNING, which dropped every INFO line (jobs
+# submitted, started, moving on a step) before it reached the buffer: the
+# console sat empty while work ran. Libraries that chat at INFO stay quiet.
+if _root_logger.level == logging.NOTSET or _root_logger.level > logging.INFO:
+    _root_logger.setLevel(logging.INFO)
+for _chatty in ("httpx", "httpcore", "urllib3", "botocore", "boto3", "s3transfer",
+                "minio", "multipart", "asyncio", "sqlalchemy.engine"):
+    if logging.getLogger(_chatty).level == logging.NOTSET:
+        logging.getLogger(_chatty).setLevel(logging.WARNING)
 
 
 # ────────────────────────────────────────────────────────────────────────────

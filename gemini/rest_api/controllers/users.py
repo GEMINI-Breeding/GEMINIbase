@@ -28,7 +28,7 @@ from typing import Annotated, List, Optional
 from litestar import Response
 from litestar.controller import Controller
 from litestar.di import Provide
-from litestar.handlers import delete, get, patch, post
+from litestar.handlers import delete, get, patch, post, put
 from litestar.params import Body
 
 from gemini.api.user import User
@@ -58,6 +58,8 @@ logger = logging.getLogger(__name__)
 _settings = GEMINISettings()
 
 
+from gemini.rest_api import people  # noqa: E402
+
 class UsersController(Controller):
 
     dependencies = {
@@ -80,6 +82,10 @@ class UsersController(Controller):
                 )
                 return Response(content=error, status_code=503)
             user = User.authenticate(email=data.email, password=data.password)
+            if user is None and people.passwordless_enabled() and not data.password:
+                # An account made without a password (a lab's test setup): its email is enough.
+                candidate = User.get(email=data.email.strip())
+                user = candidate if candidate is not None and people.is_passwordless(candidate) else None
             if user is None:
                 error = RESTAPIError(
                     error="Invalid credentials",
@@ -103,6 +109,41 @@ class UsersController(Controller):
             )
             return Response(content=error, status_code=500)
 
+    @get(path="/login/options", sync_to_thread=True)
+    def login_options(self) -> dict:
+        """What the sign-in page offers (no sign-in needed to ask)."""
+        on = people.passwordless_enabled()
+        return {"passwordless": on, "guest": on}
+
+    @post(path="/login/guest", sync_to_thread=True)
+    def login_guest(self) -> Token:
+        """Sign in to the shared guest account (only with GEMINI_PASSWORDLESS_LOGIN)."""
+        if not people.passwordless_enabled() or not _settings.GEMINI_JWT_SECRET:
+            error = RESTAPIError(error="Guest sign-in disabled",
+                                 error_description="Ask an administrator for an account.")
+            return Response(content=error, status_code=403)
+        user = people.guest_user()
+        if user is None or not user.is_active:
+            error = RESTAPIError(error="Guest sign-in failed", error_description="The guest account is unavailable.")
+            return Response(content=error, status_code=500)
+        expires = timedelta(minutes=_settings.GEMINI_JWT_ACCESS_TOKEN_EXPIRE_MINUTES)
+        return Token(access_token=create_access_token(subject=user.id, expires_delta=expires))
+
+    @get(path="/people", sync_to_thread=True)
+    def list_people(self, current_user: User) -> list[dict]:
+        """Everyone with an account and the experiments they are linked to (any signed-in user)."""
+        from gemini.db.models.associations import UserExperimentModel
+        from gemini.db.models.users import UserModel
+
+        links: dict[str, list[dict]] = {}
+        for row in UserExperimentModel.search():
+            links.setdefault(str(row.user_id), []).append(
+                {"experiment_id": str(row.experiment_id), "role": row.role or "member"})
+        return [{"id": str(u.id), "email": u.email, "full_name": u.full_name, "is_superuser": bool(u.is_superuser),
+                 "is_active": bool(u.is_active), "passwordless": people.is_passwordless(u),
+                 "guest": u.email == people.GUEST_EMAIL, "experiments": links.get(str(u.id), [])}
+                for u in sorted(UserModel.search(), key=lambda u: u.email)]
+
     @post(path="/login/test-token", sync_to_thread=True)
     def test_token(self, current_user: User) -> UserOutput:
         return UserOutput.model_validate(current_user.model_dump())
@@ -125,6 +166,10 @@ class UsersController(Controller):
             user_info = (
                 str_to_dict(data.user_info) if data.user_info is not None else None
             )
+            # Saved keys are set only through /me/credentials: keep them.
+            saved = (current_user.user_info or {}).get("credentials")
+            if user_info is not None and saved and "credentials" not in user_info:
+                user_info = {**user_info, "credentials": saved}
             updated = current_user.update(
                 email=data.email,
                 full_name=data.full_name,
@@ -143,6 +188,45 @@ class UsersController(Controller):
                 error_description="An error occurred while updating the current user.",
             )
             return Response(content=error, status_code=500)
+
+    # --------------------------------------------------------------
+    # The person's own keys and tokens (Hugging Face, Roboflow, …)
+    # --------------------------------------------------------------
+
+    @get(path="/me/credentials", sync_to_thread=True)
+    def read_my_credentials(self, current_user: User) -> dict:
+        """The keys this person saved in Settings (only ever returned to them)."""
+        creds = (current_user.user_info or {}).get("credentials") or {}
+        return {"credentials": {k: v for k, v in creds.items() if isinstance(v, str)}}
+
+    @put(path="/me/credentials", sync_to_thread=True)
+    def update_my_credentials(self, current_user: User, data: dict) -> dict:
+        """Merge keys into this person's saved ones; an empty value removes one.
+        Body: {"credentials": {"hf_token": "...", "roboflow_api_key": "..."}}."""
+        incoming = (data or {}).get("credentials")
+        if not isinstance(incoming, dict):
+            return Response(
+                content=RESTAPIError(error="Bad request", error_description="Send {credentials: {...}}"),
+                status_code=400,
+            )
+        info = dict(current_user.user_info or {})
+        creds = dict(info.get("credentials") or {})
+        for key, value in incoming.items():
+            if not isinstance(key, str) or len(key) > 64:
+                continue
+            value = (value or "").strip() if isinstance(value, str) else ""
+            if value:
+                creds[key] = value[:4096]
+            else:
+                creds.pop(key, None)
+        info["credentials"] = creds
+        updated = current_user.update(user_info=info)
+        if updated is None:
+            return Response(
+                content=RESTAPIError(error="Not saved", error_description="Could not save the keys."),
+                status_code=500,
+            )
+        return {"credentials": creds}
 
     @patch(path="/me/password", sync_to_thread=True)
     def update_me_password(
@@ -190,10 +274,23 @@ class UsersController(Controller):
         data: Annotated[UserExperimentInput, Body],
     ) -> MessageOutput:
         try:
+            from gemini.api.experiment import Experiment
+
+            experiment = Experiment.get_by_id(id=data.experiment_id)
+            if experiment is None:
+                return Response(content=RESTAPIError(error="Experiment not found",
+                                                     error_description="No experiment with that ID."),
+                                status_code=404)
+            if people.belongs_to(str(experiment.id), current_user) and not current_user.is_superuser:
+                return MessageOutput(message="Already associated.")
+            refusal = people.self_link_refusal(experiment, current_user, data.role)
+            if refusal:
+                return Response(content=RESTAPIError(error="Not allowed", error_description=refusal),
+                                status_code=403)
             info = str_to_dict(data.info) if data.info is not None else None
             ok = current_user.associate_experiment(
                 experiment_id=data.experiment_id,
-                role=data.role,
+                role=data.role if current_user.is_superuser else (data.role or "member"),
                 info=info,
             )
             if not ok:
@@ -209,6 +306,33 @@ class UsersController(Controller):
                 error_description="An error occurred while associating the experiment.",
             )
             return Response(content=error, status_code=500)
+
+    @post(path="/id/{user_id:str}/experiments", sync_to_thread=True)
+    def associate_user_experiment(
+        self,
+        current_user: User,
+        user_id: str,
+        data: Annotated[UserExperimentInput, Body],
+    ) -> MessageOutput:
+        """Add someone to an experiment (member, or owner): its owner or an administrator."""
+        role = data.role or "member"
+        if role not in people.ROLES:
+            return Response(content=RESTAPIError(error="Bad role", error_description="member or owner"),
+                            status_code=400)
+        if not people.is_owner(data.experiment_id, current_user):
+            return Response(content=RESTAPIError(
+                error="Not the owner",
+                error_description="Only the experiment's owner (or an administrator) adds people to it."),
+                status_code=403)
+        person = User.get_by_id(id=user_id)
+        if person is None:
+            return Response(content=RESTAPIError(error="User not found", error_description="No such account."),
+                            status_code=404)
+        if not person.associate_experiment(experiment_id=data.experiment_id, role=role):
+            return Response(content=RESTAPIError(error="Association failed",
+                                                 error_description="Could not add the person to the experiment."),
+                            status_code=500)
+        return MessageOutput(message=f"Added as {role}.")
 
     @delete(path="/me/experiments/{experiment_id:str}", sync_to_thread=True, status_code=200)
     def unassociate_my_experiment(
@@ -318,9 +442,18 @@ class UsersController(Controller):
             user_info = (
                 str_to_dict(data.user_info) if data.user_info is not None else None
             )
+            password = data.password
+            if not password:
+                if not people.passwordless_enabled():
+                    error = RESTAPIError(error="Password needed",
+                                         error_description="Accounts without a password are turned off "
+                                                           "(GEMINI_PASSWORDLESS_LOGIN).")
+                    return Response(content=error, status_code=400)
+                password = people.random_password()
+                user_info = {**(user_info or {}), "passwordless": True}
             user = User.create(
-                email=data.email,
-                password=data.password,
+                email=data.email.strip(),
+                password=password,
                 full_name=data.full_name,
                 is_active=data.is_active if data.is_active is not None else True,
                 is_superuser=data.is_superuser if data.is_superuser is not None else False,

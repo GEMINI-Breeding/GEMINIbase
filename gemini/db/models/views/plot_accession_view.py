@@ -2,6 +2,7 @@ from sqlalchemy.orm import mapped_column, Mapped
 from sqlalchemy import UUID, String, Integer
 from sqlalchemy.dialects.postgresql import JSONB
 from gemini.db.core.base import ViewBaseModel
+from gemini.db.core.plot_number import PlotNumberType
 
 
 class PlotAccessionViewModel(ViewBaseModel):
@@ -9,7 +10,7 @@ class PlotAccessionViewModel(ViewBaseModel):
     __tablename__ = 'plot_accession_view'
 
     plot_id : Mapped[UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
-    plot_number : Mapped[int] = mapped_column(Integer)
+    plot_number: Mapped[object] = mapped_column(PlotNumberType)
     plot_row_number : Mapped[int] = mapped_column(Integer)
     plot_column_number : Mapped[int] = mapped_column(Integer)
     plot_info : Mapped[dict] = mapped_column(JSONB)

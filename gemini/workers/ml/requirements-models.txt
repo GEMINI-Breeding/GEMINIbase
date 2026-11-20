@@ -1,0 +1,12 @@
+# Model backends for LOCATE_PLANTS beyond Roboflow's HTTP API.
+# Installed after a CPU-only torch/torchvision (see Dockerfile) and
+# constrained by requirements.txt so numpy / Pillow stay on the pinned majors.
+ultralytics>=8.3.237,<9    # local .pt weights (+ .onnx exported by Ultralytics); SAM 3 text prompts; training
+# SAM 3's text encoder (Ultralytics' CLIP fork; an archive, so pip needs no git)
+clip @ https://github.com/ultralytics/CLIP/archive/refs/heads/main.zip
+ftfy>=6,<7
+onnxruntime>=1.18,<2       # .onnx weights
+transformers>=4.44,<5      # Hugging Face pipelines (local mode)
+scipy>=1.10,<1.15          # OWLv2's image processor (and other HF zero-shot models); 1.15+ wants numpy 2, the image pins 1.x
+timm>=1.0,<2               # backbones many HF vision models need
+huggingface_hub>=0.24,<1

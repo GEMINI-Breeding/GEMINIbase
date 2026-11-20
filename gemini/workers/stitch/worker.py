@@ -254,7 +254,10 @@ class StitchWorker(BaseWorker):
                 start, end = plot.get("start_image") or "", plot.get("end_image") or ""
                 ui_dir = str(plot.get("direction") or "down")
                 base_pct = 5 + 85 * i / n
-                self._stage(job_id, base_pct, f"Stitching plot {pid} ({i + 1}/{n})")
+                # How the run is going so far, for the progress log (the app
+                # and the agent show it as the plots finish).
+                self._stage(job_id, base_pct, f"Stitching plot {pid} ({i + 1}/{n})",
+                            plots_done=len(succeeded), plots_failed=len(failed), plots_total=n)
                 try:
                     rows = plan.plot_rows(msgs, names, start, end)
                     frames = list(dict.fromkeys(b for b in names.loc[rows.index] if b))
@@ -280,6 +283,25 @@ class StitchWorker(BaseWorker):
                     config["image_directory"] = str(img_dir)
                     config["stitching_direction"] = plan.DIRECTION_MAP.get(ui_dir.lower(), "DOWN")
                     mask = plan.choose_crop_mask(settings.get("crop_rules"), ui_dir, heading)
+                    # Several plots per frame: keep only this plot's lane.
+                    lanes = int(plot.get("lanes") or 1)
+                    split = str(plot.get("split") or "top_bottom")
+                    band = None
+                    if lanes > 1:
+                        from PIL import Image
+
+                        with Image.open(img_dir / frames[0]) as im:
+                            fw, fh = im.size
+                        base = mask if mask is not None else config.get("mask")
+                        mask = plan.merge_masks(
+                            list(base) if base is not None else None,
+                            plan.lane_mask(int(plot.get("lane") or 1), lanes, split, fw, fh),
+                        )
+                        band = {
+                            "offset_px": plan.band_offset_px(mask, split, fw, fh),
+                            "size_px": plan.band_size_px(mask, split, fw, fh),
+                            "extra_m": float(plot.get("lane_offset_m") or 0.0),
+                        }
                     if mask is not None:
                         config["mask"] = mask
                     config_path = outer / "config.yaml"
@@ -297,9 +319,16 @@ class StitchWorker(BaseWorker):
                     info = {"frames": len(frames), "mask": config.get("mask"),
                             "stitching_direction": config["stitching_direction"],
                             "mosaic": output_prefix + png_name}
+                    if lanes > 1:
+                        info.update({"lane": int(plot.get("lane") or 1), "lanes": lanes,
+                                     "split": split, "band": band})
+                    # Marked from a drone plot boundary: which plot it is,
+                    # whatever the rover's GPS says (association uses it).
+                    if isinstance(plot.get("boundary"), dict):
+                        info["boundary"] = plot["boundary"]
 
                     tif = outer / f"georeferenced_plot_{pid}_utm.tif"
-                    if georef.georeference_plot(found[0], rows, tif):
+                    if georef.georeference_plot(found[0], rows, tif, band=band):
                         client.fput_object(STORAGE_BUCKET, output_prefix + tif.name, str(tif),
                                            content_type="image/tiff")
                         utm_tifs.append(tif)
@@ -315,6 +344,21 @@ class StitchWorker(BaseWorker):
                     msg = str(exc)[:600]
                     logger.warning("Plot %s failed: %s", pid, msg)
                     failed[pid] = msg
+                    self._stage(job_id, base_pct, f"Plot {pid} failed: {msg[:200]}",
+                                plots_done=len(succeeded), plots_failed=len(failed), plots_total=n,
+                                failed_plot=pid)
+                    # Failing on nearly every plot: something common is wrong
+                    # (the marking, the crop mask, the settings). Stop early
+                    # instead of spending hours on the rest.
+                    stop = p.get("stop_when_failing", True)
+                    tried = len(succeeded) + len(failed)
+                    if stop and tried >= 6 and len(failed) / tried >= 0.8:
+                        raise RuntimeError(
+                            f"Stopped early: {len(failed)} of the first {tried} plots failed "
+                            f"(plot {pid}: {msg[:300]}). Something they share is likely wrong: check "
+                            "the plot marking, the crop mask and the stitch settings, then run again "
+                            "(stop_when_failing=false runs every plot regardless)."
+                        )
                 if self.is_cancelled(job_id):
                     raise StitchCancelled()
 
@@ -377,13 +421,26 @@ class StitchWorker(BaseWorker):
 
     # ── ASSOCIATE_BOUNDARIES ─────────────────────────────────────────────
 
+    @staticmethod
+    def _read_manifest(client, stitch_prefix: str) -> dict:
+        try:
+            resp = client.get_object(STORAGE_BUCKET, stitch_prefix + "stitch_manifest.json")
+            try:
+                return json.loads(resp.read())
+            finally:
+                resp.close()
+                resp.release_conn()
+        except Exception:
+            return {}
+
     def _associate_boundaries(self, job_id: str, p: dict) -> dict:
         """Match each stitched plot of a stitch version to the boundary
         polygon containing its centre (main's run_associate_boundaries).
 
         Parameters: stitch_prefix (…/AgRowStitch_v{N}/), boundaries (the
         plot-boundary FeatureCollection), plot_images_prefix (…/PlotImages/),
-        boundary_version (recorded only).
+        boundary_version (recorded only), corrections (optional GPS
+        corrections, see corrections.py).
 
         Writes each matched plot's mosaic to plot_images_prefix as
         plot_{n}_accession_{a}.png — the aerial split's naming, so Analyze
@@ -421,7 +478,25 @@ class StitchWorker(BaseWorker):
                 centres[pid] = georef.center_wgs84(local)
                 footprints[pid] = georef.footprint_wgs84(local)
 
+        # The person's GPS corrections from the Plot Boundary map (whole
+        # track, and per bed: straighten, rotate, shift), applied before
+        # matching so each plot lands where they placed it.
+        if p.get("corrections"):
+            from gemini.workers.stitch import corrections as gps_fix
+
+            footprints, centres = gps_fix.apply(footprints, p["corrections"])
         matches = associate.match(centres, polygons)
+        # Plots marked from drone boundaries name their plot: that polygon,
+        # if this boundary version has it, wherever the GPS put the mosaic.
+        marked = associate.marked_plots(self._read_manifest(client, stitch_prefix))
+        by_label = associate.by_label(polygons)
+        named = 0
+        for pid, label in marked.items():
+            if pid in matches and label in by_label:
+                matches[pid] = dict(by_label[label].get("properties") or {})
+                named += 1
+        if named:
+            self._stage(job_id, 40, f"{named} plots taken from their drone plot boundary")
         matched = {pid: props for pid, props in matches.items() if props is not None}
         if not matched:
             raise RuntimeError(
