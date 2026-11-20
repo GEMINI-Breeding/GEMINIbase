@@ -16,6 +16,7 @@ from litestar.controller import Controller
 
 from gemini.api.job import Job
 from gemini.api.job_reaper import touch_running_job
+from gemini.workers.types import JobType
 from gemini.rest_api.models import (
     JobSubmitInput,
     JobClaimInput,
@@ -134,24 +135,9 @@ def workers_seen() -> dict[str, float]:
     return {t: round(now - ts, 1) for t, ts in _worker_seen.items()}
 
 
-# Valid job types that workers can process
-VALID_JOB_TYPES = {
-    "TRAIN_MODEL",
-    "LOCATE_PLANTS",
-    "EXTRACT_TRAITS",
-    "RUN_STITCH",
-    "RUN_ODM",
-    "SPLIT_ORTHOMOSAIC",
-    "PROCESS_DRONE_TIFF",
-    "TIF_TO_PNG",
-    "CREATE_COG",
-    "EXTRACT_BINARY",
-    "RUN_GWAS",
-    "THERMAL_EXTRACT",
-    "ASSOCIATE_BOUNDARIES",
-    "DATA_SYNC",
-    "IMPORT_LEGACY",
-}
+# Valid job types that workers can process: every JobType. (A hand-kept list here
+# fell behind the enum: GROUND_PLOT_FRAMES was refused with "Invalid job type".)
+VALID_JOB_TYPES = {t.value for t in JobType}
 
 
 class JobController(Controller):
