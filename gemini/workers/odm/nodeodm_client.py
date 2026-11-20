@@ -36,10 +36,16 @@ class NodeODMClient:
             "GEMINI_NODEODM_URL", "http://gemini-nodeodm:3000"
         )).rstrip("/")
         self.timeout = timeout
+        # A NodeODM started with --token answers only requests that carry it
+        # (on a shared cluster node it would otherwise take tasks from anyone).
+        self._http = requests.Session()
+        token = os.environ.get("GEMINI_NODEODM_TOKEN", "")
+        if token:
+            self._http.params = {"token": token}
 
     def info(self) -> dict:
         """Get NodeODM server info (version, task count, etc.)."""
-        resp = requests.get(f"{self.base_url}/info", timeout=self.timeout)
+        resp = self._http.get(f"{self.base_url}/info", timeout=self.timeout)
         resp.raise_for_status()
         return resp.json()
 
@@ -80,7 +86,7 @@ class NodeODMClient:
         # Options MUST be sent as multipart/form-data, not application/
         # x-www-form-urlencoded. NodeODM's body parser on /task/new/init
         # is `multer().none()`, which only reads multipart fields — the
-        # default `requests.post(..., data=...)` form-encoding is
+        # default `self._http.post(..., data=...)` form-encoding is
         # silently dropped, body.json on disk ends up `{}`, and ODM
         # runs every job at its built-in defaults (orthophoto_resolution
         # 5 cm/px, feature_quality high, dsm False) regardless of what
@@ -88,7 +94,7 @@ class NodeODMClient:
         init_files = {}
         if options:
             init_files["options"] = (None, json.dumps(options))
-        init_resp = requests.post(
+        init_resp = self._http.post(
             f"{self.base_url}/task/new/init",
             files=init_files or None,
             timeout=self.timeout,
@@ -106,7 +112,7 @@ class NodeODMClient:
         for path in image_paths:
             filename = os.path.basename(path)
             with open(path, "rb") as fh:
-                up_resp = requests.post(
+                up_resp = self._http.post(
                     upload_url,
                     files={"images": (filename, fh, "image/jpeg")},
                     timeout=(self.timeout, 600),  # (connect, read)
@@ -125,7 +131,7 @@ class NodeODMClient:
         for path in extra_files or []:
             filename = os.path.basename(path)
             with open(path, "rb") as fh:
-                up_resp = requests.post(
+                up_resp = self._http.post(
                     upload_url,
                     files={"images": (filename, fh, "text/plain")},
                     timeout=(self.timeout, 600),
@@ -139,7 +145,7 @@ class NodeODMClient:
                 ) from e
 
         # 3. Commit: tell NodeODM the task is complete and ready to process.
-        commit_resp = requests.post(
+        commit_resp = self._http.post(
             f"{self.base_url}/task/new/commit/{task_uuid}",
             timeout=self.timeout,
         )
@@ -161,7 +167,7 @@ class NodeODMClient:
         Returns dict with keys: uuid, status (dict with code), progress (0-100),
         processingTime, imagesCount, options, etc.
         """
-        resp = requests.get(
+        resp = self._http.get(
             f"{self.base_url}/task/{task_id}/info",
             timeout=self.timeout,
         )
@@ -174,7 +180,7 @@ class NodeODMClient:
 
         Returns a list of log line strings (matching NodeODM's JSON array response).
         """
-        resp = requests.get(
+        resp = self._http.get(
             f"{self.base_url}/task/{task_id}/output",
             params={"line": line},
             timeout=self.timeout,
@@ -191,7 +197,7 @@ class NodeODMClient:
 
         Streams to dest_path to handle large files.
         """
-        with requests.get(
+        with self._http.get(
             f"{self.base_url}/task/{task_id}/download/{asset}",
             stream=True,
             timeout=(self.timeout, 600),  # (connect, read) — orthophotos can be large
@@ -205,7 +211,7 @@ class NodeODMClient:
 
     def cancel_task(self, task_id: str) -> dict:
         """Cancel a running or queued task."""
-        resp = requests.post(
+        resp = self._http.post(
             f"{self.base_url}/task/cancel",
             json={"uuid": task_id},
             timeout=self.timeout,
@@ -215,7 +221,7 @@ class NodeODMClient:
 
     def remove_task(self, task_id: str) -> dict:
         """Remove a task and free its resources."""
-        resp = requests.post(
+        resp = self._http.post(
             f"{self.base_url}/task/remove",
             json={"uuid": task_id},
             timeout=self.timeout,
