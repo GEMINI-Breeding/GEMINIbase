@@ -20,6 +20,7 @@ paths in ``parameters``; the worker downloads, processes, uploads
 result artifacts, and returns the result paths on the job record.
 """
 from __future__ import annotations
+from gemini.workers.plot_ids import normalize_plot_number
 
 import hashlib
 import json
@@ -407,6 +408,11 @@ class MlWorker(BaseWorker):
         counts_by_class: dict = {}
         errors: dict = {}
         total_detections = 0
+        # A ground track's raw frames (…/PlotFrames/tiles/): several frames
+        # per plot that do not overlap, so the plot's count is their sum.
+        # Elsewhere several images of a plot are views of the same ground
+        # (the raw frames' crops), and the first one counts.
+        sum_per_plot = bool(parameters.get("sum_per_plot")) or "/PlotFrames/tiles/" in images_prefix
 
         with tempfile.TemporaryDirectory() as tmpdir:
             for idx, object_name in enumerate(image_names):
@@ -427,8 +433,9 @@ class MlWorker(BaseWorker):
 
                 key = _plot_key(object_name)
                 # Several images of one plot (the raw frames' crops, best
-                # frame first in name order): the first that infers counts.
-                if key in by_plot:
+                # frame first in name order): the first that infers counts —
+                # unless they are tiles of a ground track, which add up.
+                if key in by_plot and not (sum_per_plot and spec.task_type != "classification"):
                     continue
                 local_image = os.path.join(tmpdir, f"{idx}_{Path(object_name).name}")
                 try:
@@ -454,11 +461,22 @@ class MlWorker(BaseWorker):
                     counts_by_class[cls] = counts_by_class.get(cls, 0) + n
 
                 total_detections += len(predictions)
+                if key in by_plot:
+                    # Another tile of the same plot: add its detections.
+                    hit = by_plot[key]
+                    hit["count"] += len(predictions)
+                    for cls, n in per_class.items():
+                        hit["counts_by_class"][cls] = hit["counts_by_class"].get(cls, 0) + n
+                    hit["predictions"].extend({**pr, "image": object_name} for pr in predictions)
+                    hit["images"] += 1
+                    continue
                 by_plot[key] = {
                     "object_name": object_name,
                     "count": len(predictions),
-                    "counts_by_class": per_class,
-                    "predictions": predictions,
+                    "counts_by_class": dict(per_class),
+                    "predictions": [{**pr, "image": object_name} for pr in predictions]
+                    if sum_per_plot else predictions,
+                    "images": 1,
                 }
                 if spec.task_type == "classification":
                     by_plot[key]["top_class"] = (
@@ -492,6 +510,8 @@ class MlWorker(BaseWorker):
                 # they'd fit in job.result without bloating it.
                 "counts_by_plot": {k: v["count"] for k, v in by_plot.items()},
             }
+            if sum_per_plot:
+                result["summed_over_tiles"] = {k: v["images"] for k, v in by_plot.items()}
             if errors:
                 result["errors"] = errors
 
@@ -650,10 +670,10 @@ class MlWorker(BaseWorker):
                 continue
             props = dict(feat.get("properties") or {})
             raw = props.get("plot_number", props.get("plot", props.get("Plot")))
-            try:
-                key = str(int(float(raw)))
-            except (TypeError, ValueError):
+            n = normalize_plot_number(raw)   # 12, or a named plot ("KW1")
+            if n is None:
                 continue
+            key = str(n)
             hit = by_plot.get(key)
             if hit is None:
                 continue  # errored or no image — no measurement, no record
@@ -703,10 +723,10 @@ class MlWorker(BaseWorker):
                 continue
             props = dict(feat.get("properties") or {})
             raw = props.get("plot_number", props.get("plot", props.get("Plot")))
-            try:
-                key = str(int(float(raw)))
-            except (TypeError, ValueError):
+            n = normalize_plot_number(raw)   # 12, or a named plot ("KW1")
+            if n is None:
                 continue
+            key = str(n)
             hit = by_plot.get(key)
             if hit is None:
                 continue

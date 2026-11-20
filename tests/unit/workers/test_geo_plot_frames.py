@@ -152,3 +152,22 @@ def test_frames_job_needs_camera_positions():
     params["orthomosaic_path"] = f"Raw/{SCOPE}/Orthomosaic/x.tif"
     with pytest.raises(ValueError, match="no camera positions"):
         plot_frames.run(Worker(), "j", params, store, "gemini")
+
+
+def test_each_plot_takes_frames_from_the_flight_that_covered_it():
+    """Two treatment blocks flown separately (one ODM run each): a plot near the edge of one
+    block, also caught by the other flight, gets frames from its own block's flight only."""
+    def shot(name, x, y):
+        return F.Shot(name, np.array([x, y, GROUND + 30.0]), np.eye(3), LENS)
+
+    west = [shot(f"W{i}_{j}.JPG", X0 + 10 * i, Y0 + 10 * j) for i in range(4) for j in range(4)]
+    east = [shot(f"E{i}_{j}.JPG", X0 + 45 + 10 * i, Y0 + 10 * j) for i in range(4) for j in range(4)]
+    flight_of = {s.filename: "odm_orthophoto-west.tif" for s in west}
+    flight_of.update({s.filename: "odm_orthophoto-east.tif" for s in east})
+    ring = np.array([[X0 + 30, Y0 + 14], [X0 + 33, Y0 + 14], [X0 + 33, Y0 + 16], [X0 + 30, Y0 + 16], [X0 + 30, Y0 + 14]])
+    name, own = plot_frames.own_flight(west + east, flight_of, ring, GROUND)
+    assert name == "odm_orthophoto-west.tif"
+    assert {s.filename[0] for s in own} == {"W"}
+    # One flight only: every frame, no flight named.
+    name, own = plot_frames.own_flight(west, {}, ring, GROUND)
+    assert name is None and len(own) == len(west)

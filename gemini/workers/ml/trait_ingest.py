@@ -26,6 +26,7 @@ import wizard's path; both data sources are now interchangeable from
 the consumer's perspective.
 """
 from __future__ import annotations
+from gemini.workers.plot_ids import normalize_plot_number
 
 import hashlib
 import logging
@@ -340,7 +341,7 @@ def _features_to_records(
             value = float(value)
         except (TypeError, ValueError):
             continue
-        plot_number = _as_int(
+        plot_number = normalize_plot_number(
             props.get("plot_number")
             if props.get("plot_number") is not None
             else props.get("plot") or props.get("Plot")
@@ -374,7 +375,9 @@ def _features_to_records(
             "accession_name": accession
             if isinstance(accession, str) and accession
             else None,
-            "record_info": {"source": source},
+            "record_info": {"source": source,
+                            **({"accession_name": accession}
+                               if isinstance(accession, str) and accession else {})},
         }
         # A field with several crops in one upload: the plot's own population
         # (from the field design's crop / population column) wins over the
@@ -432,6 +435,36 @@ def _ensure_population(
         return False
 
 
+def _known_accessions(http: WorkerSession, names: set) -> set:
+    """The names among ``names`` that are accessions in the app."""
+    known = set()
+    for name in names:
+        try:
+            resp = http.get("/api/accessions", params={"accession_name": name})
+            rows = resp.json() if resp.ok else []
+            if any(isinstance(r, dict) and r.get("accession_name") == name for r in rows or []):
+                known.add(name)
+        except Exception:
+            continue
+    return known
+
+
+def _ensure_accessions(http: WorkerSession, names: set, population_name: Optional[str]) -> None:
+    """Create the field design's accessions the app doesn't have yet, in the
+    population (boundary saves do the same for the plots)."""
+    missing = set(names) - _known_accessions(http, set(names))
+    for name in sorted(missing):
+        try:
+            body = {"accession_name": name}
+            if population_name:
+                body["population_name"] = population_name
+            resp = http.post("/api/accessions", json=body)
+            if not resp.ok:
+                logger.warning(f"Accession create failed for {name!r}: HTTP {resp.status_code}")
+        except Exception as e:
+            logger.warning(f"Accession create failed for {name!r}: {e}")
+
+
 def _post_records(
     http: WorkerSession,
     *,
@@ -447,27 +480,28 @@ def _post_records(
     except Exception as e:
         logger.error(f"Trait ingest: bulk POST raised for {trait_name!r}: {e}")
         return 0, f"{trait_name}: {e}"
-    # The boundary GeoJSON's `accession` property is user-authored
-    # (field-design CSV); whether those rows exist in `accessions`
-    # depends on whether the user has imported their germplasm
-    # separately. Rather than fail the whole ingest in that case,
-    # drop accession_name from every record and retry — the trait
-    # values still land, scoped to plot only.
+    # The boundary GeoJSON's `accession` property comes from the field
+    # design. _ensure_accessions creates the ones the app lacks before the
+    # post; if one still can't be resolved, only the names the app doesn't
+    # know are dropped (those values land scoped to plot only) — the rest
+    # keep their genotype.
     if (
         not resp.ok
         and resp.status_code == 422
         and "accession" in (resp.text or "").lower()
         and any(r.get("accession_name") for r in records)
     ):
+        known = _known_accessions(http, {r["accession_name"] for r in records if r.get("accession_name")})
         logger.info(
             f"Trait ingest: 422 on accession lookup for {trait_name!r}; "
-            f"retrying without accession_name (records will be orphan-linked "
-            f"to plots only)."
+            f"retrying with unknown accession names dropped (known: {len(known)})."
         )
         try:
             resp = http.post(
                 f"/api/traits/id/{trait_id}/records/bulk",
-                json={**payload, "records": [{**r, "accession_name": None} for r in records]},
+                json={**payload, "records": [
+                    r if r.get("accession_name") in known else {**r, "accession_name": None}
+                    for r in records]},
             )
         except Exception as e:
             logger.error(f"Trait ingest: bulk POST retry raised for {trait_name!r}: {e}")
@@ -595,6 +629,9 @@ def ingest_trait_features(
             ):
                 error = f"{trait_name}: could not make population {population_name!r}"
                 break
+            _ensure_accessions(
+                http, {r["accession_name"] for r in group if r.get("accession_name")}, population_name
+            )
             n, error = _post_records(
                 http,
                 trait_id=trait_id,

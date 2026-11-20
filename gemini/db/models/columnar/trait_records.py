@@ -23,6 +23,7 @@ from gemini.db.core.base import ColumnarBaseModel, db_engine
 import uuid
 from datetime import datetime, date
 from typing import Optional, List
+from gemini.db.core.plot_number import PlotNumberType
 
 
 
@@ -69,7 +70,7 @@ class TraitRecordModel(ColumnarBaseModel):
     site_id: Mapped[UUID] = mapped_column(UUID(as_uuid=True))
     site_name: Mapped[str] = mapped_column(String(255))
     plot_id: Mapped[UUID] = mapped_column(UUID(as_uuid=True))
-    plot_number: Mapped[str] = mapped_column(String(255))
+    plot_number: Mapped[object] = mapped_column(PlotNumberType)
     plot_row_number: Mapped[str] = mapped_column(String(255))
     plot_column_number: Mapped[str] = mapped_column(String(255))
     # Added in alembic 0006. NULL when the import had no germplasm

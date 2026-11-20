@@ -679,22 +679,20 @@ class OdmWorker(BaseWorker):
                 f"from {len(image_prefixes)} prefix(es)"
             )
 
-            # Pull GCP sidecar files (gcp_list.txt, geo.txt) from the scope
-            # root (sibling of every dataset subdir) so NodeODM can use
-            # them. Absent files are skipped. When the user clicked
-            # "Skip" in the GCP picker the frontend sends `skip_gcps:
-            # true`; honor that even if the files are still sitting in
-            # MinIO from a prior session — the UI state is the source
-            # of truth, not the sidecars on disk.
+            # Pull the sidecars (gcp_list.txt, geo.txt) from the scope root
+            # (sibling of every dataset subdir) so NodeODM can use them.
+            # Absent files are skipped. When the user clicked "Skip" in the
+            # GCP picker the frontend sends `skip_gcps: true`; then a
+            # gcp_list.txt left in MinIO from a prior session is not used.
+            # geo.txt is still sent: it holds the camera positions (e.g. from
+            # the platform's flight log), not ground control points, and
+            # without it ODM falls back to the photos' own, often coarser, GPS.
             skip_gcps = bool(parameters.get("skip_gcps"))
-            gcp_paths = (
-                []
-                if skip_gcps
-                else self._download_gcp_files(client, scope_prefix, images_dir)
-            )
+            gcp_paths = self._download_gcp_files(client, scope_prefix, images_dir)
             if skip_gcps:
+                gcp_paths = [p for p in gcp_paths if os.path.basename(p) != "gcp_list.txt"]
                 logger.info(
-                    f"skip_gcps=true; not forwarding GCP sidecars to NodeODM "
+                    f"skip_gcps=true; not forwarding gcp_list.txt to NodeODM "
                     f"for job {job_id}"
                 )
             if gcp_paths:

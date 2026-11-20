@@ -76,3 +76,44 @@ def test_qq_plot_handles_empty(tmp_path: Path) -> None:
     plots.qq_plot(df, "p_wald", out, title="empty")
     # Should not raise; file may or may not be generated, but no crash.
     assert out.exists()
+
+
+# ── TASSEL stats tables ──────────────────────────────────────────────────────
+
+TASSEL_STATS = (
+    "Trait\tMarker\tChr\tPos\tdf\tF\tp\tadd_effect\tadd_F\tadd_p\tdom_effect\tdom_F\tdom_p\terrordf\tMarkerR2\n"
+    "Ash\tNone\t\t\t0\tNaN\tNaN\tNaN\tNaN\tNaN\tNaN\tNaN\tNaN\t306\tNaN\n"
+    "Ash\tS01_15\t01\t15\t3\t0.6\t0.62\tNaN\tNaN\tNaN\tNaN\tNaN\tNaN\t16\t0.14\n"
+    "Ash\tS01_900\t01\t900\t1\t40\t1e-9\t0.31\tNaN\tNaN\tNaN\tNaN\tNaN\t300\t0.11\n"
+    "Ash\tS02_77\tS02\t77\t1\t2\t0.2\t-0.05\tNaN\tNaN\tNaN\tNaN\tNaN\t300\t0.01\n"
+    "Fat\tNone\t\t\t0\tNaN\tNaN\tNaN\tNaN\tNaN\tNaN\tNaN\tNaN\t306\tNaN\n"
+    "Fat\tS01_15\t01\t15\t1\t1\t0.5\t0.1\tNaN\tNaN\tNaN\tNaN\tNaN\t300\t0.01\n"
+)
+
+
+def test_tassel_stats_read_like_gemma(tmp_path):
+    f = tmp_path / "mlm_output_2.txt"
+    f.write_text(TASSEL_STATS)
+    assert plots.tassel_traits(f) == ["Ash", "Fat"]
+    df, p_col, trait = plots.load_tassel_stats(f)
+    assert trait == "Ash" and p_col == "p"
+    # the marker-less "None" row is dropped; chromosome names keep their number
+    assert list(df["rs"]) == ["S01_15", "S01_900", "S02_77"]
+    assert list(df["chr"]) == [1, 1, 2]
+    assert df.loc[df["rs"] == "S01_900", "beta"].item() == 0.31
+    s = plots.summarize(df, p_col)
+    assert s.top_hits[0]["rs"] == "S01_900" and s.top_hits[0]["chr"] == 1 and s.top_hits[0]["pos"] == 900
+    assert s.n_bonferroni == 1
+
+
+def test_tassel_stats_pick_a_trait_and_refuse_other_tables(tmp_path):
+    f = tmp_path / "mlm_output_2.txt"
+    f.write_text(TASSEL_STATS)
+    df, _, trait = plots.load_tassel_stats(f, "Fat")
+    assert trait == "Fat" and len(df) == 1
+    with pytest.raises(ValueError, match="not in this file"):
+        plots.load_tassel_stats(f, "Yield")
+    g = tmp_path / "mlm_output_1.txt"
+    g.write_text("<Phenotype>\ntaxa\tdata\n")
+    with pytest.raises(ValueError, match="not a TASSEL"):
+        plots.load_tassel_stats(g)

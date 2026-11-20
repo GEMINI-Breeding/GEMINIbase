@@ -96,6 +96,7 @@ def run(worker, job_id: str, p: dict, client, bucket: str) -> dict:
 
     worker.report_progress(job_id, 3, {"stage": "reading_camera_positions"})
     shots: list[F.Shot] = []
+    flight_of: dict[str, str] = {}             # frame -> the orthomosaic (ODM run) that placed it
     crs = None
     dsms: list[str] = []
     without: list[str] = []
@@ -113,7 +114,13 @@ def run(worker, job_id: str, p: dict, client, bucket: str) -> dict:
         if crs and here != crs:
             raise ValueError("the orthomosaics' camera positions are in different UTM zones")
         crs = here
-        shots += F.read_shots(gj, F.read_lenses(cams))
+        # One flight per ODM run (a treatment flown on its own has its own run). A frame placed by
+        # two runs (an orthomosaic built twice) is counted once: the first run named places it.
+        seen = {s.filename for s in shots}
+        for s in F.read_shots(gj, F.read_lenses(cams)):
+            if s.filename not in seen:
+                shots.append(s)
+                flight_of[s.filename] = ortho.rsplit("/", 1)[-1]
         dsms.append(f"{folder}/odm_dsm-{odm_job}.tif")
     if not shots and without:
         raise ValueError(f"the ODM run of {without[0]} did not keep its camera positions "
@@ -166,7 +173,8 @@ def run(worker, job_id: str, p: dict, client, bucket: str) -> dict:
         worker.report_progress(job_id, 12, {"stage": "ranking", "plots_total": len(plots)})
         need: dict[str, list[tuple[dict, int, F.Candidate]]] = defaultdict(list)
         for k, pl in enumerate(plots):
-            pl["candidates"] = F.rank(shots, pl["ring"], pl["ground"], keep=keep)
+            pl["flight"], own = own_flight(shots, flight_of, pl["ring"], pl["ground"])
+            pl["candidates"] = F.rank(own, pl["ring"], pl["ground"], keep=keep)
             for r, c in enumerate(pl["candidates"], 1):
                 need[c.shot.filename].append((pl, r, c))
             if k % 50 == 0 and worker.is_cancelled(job_id):
@@ -232,6 +240,7 @@ def run(worker, job_id: str, p: dict, client, bucket: str) -> dict:
             "companions": sections,
             "ground": sorted({pl["ground_from"] for pl in plots}),
             "plots": [{"plot": pl["plot"], "accession": pl["accession"], "ground_z": round(pl["ground"], 2),
+                       **({"flight": pl["flight"]} if pl.get("flight") else {}),
                        "straightened": pl.get("straightened"), "straightened_origin": pl.get("straightened_origin"),
                        "frames": sorted(pl.get("frames", []), key=lambda f: f["rank"]),
                        **({"companions": pl["companions"]} if pl.get("companions") else {})} for pl in plots],
@@ -308,6 +317,28 @@ def _flown_at(shots) -> Optional[str]:
 
     times = sorted(t for t, _ in (frame_key(s.filename) for s in shots) if t is not None)
     return datetime.fromtimestamp(times[len(times) // 2]).isoformat(timespec="seconds") if times else None
+
+
+def own_flight(shots: list, flight_of: dict, ring: np.ndarray, ground_z: float) -> tuple[Optional[str], list]:
+    """The frames of the one flight that covered a plot, when several flights are given (a
+    field's treatment blocks flown separately): the flight with the most camera positions
+    near the plot. Frames of one flight only, so a plot's images (and its thermal companions)
+    come from one moment, not from the neighbouring block's flight that caught its edge.
+    One flight (or no flight information): every frame, and None."""
+    flights = {flight_of.get(s.filename) for s in shots}
+    if len(flights) < 2:
+        return None, shots
+    c = ring[:-1].mean(axis=0) if len(ring) > 1 else ring.mean(axis=0)
+    heights = [float(s.center[2]) - ground_z for s in shots if float(s.center[2]) > ground_z]
+    reach = max(10.0, 0.8 * (float(np.median(heights)) if heights else 30.0))   # about a frame's half-width
+    near: dict[str, int] = defaultdict(int)
+    for s in shots:
+        if float(np.hypot(*(s.center[:2] - c))) <= reach:
+            near[flight_of.get(s.filename)] += 1
+    if not near:
+        return None, shots
+    best = max(near, key=near.get)
+    return best, [s for s in shots if flight_of.get(s.filename) == best]
 
 
 def _ground_heights(client, bucket, dsms, plots, crs, shots, raw, tmp) -> None:

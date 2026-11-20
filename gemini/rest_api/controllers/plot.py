@@ -1,4 +1,5 @@
 from litestar import Response
+from gemini.db.core.plot_number import normalize_plot_number
 from litestar.handlers import get, post, patch, delete
 from litestar.params import Body
 from litestar.controller import Controller
@@ -46,7 +47,7 @@ class PlotController(Controller):
     @get(sync_to_thread=True)
     def get_plots(
         self,
-        plot_number: Optional[int] = None,
+        plot_number: Optional[str] = None,
         plot_row_number: Optional[int] = None,
         plot_column_number: Optional[int] = None,
         experiment_name: Optional[str] = None,
@@ -56,7 +57,7 @@ class PlotController(Controller):
         try:
 
             plots = Plot.search(
-                plot_number=plot_number,
+                plot_number=normalize_plot_number(plot_number),
                 plot_row_number=plot_row_number,
                 plot_column_number=plot_column_number,
                 experiment_name=experiment_name,

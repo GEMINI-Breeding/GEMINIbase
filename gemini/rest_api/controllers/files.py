@@ -19,6 +19,7 @@ from gemini.rest_api.models import (
     RESTAPIError,
     FileMetadata,
     PaginatedFileList,
+    UploadFolder,
     UploadFileRequest,
     ChunkUploadRequest,
     ChunkStatusResponse,
@@ -702,6 +703,54 @@ class FileController(Controller):
             )
             return Response(content=error, status_code=500)
         
+    @get(path="/upload_folders/{bucket_name:str}", sync_to_thread=True)
+    def list_upload_folders(
+        self,
+        bucket_name: str,
+        prefix: str = Parameter(default="Raw/", max_length=500),
+    ) -> List[UploadFolder]:
+        """Every folder under ``prefix`` that holds uploaded files, with a
+        count per file extension, from the experiment_files register.
+
+        The New Run dialog groups uploads by folder. Listing the bucket to
+        find them walks every object (minutes once there are a few hundred
+        thousand); the register answers the same question in about a second.
+        An empty answer means the register holds nothing there (an older
+        stack): the caller falls back to the listing.
+        """
+        from sqlalchemy import text
+
+        from gemini.db.core.base import db_engine
+
+        try:
+            with db_engine.get_session() as session:
+                rows = session.execute(
+                    text(
+                        "SELECT regexp_replace(object_name, '/[^/]*$', '') AS folder, "
+                        "lower(substring(object_name from '\\.([^./]+)$')) AS extension, "
+                        "count(*) AS n "
+                        "FROM gemini.experiment_files "
+                        "WHERE bucket = :bucket AND object_name LIKE :prefix "
+                        "GROUP BY 1, 2"
+                    ),
+                    {
+                        "bucket": bucket_name,
+                        "prefix": prefix.replace("%", "").replace("_", "\\_") + "%",
+                    },
+                ).all()
+            return [
+                UploadFolder(folder=r.folder, extension=r.extension, count=int(r.n))
+                for r in rows
+            ]
+        except Exception as e:
+            return Response(
+                content=RESTAPIError(
+                    error=str(e),
+                    error_description="An error occurred while listing upload folders",
+                ),
+                status_code=500,
+            )
+
     @get(path="/plot_images/{file_path:path}", sync_to_thread=True)
     def list_plot_images(self, file_path: str) -> List[FileMetadata]:
         """The plot images under a Processed/ site or population folder, for

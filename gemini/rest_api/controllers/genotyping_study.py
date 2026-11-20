@@ -188,6 +188,19 @@ class GenotypingStudyController(Controller):
             finally:
                 tmp_path.unlink(missing_ok=True)
 
+            # What the study holds, kept on the study so lists can show it without
+            # reading the genotype files: markers, samples and the file they came from.
+            if result.variants_inserted and not result.errors:
+                try:
+                    study = GenotypingStudy.get_by_id(id=study_id)
+                    if study is not None:
+                        info = study.study_info if isinstance(study.study_info, dict) else {}
+                        study.update(study_info={**info, "n_variants": result.variants_inserted,
+                                                 "n_samples": result.samples_inserted,
+                                                 "source_file": info.get("source_file") or filename})
+                except Exception as e:   # the import itself succeeded; the summary is a convenience
+                    logging.getLogger(__name__).warning("study summary not saved: %s", e)
+
             return GenotypePgenIngestResult(
                 variants_inserted=result.variants_inserted,
                 records_inserted=result.records_inserted,

@@ -4,6 +4,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy import TIMESTAMP, DATE
 from gemini.db.core.base import BaseModel
 from datetime import datetime, date
+from gemini.db.core.plot_number import PlotNumberType
 
 
 class TraitRecordsIMMVModel(BaseModel):
@@ -25,7 +26,7 @@ class TraitRecordsIMMVModel(BaseModel):
     site_id : Mapped[UUID] = mapped_column(UUID(as_uuid=True))
     site_name : Mapped[str] = mapped_column(String)
     plot_id : Mapped[UUID] = mapped_column(UUID(as_uuid=True))
-    plot_number : Mapped[int] = mapped_column(Integer)
+    plot_number: Mapped[object] = mapped_column(PlotNumberType)
     plot_row_number : Mapped[int] = mapped_column(Integer)
     plot_column_number : Mapped[int] = mapped_column(Integer)
     # Added in alembic 0006 — direct trait_record → accession link

@@ -82,3 +82,16 @@ def test_few_images_use_all_for_both(tmp_path: Path):
     assert counts["validation_is_training"] and counts["tiles_train"] == counts["tiles_val"] == 1
     seg = (tmp_path / "ds" / "labels" / "train" / "0_0.txt").read_text().split()
     assert seg[0] == "0" and len(seg) == 9
+
+
+def test_short_query_fits_a_16_token_window():
+    from gemini.workers.ml.zero_shot import short_query
+
+    def fits(t: str) -> bool:          # one token per word, 16 at most (OWLv2)
+        return len(t.split()) <= 16
+
+    long = "a single small white or pale purple cowpea flower, not a leaf, not a pod"
+    assert short_query("cowpea pod", fits) == "cowpea pod"
+    assert short_query(long, lambda t: len(t.split()) <= 9) == "a single small white or pale purple cowpea flower"
+    assert len(short_query(long, lambda t: len(t.split()) <= 4).split()) == 4
+    assert fits(short_query(long, fits))

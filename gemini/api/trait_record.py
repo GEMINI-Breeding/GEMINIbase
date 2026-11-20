@@ -33,6 +33,7 @@ from gemini.db.models.columnar.trait_records import TraitRecordModel
 from gemini.db.models.views.trait_records_immv import TraitRecordsIMMVModel
 
 from datetime import date, datetime
+from gemini.db.core.plot_number import PlotNumber
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +79,7 @@ class TraitRecord(APIBase):
     site_id: Optional[ID] = None
     site_name: Optional[str] = None
     plot_id: Optional[ID] = None
-    plot_number: Optional[int] = None
+    plot_number: Optional[PlotNumber] = None
     plot_row_number: Optional[int] = None
     plot_column_number: Optional[int] = None
     accession_id: Optional[ID] = None
@@ -104,7 +105,7 @@ class TraitRecord(APIBase):
         experiment_name: str,
         site_name: str,
         season_name: str,
-        plot_number: int = None,
+        plot_number: PlotNumber = None,
         plot_row_number: int = None,
         plot_column_number: int = None
     ) -> bool:
@@ -167,7 +168,7 @@ class TraitRecord(APIBase):
         experiment_name: str = None,
         site_name: str = None,
         season_name: str = None,
-        plot_number: int = None,
+        plot_number: PlotNumber = None,
         plot_row_number: int = None,
         plot_column_number: int = None,
         accession_name: str = None,
@@ -303,7 +304,7 @@ class TraitRecord(APIBase):
         experiment_name: str,
         site_name: str,
         season_name: str,
-        plot_number: int = None,
+        plot_number: PlotNumber = None,
         plot_row_number: int = None,
         plot_column_number: int = None
     ) -> Optional["TraitRecord"]:
@@ -436,7 +437,7 @@ class TraitRecord(APIBase):
         site_name: str = None,
         season_name: str = None,
         population_name: str = None,
-        plot_number: int = None,
+        plot_number: PlotNumber = None,
         plot_row_number: int = None,
         plot_column_number: int = None,
         collection_date: date = None,

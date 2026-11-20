@@ -35,6 +35,7 @@ from gemini.db.models.columnar.sensor_records import SensorRecordModel
 from gemini.db.models.views.sensor_records_immv import SensorRecordsIMMVModel
 
 from datetime import date, datetime
+from gemini.db.core.plot_number import PlotNumber
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +82,7 @@ class SensorRecord(APIBase, FileHandlerMixin):
     site_id: Optional[ID] = None
     site_name: Optional[str] = None
     plot_id: Optional[ID] = None
-    plot_number: Optional[int] = None
+    plot_number: Optional[PlotNumber] = None
     plot_row_number: Optional[int] = None
     plot_column_number: Optional[int] = None
     record_file: Optional[str] = None
@@ -104,7 +105,7 @@ class SensorRecord(APIBase, FileHandlerMixin):
         experiment_name: str,
         season_name: str,
         site_name: str,
-        plot_number: int = None,
+        plot_number: PlotNumber = None,
         plot_row_number: int = None,
         plot_column_number: int = None
     ) -> bool:
@@ -167,7 +168,7 @@ class SensorRecord(APIBase, FileHandlerMixin):
         experiment_name: str = None,
         site_name: str = None,
         season_name: str = None,
-        plot_number: int = None,
+        plot_number: PlotNumber = None,
         plot_row_number: int = None,
         plot_column_number: int = None,
         record_file: str = None,
@@ -297,7 +298,7 @@ class SensorRecord(APIBase, FileHandlerMixin):
         experiment_name: str = None,
         site_name: str = None,
         season_name: str = None,
-        plot_number: int = None,
+        plot_number: PlotNumber = None,
         plot_row_number: int = None,
         plot_column_number: int = None
     ) -> Optional["SensorRecord"]:
@@ -431,7 +432,7 @@ class SensorRecord(APIBase, FileHandlerMixin):
         experiment_name: str = None,
         site_name: str = None,
         season_name: str = None,
-        plot_number: int = None,
+        plot_number: PlotNumber = None,
         plot_row_number: int = None,
         plot_column_number: int = None,
         collection_date: date = None,

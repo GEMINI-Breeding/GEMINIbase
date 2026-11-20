@@ -20,6 +20,7 @@ This module includes the following methods:
 
 """
 
+from gemini.db.core.plot_number import normalize_plot_number
 from typing import Optional, List, Tuple, TYPE_CHECKING
 from uuid import UUID
 
@@ -33,6 +34,7 @@ from gemini.api.base import APIBase
 from gemini.db.core.base import db_engine
 from gemini.db.models.plots import PlotModel
 from gemini.db.models.views.plot_view import PlotViewModel
+from gemini.db.core.plot_number import PlotNumber
 
 if TYPE_CHECKING:
     from gemini.api.experiment import Experiment
@@ -63,7 +65,7 @@ class Plot(APIBase):
     """
 
     id: Optional[ID] = Field(None, validation_alias=AliasChoices("id", "plot_id"))
-    plot_number: int
+    plot_number: PlotNumber
     plot_row_number: int
     plot_column_number: int
     plot_geometry_info: Optional[dict] = None
@@ -91,7 +93,7 @@ class Plot(APIBase):
     @classmethod
     def exists(
         cls,
-        plot_number: int,
+        plot_number: PlotNumber,
         plot_row_number: int,
         plot_column_number: int,
         experiment_name: str = None,
@@ -134,7 +136,7 @@ class Plot(APIBase):
     @classmethod
     def create(
         cls,
-        plot_number: int,
+        plot_number: PlotNumber,
         plot_row_number: int,
         plot_column_number: int,
         plot_info: dict = None,
@@ -407,7 +409,7 @@ class Plot(APIBase):
         caller; either `plot_number`/`plot_row_number`/`plot_column_number`
         or legacy `plot`/`row`/`column` keys are accepted):
 
-          * plot_number          (int, required — skipped otherwise)
+          * plot_number          (int or text identifier, required — skipped otherwise)
           * plot_row_number      (int, required)
           * plot_column_number   (int, required)
           * accession_name       (str, optional)
@@ -457,7 +459,7 @@ class Plot(APIBase):
                 props = f.get("properties") or {}
                 if not isinstance(props, dict):
                     props = {}
-                plot_number = _as_int(
+                plot_number = normalize_plot_number(
                     props.get("plot_number")
                     if props.get("plot_number") is not None
                     else props.get("plot") or props.get("Plot")
@@ -554,7 +556,7 @@ class Plot(APIBase):
     @classmethod
     def get(
         cls,
-        plot_number: int,
+        plot_number: PlotNumber,
         plot_row_number: int,
         plot_column_number: int,
         experiment_name: str = None,
@@ -653,7 +655,7 @@ class Plot(APIBase):
     @classmethod
     def search(
         cls,
-        plot_number: int = None,
+        plot_number: PlotNumber = None,
         plot_row_number: int = None,
         plot_column_number: int = None,
         experiment_name: str = None,
@@ -688,7 +690,7 @@ class Plot(APIBase):
         
     def update(
         self,
-        plot_number: int = None,
+        plot_number: PlotNumber = None,
         plot_row_number: int = None,
         plot_column_number: int = None,
         plot_info: dict = None,

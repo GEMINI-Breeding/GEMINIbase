@@ -53,6 +53,7 @@ from gemini.db.models.views.experiment_views import (
 from gemini.db.models.views.plot_view import PlotViewModel
 
 from datetime import date
+from gemini.db.core.plot_number import PlotNumber
 
 if TYPE_CHECKING:
     from gemini.api.population import Population
@@ -2650,7 +2651,7 @@ class Experiment(APIBase):
         
     def create_new_plot(
         self,
-        plot_number: int,
+        plot_number: PlotNumber,
         plot_row_number: int,
         plot_column_number: int,
         season_name: str = None,
@@ -2697,7 +2698,7 @@ class Experiment(APIBase):
         
     def associate_plot(
         self,
-        plot_number: int,
+        plot_number: PlotNumber,
         plot_row_number: int,
         plot_column_number: int,
         season_name: str = None,
@@ -2741,7 +2742,7 @@ class Experiment(APIBase):
         
     def unassociate_plot(
         self,
-        plot_number: int,
+        plot_number: PlotNumber,
         plot_row_number: int,
         plot_column_number: int,
         season_name: str = None,
@@ -2785,7 +2786,7 @@ class Experiment(APIBase):
         
     def belongs_to_plot(
         self,
-        plot_number: int,
+        plot_number: PlotNumber,
         plot_row_number: int,
         plot_column_number: int,
         season_name: str = None,

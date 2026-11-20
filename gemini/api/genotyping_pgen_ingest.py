@@ -287,7 +287,7 @@ def _transcode_to_vcf(
         return _transcode_xlsx(
             upload_path, out_vcf, sample_canonical_map, skipped_headers
         )
-    if ext in ("hmp", "hapmap"):
+    if ext in ("hmp", "hapmap") or _looks_like_hapmap(upload_filename, upload_path):
         # plink2 handles HapMap natively; copy through and let the
         # caller invoke plink with --import-hapmap. For now we go via
         # bcftools which doesn't, so we transcode HapMap → VCF here.
@@ -304,6 +304,21 @@ def _transcode_to_vcf(
             upload_path, out_vcf, sample_canonical_map, skipped_headers
         )
     raise ValueError(f"unsupported genomic upload extension: .{ext}")
+
+
+def _looks_like_hapmap(upload_filename: str, upload_path: Path) -> bool:
+    """HapMap saved as text (``x.hmp.txt``, as TASSEL writes it), or any table
+    whose header has HapMap's fixed columns (``rs#``/``SNP_name``, ``alleles``,
+    ``chrom``, ``pos``)."""
+    name = upload_filename.lower()
+    if ".hmp." in name or name.endswith(".hmp.txt"):
+        return True
+    try:
+        with upload_path.open(errors="replace") as fh:
+            head = [c.strip().lower() for c in fh.readline().split("\t")[:4]]
+    except OSError:
+        return False
+    return len(head) == 4 and head[1] == "alleles" and head[2].startswith("chr") and head[3].startswith("pos")
 
 
 def _transcode_xlsx(

@@ -262,3 +262,56 @@ def qq_plot(
     fig.savefig(out_path, dpi=150)
     plt.close(fig)
     return out_path
+
+
+# ── TASSEL ──────────────────────────────────────────────────────────────────
+# TASSEL's GLM/MLM "stats" table (the *_2.txt of an MLM export, or the GLM
+# stats file): one row per trait and marker, columns
+#   Trait  Marker  Chr  Pos  df  F  p  add_effect ...  MarkerR2 ...
+# with one "None" row per trait for the model without a marker.
+
+TASSEL_REQUIRED = ("Trait", "Marker", "Chr", "Pos", "p")
+
+
+def tassel_traits(stats_path: Path) -> list[str]:
+    """The traits a TASSEL stats file holds, in file order (reads only the Trait column)."""
+    col = pd.read_csv(stats_path, sep="\t", usecols=["Trait"], dtype=str)["Trait"]
+    return list(dict.fromkeys(col.dropna()))
+
+
+def load_tassel_stats(stats_path: Path, trait: Optional[str] = None) -> tuple[pd.DataFrame, str, str]:
+    """A TASSEL stats table as the frame the GEMMA plots and summary use
+    (rs, chr, ps, p and beta when TASSEL gives an additive effect).
+    Returns (df, "p", the trait used). With several traits in the file,
+    ``trait`` picks one (default: the first)."""
+    head = pd.read_csv(stats_path, sep="\t", nrows=0)
+    missing = [c for c in TASSEL_REQUIRED if c not in head.columns]
+    if missing:
+        raise ValueError(
+            f"not a TASSEL GLM/MLM stats table (missing {', '.join(missing)}); "
+            "use the stats output (for MLM, the file ending in _2.txt)"
+        )
+    keep = [c for c in ("Trait", "Marker", "Chr", "Pos", "p", "add_effect", "MarkerR2") if c in head.columns]
+    df = pd.read_csv(stats_path, sep="\t", usecols=keep, dtype={"Trait": str, "Marker": str, "Chr": str})
+    traits = list(dict.fromkeys(df["Trait"].dropna()))
+    if not traits:
+        raise ValueError("the TASSEL stats table has no rows")
+    use = trait if trait is not None else traits[0]
+    if use not in traits:
+        raise ValueError(f"trait {use!r} is not in this file; it has: {', '.join(traits[:10])}")
+    d = df[(df["Trait"] == use) & (df["Marker"].str.lower() != "none")].copy()
+    # Chromosomes come as "1", "01", "Chr01" or "S01": keep the number.
+    d["chr"] = pd.to_numeric(d["Chr"].str.extract(r"(\d+)", expand=False), errors="coerce")
+    d["ps"] = pd.to_numeric(d["Pos"], errors="coerce")
+    d["p"] = pd.to_numeric(d["p"], errors="coerce")
+    d = d.dropna(subset=["chr", "ps", "p"])
+    out = pd.DataFrame({"rs": d["Marker"], "chr": d["chr"].astype(int), "ps": d["ps"].astype(int), "p": d["p"]})
+    if "add_effect" in d.columns:
+        beta = pd.to_numeric(d["add_effect"], errors="coerce")
+        # MLM stats tables often carry 0 or NaN here (TASSEL writes effects to
+        # its separate effects output): only a column with real values is kept.
+        if beta.notna().any() and (beta.fillna(0) != 0).any():
+            out["beta"] = beta.to_numpy()
+    if "MarkerR2" in d.columns:
+        out["r2"] = pd.to_numeric(d["MarkerR2"], errors="coerce").to_numpy()
+    return out.reset_index(drop=True), "p", use

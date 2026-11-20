@@ -13,4 +13,4 @@ CREATE TABLE IF NOT EXISTS gemini.alembic_version (
     version_num VARCHAR(32) NOT NULL,
     CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num)
 );
-INSERT INTO gemini.alembic_version (version_num) VALUES ('0011_process_entities');
+INSERT INTO gemini.alembic_version (version_num) VALUES ('0012_plot_number_text');

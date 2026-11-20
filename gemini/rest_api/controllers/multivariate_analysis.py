@@ -34,6 +34,7 @@ from sqlalchemy import text
 from gemini.api.trait_record import TraitRecord
 from gemini.db.core.base import db_engine
 from gemini.rest_api.models import RESTAPIBase, RESTAPIError
+from gemini.db.core.plot_number import PlotNumber, normalize_plot_number, plot_number_key
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +79,7 @@ class MultivariateRequest(RESTAPIBase):
 
 class TraitMatrixRow(RESTAPIBase):
     plot_id: Optional[str] = None
-    plot_number: Optional[int] = None
+    plot_number: Optional[PlotNumber] = None
     plot_row_number: Optional[int] = None
     plot_column_number: Optional[int] = None
     experiment_name: Optional[str] = None
@@ -135,7 +136,7 @@ class SpatialCell(RESTAPIBase):
     plot_column_number: int
     value: float
     accession_name: Optional[str] = None
-    plot_number: Optional[int] = None
+    plot_number: Optional[PlotNumber] = None
 
 
 class SpatialSite(RESTAPIBase):
@@ -509,8 +510,10 @@ def _aggregate_per_plot(df: pd.DataFrame, req: MultivariateRequest) -> pd.DataFr
         if c not in wide.columns:
             wide[c] = None
     if req.per_date and "collection_date" in wide.columns:
+        # Plot identifiers mix numbers and text (KW1): natural order.
         wide = wide.sort_values(
-            ["collection_date", "plot_number"], na_position="last"
+            ["collection_date", "plot_number"], na_position="last",
+            key=lambda c: c.map(plot_number_key) if c.name == "plot_number" else c,
         ).reset_index(drop=True)
     if "_row" in wide.columns:
         wide.drop(columns=["_row"], inplace=True)
@@ -584,7 +587,7 @@ def _wide_to_rows(wide: pd.DataFrame, trait_names: List[str]) -> List[TraitMatri
                 values[t] = float(v)
         out.append(TraitMatrixRow(
             plot_id=r.get("plot_id"),
-            plot_number=_to_int(r.get("plot_number")),
+            plot_number=normalize_plot_number(r.get("plot_number")),
             plot_row_number=_to_int(r.get("plot_row_number")),
             plot_column_number=_to_int(r.get("plot_column_number")),
             experiment_name=r.get("experiment_name"),
@@ -639,7 +642,7 @@ def _build_spatial_sites(wide: pd.DataFrame, trait_name: str) -> List[SpatialSit
                 plot_column_number=int(c),
                 value=float(v),
                 accession_name=acc if isinstance(acc, str) else None,
-                plot_number=_to_int(pn),
+                plot_number=normalize_plot_number(pn),
             )
             for r, c, v, acc, pn in zip(
                 rows_arr,

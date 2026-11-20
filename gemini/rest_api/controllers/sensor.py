@@ -1,4 +1,5 @@
 from litestar import Response
+from gemini.db.core.plot_number import normalize_plot_number
 from litestar.handlers import get, post, patch, delete
 from litestar.params import Body
 from litestar.controller import Controller
@@ -313,7 +314,7 @@ class SensorController(Controller):
         experiment_name: Optional[str] = None,
         season_name: Optional[str] = None,
         site_name: Optional[str] = None,
-        plot_number: Optional[int] = None,
+        plot_number: Optional[str] = None,
         plot_row_number: Optional[int] = None,
         plot_column_number: Optional[int] = None,
         collection_date: Optional[str] = None
@@ -331,7 +332,7 @@ class SensorController(Controller):
                 experiment_name=experiment_name,
                 season_name=season_name,
                 site_name=site_name,
-                plot_number=plot_number,
+                plot_number=normalize_plot_number(plot_number),
                 plot_row_number=plot_row_number,
                 plot_column_number=plot_column_number
             )

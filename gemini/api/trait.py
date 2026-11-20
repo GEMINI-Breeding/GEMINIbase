@@ -38,6 +38,7 @@ from gemini.db.models.views.experiment_views import ExperimentTraitsViewModel
 from gemini.db.models.views.dataset_views import TraitDatasetsViewModel
 from gemini.db.models.associations import ExperimentTraitModel, TraitDatasetModel
 from datetime import date, datetime
+from gemini.db.core.plot_number import PlotNumber
 
 if TYPE_CHECKING:
     from gemini.api.experiment import Experiment
@@ -728,7 +729,7 @@ class Trait(APIBase):
         experiment_name: str = None,
         season_name: str = None,
         site_name: str = None,
-        plot_number: int = -1,
+        plot_number: PlotNumber = -1,
         plot_row_number: int = -1,
         plot_column_number: int = -1,
         record_info: dict = None
@@ -816,7 +817,7 @@ class Trait(APIBase):
         experiment_name: str = None,
         season_name: str = None,
         site_name: str = None,
-        plot_numbers: List[int] = None,
+        plot_numbers: List[PlotNumber] = None,
         plot_row_numbers: List[int] = None,
         plot_column_numbers: List[int] = None,
         accession_names: List[str] = None,
@@ -921,7 +922,7 @@ class Trait(APIBase):
         season_name: str = None,
         site_name: str = None,
         population_name: str = None,
-        plot_number: int = None,
+        plot_number: PlotNumber = None,
         plot_row_number: int = None,
         plot_column_number: int = None,
         record_info: dict = None

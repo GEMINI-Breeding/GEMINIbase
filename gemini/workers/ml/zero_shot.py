@@ -152,6 +152,24 @@ def sam3_predict(image_path: str, pairs: List[Tuple[str, str]], conf: float, wei
     return [p for p in preds if p.get("confidence", 1.0) >= conf]
 
 
+def short_query(desc: str, fits: Callable[[str], bool]) -> str:
+    """A description cut to what a text encoder with a short window takes.
+
+    OWL-ViT / OWLv2 read at most 16 tokens: a longer query fails the whole
+    image ("size of tensor a (20) must match ... (16)"). The parts that say
+    what the object is not ("…, not a leaf") are dropped first (these models
+    cannot use them anyway), then words from the end until it fits."""
+    if fits(desc):
+        return desc
+    parts = [p.strip() for p in desc.split(",") if p.strip()]
+    keep = [p for p in parts if not p.lower().startswith(("not ", "no ", "except "))] or parts[:1]
+    text = ", ".join(keep)
+    words = text.split()
+    while len(words) > 1 and not fits(" ".join(words)):
+        words.pop()
+    return " ".join(words)
+
+
 def rename(preds: List[dict], pairs: List[Tuple[str, str]]) -> List[dict]:
     """Model labels (the descriptions) → the classes' names."""
     by_desc = {d: n for n, d in pairs}

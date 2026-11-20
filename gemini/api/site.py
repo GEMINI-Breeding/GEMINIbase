@@ -31,6 +31,7 @@ from gemini.db.models.sites import SiteModel
 from gemini.db.models.associations import ExperimentSiteModel
 from gemini.db.models.views.experiment_views import ExperimentSitesViewModel
 from gemini.db.models.views.plot_view import PlotViewModel
+from gemini.db.core.plot_number import PlotNumber
 
 if TYPE_CHECKING:
     from gemini.api.experiment import Experiment
@@ -609,7 +610,7 @@ class Site(APIBase):
         
     def create_new_plot(
         self,
-        plot_number: int,
+        plot_number: PlotNumber,
         plot_row_number: int,
         plot_column_number: int,
         experiment_name: str = None,
@@ -656,7 +657,7 @@ class Site(APIBase):
 
     def associate_plot(
         self,
-        plot_number: int,
+        plot_number: PlotNumber,
         plot_row_number: int,
         plot_column_number: int,
         experiment_name: str = None,
@@ -701,7 +702,7 @@ class Site(APIBase):
 
     def unassociate_plot(
         self,
-        plot_number: int,
+        plot_number: PlotNumber,
         plot_row_number: int,
         plot_column_number: int,
         experiment_name: str = None,
@@ -746,7 +747,7 @@ class Site(APIBase):
 
     def belongs_to_plot(
         self,
-        plot_number: int,
+        plot_number: PlotNumber,
         plot_row_number: int,
         plot_column_number: int,
         experiment_name: str = None,

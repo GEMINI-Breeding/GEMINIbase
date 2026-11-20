@@ -41,7 +41,7 @@ import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import requests
 from PIL import Image
@@ -565,8 +565,11 @@ def _load_hf_pipeline(spec: ModelSpec) -> Any:
         try:
             from transformers import pipeline
         except ImportError as e:  # pragma: no cover — image always has it
+            # Name the real failure: a package transformers imports (scipy built
+            # for another numpy, say) fails the same way as transformers missing.
             raise InferenceConfigError(
-                "Hugging Face models need the 'transformers' package in the ML worker image."
+                "Hugging Face models could not load the 'transformers' package in the ML worker "
+                f"({type(e).__name__}: {e})."
             ) from e
         try:
             return pipeline(task=task, model=spec.model_id, token=spec.api_key or None, device=_torch_device())
@@ -624,6 +627,26 @@ def _hf_outputs_to_predictions(outputs: Any, task_type: str, mask_decoder: Calla
     return preds
 
 
+def _fit_queries(pipe: Any, spec: ModelSpec) -> Dict[str, str]:
+    """{query sent to the model: class name}. Text encoders with a short window
+    (OWL-ViT / OWLv2: 16 tokens) get each description cut to fit."""
+    from gemini.workers.ml.zero_shot import short_query
+
+    tok = getattr(pipe, "tokenizer", None)
+    limit = None
+    model = getattr(pipe, "model", None)
+    cfg = getattr(getattr(model, "config", None), "text_config", None)
+    if cfg is not None:
+        limit = getattr(cfg, "max_position_embeddings", None)
+
+    def fits(text: str) -> bool:
+        if tok is None or not limit:
+            return True
+        return len(tok(text)["input_ids"]) <= int(limit)
+
+    return {short_query(desc, fits): name for name, desc in spec.prompt_pairs}
+
+
 def _infer_hf_local(spec: ModelSpec, confidence_threshold: float, top_k: int = 5) -> Callable[[str], List[dict]]:
     pipe = _load_hf_pipeline(spec)
 
@@ -637,13 +660,15 @@ def _infer_hf_local(spec: ModelSpec, confidence_threshold: float, top_k: int = 5
             )
             return _rename_zero_shot(_hf_outputs_to_predictions(out, "classification")[:top_k], spec)
         if spec.task_type == "detection":
-            out = (
-                pipe(image, candidate_labels=spec.labels, threshold=confidence_threshold)
-                if spec.zero_shot
-                else pipe(image, threshold=confidence_threshold)
-            )
+            if not spec.zero_shot:
+                return _hf_outputs_to_predictions(pipe(image, threshold=confidence_threshold), "detection")
+            queries = _fit_queries(pipe, spec)
+            out = pipe(image, candidate_labels=list(queries), threshold=confidence_threshold)
             preds = _hf_outputs_to_predictions(out, "detection")
-            return _rename_zero_shot(preds, spec)
+            # The model answers with the (shortened) query: back to the class's name.
+            for p in preds:
+                p["class"] = queries.get(p.get("class", ""), p.get("class", ""))
+            return preds
         out = pipe(image)
         preds = _hf_outputs_to_predictions(out, "segmentation")
         return [p for p in preds if p["confidence"] >= confidence_threshold]
