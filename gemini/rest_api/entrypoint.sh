@@ -53,17 +53,11 @@ if [[ "${GEMINI_RUN_MIGRATIONS:-0}" == "1" ]]; then
         sleep 5
     done
     if kill -0 "$apid" 2>/dev/null; then
-        # Still waiting after a minute: say on what, then ask Python where.
-        echo "[entrypoint] alembic current still running after 60 s:"
-        grep -E '^(State|Name)' "/proc/$apid/status" 2>/dev/null
-        echo "[entrypoint] kernel wait: $(cat /proc/$apid/wchan 2>/dev/null)"
-        for c in $(pgrep -P "$apid" 2>/dev/null); do
-            echo "[entrypoint] child $c: $(grep -E '^State' /proc/$c/status 2>/dev/null) wait=$(cat /proc/$c/wchan 2>/dev/null)"
-        done
-        ls -l "/proc/$apid/fd" 2>/dev/null | tail -8
+        # Still waiting after a minute: have Python print where it hangs
+        # (PYTHONFAULTHANDLER), then stop it.
+        echo "[entrypoint] alembic current still running after 60 s; stopping it"
         kill -ABRT "$apid" 2>/dev/null
         sleep 5
-        tail -60 "$alembic_err"
     fi
     wait "$apid"
     rc=$?

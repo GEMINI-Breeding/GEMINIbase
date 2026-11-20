@@ -189,7 +189,7 @@ class ModelSpec:
             if self.zero_shot and not self.labels:
                 raise InferenceConfigError(
                     "A zero-shot model needs a prompt: one class per line, e.g. "
-                    "'pod: one green cowpea pod, not a leaf'."
+                    "'pod: one green seed pod, not a leaf'."
                 )
             if self.is_sam3 and self.hf_mode == "cloud":
                 raise InferenceConfigError("SAM 3 runs in the ML worker only: set it to run on this machine.")

@@ -247,10 +247,8 @@ class TestDatasetRecordSearch:
         result = next(gen)
         assert result is not None
 
-    def test_search_no_params(self):
-        gen = DatasetRecord.search()
-        result = next(gen)
-        assert result is None
+    def test_search_no_params_empty(self):
+        assert list(DatasetRecord.search()) == []
 
 
 class TestDatasetRecordFilter:
@@ -261,10 +259,8 @@ class TestDatasetRecordFilter:
         result = next(gen)
         assert result is not None
 
-    def test_filter_no_params(self):
-        gen = DatasetRecord.filter()
-        result = next(gen)
-        assert result is None
+    def test_filter_no_params_empty(self):
+        assert list(DatasetRecord.filter()) == []
 
 
 class TestDatasetRecordInsert:

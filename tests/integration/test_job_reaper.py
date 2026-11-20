@@ -118,15 +118,15 @@ class TestJobReaper:
 
 class TestHeartbeat:
     def test_touch_keeps_a_running_job_off_the_reaper(self, setup_real_db):
-        from gemini.api.job_reaper import reap_orphaned_jobs, touch_job
+        from gemini.api.job_reaper import reap_orphaned_jobs, touch_running_job
 
         engine = setup_real_db
         with engine.get_session() as session:
             running = _insert_job(session, "RUNNING", age_seconds=300)
             cancelled = _insert_job(session, "CANCELLED", age_seconds=300)
 
-        assert touch_job(running) is True
-        assert touch_job(cancelled) is False  # not RUNNING → not touched
+        assert touch_running_job(running) is True
+        assert touch_running_job(cancelled) is False  # not RUNNING → not touched
         assert reap_orphaned_jobs(stale_after_seconds=60) == []
         with engine.get_session() as session:
             assert _get_job(session, running)["status"] == "RUNNING"

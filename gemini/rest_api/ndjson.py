@@ -1,42 +1,54 @@
-"""NDJSON streaming for the ``/records`` endpoints.
+"""NDJSON streaming of record generators for the REST API.
 
-The record searches are lazy sync generators that hold a DB cursor. They
-used to be wrapped in an ``async def`` generator, which Litestar iterates
-on the event loop: the query, every row fetch and every JSON encode ran
-there, so one large export stalled every other request (the API is a
-single process). Litestar moves a *sync* iterator to a worker thread, one
-``next()`` per hop, so this module hands it a sync generator that yields
-batches of lines.
-
-It also pulls the first record up front, inside the (sync_to_thread)
-handler. A failing query then raises there and becomes a 500, instead of
-surfacing after the 200 headers went out as a silently truncated body.
+The record generators read a server-side DB cursor, so each step is
+blocking I/O. Handing Litestar a *sync* iterator makes it advance the
+iterator in a worker thread instead of on the event loop; rows are sent in
+batches so that's one thread hop per batch, not per row.
 """
-from collections.abc import Iterable, Iterator
+from typing import Iterable, Iterator
 
+from litestar.response import Stream
 from litestar.serialization import encode_json
+from pydantic import BaseModel
 
-_BATCH = 500
-_END = object()
+RECORDS_PER_CHUNK = 500
+
+_NO_RECORDS = object()
 
 
-def _line(record) -> bytes:
+class RecordStreamError(RuntimeError):
+    """A record generator failed after the response had started."""
+
+
+def ndjson_stream(records: Iterable[BaseModel]) -> Stream:
+    """Stream ``records`` as NDJSON.
+
+    The first record is fetched before the response starts, so a query that
+    fails outright raises here and the caller can answer with a 500.
+    """
+    iterator = iter(records)
+    first = next(iterator, _NO_RECORDS)
+    return Stream(_ndjson_chunks(first, iterator), media_type="application/ndjson")
+
+
+def _encode(record: BaseModel) -> bytes:
     return encode_json(record.model_dump(exclude_none=True)) + b"\n"
 
 
-def ndjson_stream(records: Iterable | None, batch_size: int = _BATCH) -> Iterator[bytes]:
-    it = iter(records or ())
-    first = next(it, _END)
-
-    def batches() -> Iterator[bytes]:
-        if first is _END:
-            return
-        buf = [_line(first)]
-        for record in it:
-            buf.append(_line(record))
-            if len(buf) >= batch_size:
-                yield b"".join(buf)
-                buf = []
-        yield b"".join(buf)
-
-    return batches()
+def _ndjson_chunks(first, iterator: Iterator[BaseModel]) -> Iterator[bytes]:
+    if first is _NO_RECORDS:
+        return
+    chunk = [_encode(first)]
+    try:
+        for record in iterator:
+            chunk.append(_encode(record))
+            if len(chunk) >= RECORDS_PER_CHUNK:
+                yield b"".join(chunk)
+                chunk = []
+    except Exception as e:
+        # Re-raise as a non-ValueError: Litestar's sync-iterator wrapper
+        # treats ValueError as the end of the stream, which would turn a
+        # failed query into a truncated response that looks complete.
+        raise RecordStreamError(f"Record stream failed: {e}") from e
+    if chunk:
+        yield b"".join(chunk)

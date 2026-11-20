@@ -3,7 +3,6 @@ from litestar.handlers import get, post, patch, delete
 from litestar.params import Body
 from litestar.controller import Controller
 from litestar.response import Stream, Redirect
-from gemini.rest_api.ndjson import ndjson_stream
 from litestar.enums import RequestEncodingType
 
 
@@ -29,9 +28,9 @@ from gemini.rest_api.models import (
 )
 
 from gemini.rest_api.file_handler import api_file_handler
+from gemini.rest_api.ndjson import ndjson_stream
 
 from typing import List, Annotated, Optional
-
 
 class ModelModelRunInput(BaseModel):
     model_run_info: Optional[JSONB] = {}
@@ -323,8 +322,8 @@ class ModelController(Controller):
             return Response(content=error, status_code=500)
         
     # Add a Model Record
-    @post(path="/id/{model_id:str}/records")
-    async def add_model_record(
+    @post(path="/id/{model_id:str}/records", sync_to_thread=True)
+    def add_model_record(
         self,
         model_id: str,
         data: Annotated[ModelRecordInput, Body(media_type=RequestEncodingType.MULTI_PART)]
@@ -338,20 +337,18 @@ class ModelController(Controller):
                 )
                 return Response(content=error, status_code=404)
             
-            if data.record_file:
-                record_file_path = await api_file_handler.create_file(data.record_file)
-
-            add_success, inserted_record_ids = model.insert_record(
-                timestamp=data.timestamp,
-                collection_date=data.collection_date,
-                model_data=data.model_data,
-                dataset_name=data.dataset_name,
-                experiment_name=data.experiment_name,
-                season_name=data.season_name,
-                site_name=data.site_name,
-                record_file=record_file_path if data.record_file else None,
-                record_info=data.record_info
-            )
+            with api_file_handler.saved_upload(data.record_file) as record_file_path:
+                add_success, inserted_record_ids = model.insert_record(
+                    timestamp=data.timestamp,
+                    collection_date=data.collection_date,
+                    model_data=data.model_data,
+                    dataset_name=data.dataset_name,
+                    experiment_name=data.experiment_name,
+                    season_name=data.season_name,
+                    site_name=data.site_name,
+                    record_file=record_file_path,
+                    record_info=data.record_info
+                )
             if not add_success:
                 error = RESTAPIError(
                     error="Model record not added",
@@ -399,7 +396,7 @@ class ModelController(Controller):
                 season_name=season_name,
                 site_name=site_name
             )
-            return Stream(ndjson_stream(model_records), media_type="application/ndjson")
+            return ndjson_stream(model_records)
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),
@@ -434,7 +431,7 @@ class ModelController(Controller):
                 season_names=season_names,
                 site_names=site_names
             )
-            return Stream(ndjson_stream(model_records), media_type="application/ndjson")
+            return ndjson_stream(model_records)
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),

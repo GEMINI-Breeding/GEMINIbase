@@ -136,7 +136,7 @@ class ScriptRecord(APIBase, FileHandlerMixin):
     @classmethod
     def create(
         cls,
-        timestamp: datetime = datetime.now(),
+        timestamp: datetime = None,
         collection_date: date = None,
         dataset_name: str = None,
         script_name: str = None,
@@ -190,7 +190,7 @@ class ScriptRecord(APIBase, FileHandlerMixin):
             if not dataset_name:
                 raise ValueError("Dataset name is required.")
             if not timestamp:
-                raise ValueError("Timestamp is required.")
+                timestamp = datetime.now()
             if not collection_date:
                 collection_date = timestamp.date()
             if not script_data and not record_file:
@@ -429,7 +429,8 @@ class ScriptRecord(APIBase, FileHandlerMixin):
                 yield record
         except Exception as e:
             logger.error(f"Error searching ScriptRecords: {e}")
-            yield None
+            # Re-raise: a yielded None hid the real error from every consumer.
+            raise
 
     @classmethod
     def filter(
@@ -489,7 +490,8 @@ class ScriptRecord(APIBase, FileHandlerMixin):
                 yield record
         except Exception as e:
             logger.error(f"Error filtering ScriptRecords: {e}")
-            yield None
+            # Re-raise: a yielded None hid the real error from every consumer.
+            raise
     
 
     def update(

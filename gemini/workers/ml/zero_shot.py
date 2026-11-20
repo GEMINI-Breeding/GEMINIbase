@@ -13,7 +13,7 @@ so the trait). A comma-separated list without line breaks or names is still
 read as several short classes ("weed, crop, soil"), as before.
 
 SAM 3 (``facebook/sam3``) runs through the Ultralytics already in the ML
-worker (SAM3SemanticPredictor). On cowpea flowers and pods it found the most
+worker (SAM3SemanticPredictor). On small flowers and pods it found the most
 of all the open-vocabulary detectors tried (AgVFM prompt study: pod mAP50
 0.37 vs 0.09 for OWLv2 / YOLO-World), with masks. Its weights are gated on
 Hugging Face: they download once with a token that has accepted the licence,
@@ -122,7 +122,7 @@ def _sam3_predictor(weights: str):
             except ImportError as e:
                 raise InferenceConfigError(
                     "SAM 3 needs Ultralytics 8.3.237 or newer in the ML worker "
-                    "(on a cluster: gemi-hpc pull ml-deps)."
+                    "(see requirements-models.txt; the GEMI app's clusters: gemi-hpc pull ml-deps)."
                 ) from e
             overrides = dict(conf=0.25, task="segment", mode="predict", model=weights,
                              half=bool(torch.cuda.is_available()), verbose=False, save=False)

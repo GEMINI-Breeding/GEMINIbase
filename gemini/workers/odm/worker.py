@@ -10,6 +10,7 @@ Requires: NodeODM sidecar service (opendronemap/nodeodm).
 
 import logging
 import os
+import re
 import tempfile
 import time
 from typing import Set
@@ -426,7 +427,13 @@ def _diagnose_odm_failure(log_lines: list[str]) -> str:
     # images with many features each. ODM still prints its generic "Whoops!
     # You ran out of memory" block, so this must come before the texturing
     # check below, which would otherwise take the blame.
-    if "Killed" in tail and ("opensfm" in tail.lower() or "run_opensfm" in tail):
+    # The stage is the last "Running <stage> stage" line: later stages' command
+    # lines name files under opensfm/ (texrecon reads opensfm/undistorted/…),
+    # so the word alone doesn't say OpenSfM was running.
+    stages = re.findall(r"Running (\w+) stage", tail)
+    stage = stages[-1].lower() if stages else ""
+    in_opensfm = stage == "opensfm" or (not stage and ("run_opensfm" in tail or "opensfm" in tail.lower()))
+    if "Killed" in tail and in_opensfm:
         return (
             "out-of-memory while matching the images (OpenSfM), before the "
             "orthophoto is made. Use the \"Detailed map\" quality (fewer image "

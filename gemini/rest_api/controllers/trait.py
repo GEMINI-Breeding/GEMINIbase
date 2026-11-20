@@ -4,13 +4,13 @@ from litestar.handlers import get, post, patch, delete
 from litestar.params import Body
 from litestar.controller import Controller
 from litestar.response import Stream
-from gemini.rest_api.ndjson import ndjson_stream
 from litestar.enums import RequestEncodingType
 
 from pydantic import BaseModel
 
 from sqlalchemy.exc import DBAPIError
 
+from gemini.rest_api.ndjson import ndjson_stream
 from gemini.api.trait import Trait, GEMINITraitLevel
 from gemini.api.trait_record import TraitRecord
 from gemini.rest_api.models import TraitInput, TraitOutput, TraitUpdate, JSONB, str_to_dict
@@ -401,7 +401,7 @@ class TraitController(Controller):
                 plot_column_number=plot_column_number,
                 collection_date=collection_date
             )
-            return Stream(ndjson_stream(trait_records), media_type="application/ndjson")
+            return ndjson_stream(trait_records)
         except Exception as e:
             error_message = RESTAPIError(
                 error=str(e),
@@ -436,7 +436,7 @@ class TraitController(Controller):
                 season_names=season_names,
                 site_names=site_names
             )
-            return Stream(ndjson_stream(trait_records), media_type="application/ndjson")
+            return ndjson_stream(trait_records)
         except Exception as e:
             error = RESTAPIError(
                 error=str(e),

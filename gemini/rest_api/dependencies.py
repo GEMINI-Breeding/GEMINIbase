@@ -3,8 +3,9 @@ Shared Litestar dependencies for the GEMINIbase REST API.
 
 `provide_current_user` resolves the requesting user from the Authorization
 bearer token; handlers that list it as a dependency receive the `User` API
-instance. When `GEMINI_JWT_SECRET` is empty (auth disabled), the dependency
-returns `None` so handlers can decide whether to require a user or not.
+instance. When auth is explicitly disabled (`GEMINI_AUTH_DISABLED`), the
+dependency returns `None` so handlers can decide whether to require a user or
+not. A missing `GEMINI_JWT_SECRET` without that opt-out is answered with 503.
 """
 from __future__ import annotations
 
@@ -16,6 +17,7 @@ from litestar.exceptions import HTTPException
 
 from gemini.api.user import User
 from gemini.config.settings import GEMINISettings
+from gemini.rest_api.guards import AUTH_NOT_CONFIGURED
 from gemini.rest_api.security import decode_access_token
 
 _settings = GEMINISettings()
@@ -31,6 +33,15 @@ def _extract_bearer_token(request: Request) -> Optional[str]:
     return parts[1]
 
 
+def _auth_disabled() -> bool:
+    """True only when the operator opted out; 503 when auth is just unconfigured."""
+    if _settings.GEMINI_JWT_SECRET:
+        return False
+    if _settings.GEMINI_AUTH_DISABLED:
+        return True
+    raise HTTPException(status_code=503, detail=AUTH_NOT_CONFIGURED)
+
+
 def provide_current_user(request: Request) -> Optional[User]:
     """Resolve the current user from the bearer token, or None if auth is disabled.
 
@@ -38,7 +49,7 @@ def provide_current_user(request: Request) -> Optional[User]:
     the user is inactive. Raises 404 if the token is well-formed but the user
     was deleted.
     """
-    if not _settings.GEMINI_JWT_SECRET:
+    if _auth_disabled():
         return None
 
     token = _extract_bearer_token(request)
@@ -86,9 +97,9 @@ def require_superuser(request: Request) -> User:
 
 def provide_superuser(request: Request) -> Optional[User]:
     """Superuser gate that, like the global JWT guard, is a no-op when auth is
-    disabled (`GEMINI_JWT_SECRET` empty): returns None instead of raising 503.
-    With auth enabled it behaves exactly like `require_superuser`.
+    explicitly disabled (`GEMINI_AUTH_DISABLED`): returns None instead of
+    raising. With auth enabled it behaves exactly like `require_superuser`.
     """
-    if not _settings.GEMINI_JWT_SECRET:
+    if _auth_disabled():
         return None
     return require_superuser(request)

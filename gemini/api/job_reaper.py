@@ -6,16 +6,15 @@ container crash) leaves its job in RUNNING with no one to drive it; the
 restarted worker only claims PENDING jobs, so without this the job — and
 the UI spinner — stays RUNNING forever.
 
-Liveness signal: `updated_at`. While a job runs, the worker's heartbeat
-thread (`BaseWorker._heartbeat`) bumps it through `touch_job` every
-`HEARTBEAT_INTERVAL_SECONDS`, on top of every progress PATCH. A RUNNING job
-whose `updated_at` is older than the threshold has no live worker.
-
-The REST API runs `reap_orphaned_jobs` periodically (see
-`gemini.rest_api.app`), not only on startup: a worker can die while the API
-stays up. PENDING jobs are never reaped. They are waiting in the queue,
-and with one worker per job type a queue behind a multi-hour ODM run is
-normal; failing them as "orphaned" was wrong.
+The REST API runs the reaper on startup and then every
+GEMINI_JOB_REAPER_INTERVAL_SECONDS, since a worker can die at any time,
+not only when the whole stack restarts. The signal is `updated_at`:
+workers bump it on every progress event and, while process() runs, with a
+heartbeat (`touch_running_job`), so a job whose worker is alive always has
+a fresh value even during a long step that reports no progress. Anything
+older than the threshold cannot have a live worker behind it.
+PENDING jobs are never reaped: they are waiting in the queue, and with one
+worker per job type a queue behind a multi-hour ODM run is normal.
 """
 from typing import List, Tuple
 
@@ -26,24 +25,29 @@ from gemini.db.core.base import db_engine
 
 logger = logging.getLogger(__name__)
 
-# How often a worker bumps its running job. The reaper threshold must be
-# several multiples of this.
-HEARTBEAT_INTERVAL_SECONDS = 30
+def touch_running_job(job_id: str) -> bool:
+    """Record that a RUNNING job's worker is still alive.
 
+    Only bumps updated_at; the status is never changed, so a heartbeat that
+    arrives after a cancel (or after the reaper gave up on the job) can't
+    bring the job back.
 
-def touch_job(job_id: str) -> bool:
-    """Heartbeat: bump a RUNNING job's updated_at. False if it isn't RUNNING."""
+    Returns:
+        True if the job is RUNNING and was touched, False otherwise.
+    """
     with db_engine.get_session() as session:
-        result = session.execute(
+        touched = session.execute(
             text(
                 """
-                UPDATE gemini.jobs SET updated_at = NOW()
+                UPDATE gemini.jobs
+                SET updated_at = NOW()
                 WHERE id = :job_id AND status = 'RUNNING'
+                RETURNING id
                 """
             ),
             {"job_id": job_id},
-        )
-        return result.rowcount > 0
+        ).first()
+    return touched is not None
 
 
 def reap_orphaned_jobs(stale_after_seconds: int) -> List[Tuple[str, str]]:

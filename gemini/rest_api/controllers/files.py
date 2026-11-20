@@ -2,8 +2,11 @@ import io
 import re
 import hashlib
 import logging
+import shutil
+import tempfile
 import threading
 import time
+from datetime import timedelta
 
 from litestar import Response
 from litestar.handlers import get, post, patch, delete
@@ -326,6 +329,50 @@ def _gps_dms_to_decimal(dms, ref) -> float | None:
     return decimal
 
 
+# EXIF (including GPS) sits in the first few KB of a JPEG and in the first
+# IFD of a typical TIFF; never pull a whole multi-GB orthomosaic for it.
+EXIF_HEAD_BYTES = 256 * 1024
+
+# Thumbnails decode the full raster, so refuse sources bigger than this
+# rather than risk the single API process being OOM-killed.
+THUMBNAIL_MAX_SOURCE_BYTES = 256 * 1024 * 1024
+
+
+# A TIFF's IFDs can sit anywhere: past the head, read the whole file only
+# when it's small (a drone frame, not an orthomosaic).
+_EXIF_TIFF_FULL_READ_MAX_BYTES = 64 * 1024 * 1024
+
+
+def _read_image_gps(bucket: str, object_name: str) -> dict:
+    """GPS from the head of an image in MinIO; ``{}`` when it has none.
+
+    Reads only the first ``EXIF_HEAD_BYTES`` (EXIF sits at the start of a
+    JPEG); a small TIFF whose tags lie further in is read whole. Raises if
+    MinIO can't be read, so callers can tell "no GPS" (worth caching) from a
+    transient failure (not worth caching).
+    """
+    resp = minio_storage_provider.client.get_object(
+        bucket_name=bucket, object_name=object_name, offset=0, length=EXIF_HEAD_BYTES,
+    )
+    try:
+        head = resp.read()
+    finally:
+        resp.close()
+        resp.release_conn()
+    gps = _extract_image_gps(head)
+    if gps is not None or len(head) < EXIF_HEAD_BYTES or not object_name.lower().endswith((".tif", ".tiff")):
+        return gps or {}
+    size = minio_storage_provider.get_file_metadata(object_name=object_name, bucket_name=bucket)["size"]
+    if size > _EXIF_TIFF_FULL_READ_MAX_BYTES:
+        return {}
+    stream = minio_storage_provider.download_file_stream(object_name=object_name, bucket_name=bucket)
+    try:
+        return _extract_image_gps(stream.read()) or {}
+    finally:
+        stream.close()
+        stream.release_conn()
+
+
 def _extract_image_gps(blob: bytes) -> dict | None:
     """Extract {lat, lon, alt} from an image's EXIF GPS tags.
 
@@ -360,44 +407,6 @@ def _extract_image_gps(blob: bytes) -> dict | None:
         return {"lat": lat, "lon": lon, "alt": alt}
     except Exception:
         return None
-
-
-# EXIF sits at the start of a JPEG (APP1, at most 64 KB), so GPS is read
-# from a ranged GET instead of downloading the image: finalizing an upload
-# used to pull the whole object into the API's memory, multi-GB for an
-# orthomosaic .tif.
-_EXIF_HEADER_BYTES = 256 * 1024
-# A TIFF's IFDs can sit anywhere; past the header, read the whole file only
-# when it's small (a drone frame, not an orthomosaic).
-_EXIF_TIFF_FULL_READ_MAX_BYTES = 64 * 1024 * 1024
-
-
-def _read_image_gps(bucket: str, object_name: str) -> dict | None:
-    """EXIF GPS for an image in MinIO, reading as little of it as possible."""
-    head = minio_storage_provider.download_file_range(
-        object_name=object_name,
-        offset=0,
-        length=_EXIF_HEADER_BYTES,
-        bucket_name=bucket,
-    )
-    gps = _extract_image_gps(head)
-    if gps is not None or len(head) < _EXIF_HEADER_BYTES:
-        return gps
-    if not object_name.lower().endswith((".tif", ".tiff")):
-        return None
-    size = minio_storage_provider.get_file_metadata(
-        object_name=object_name, bucket_name=bucket
-    )["size"]
-    if size > _EXIF_TIFF_FULL_READ_MAX_BYTES:
-        return None
-    stream = minio_storage_provider.download_file_stream(
-        object_name=object_name, bucket_name=bucket
-    )
-    try:
-        return _extract_image_gps(stream.read())
-    finally:
-        stream.close()
-        stream.release_conn()
 
 
 def _synced_positions(bucket: str, images_prefix: str) -> dict:
@@ -598,6 +607,13 @@ def plot_image_files(list_folder, root: str, workers: int = 16) -> list:
             images = [f for _, f in best.values()]
         out.extend(images)
     return sorted(out, key=lambda f: f["object_name"])
+
+def _thumbnail_too_large(detail: str) -> Response:
+    return Response(
+        content=RESTAPIError(error="Image too large for a thumbnail", error_description=detail),
+        status_code=413,
+    )
+
 
 class FileController(Controller):
 
@@ -1464,6 +1480,7 @@ class FileController(Controller):
             url = minio_storage_provider.get_download_url(
                 object_name=object_name,
                 bucket_name=bucket_name,
+                expires=timedelta(seconds=expires_seconds),
             )
             return PresignedUrlResponse(url=url, expires_in_seconds=expires_seconds)
         except Exception as e:
@@ -1711,14 +1728,37 @@ class FileController(Controller):
                     headers={"Cache-Control": "public, max-age=86400"},
                 )
 
-            # Generate thumbnail
+            source_size = (minio_storage_provider.get_file_metadata(
+                object_name=object_name, bucket_name=bucket_name
+            ) or {}).get("size") or 0
+            if source_size > THUMBNAIL_MAX_SOURCE_BYTES:
+                return _thumbnail_too_large(
+                    f"Source is {source_size} bytes; thumbnails are only made "
+                    f"for files up to {THUMBNAIL_MAX_SOURCE_BYTES} bytes"
+                )
+
+            # Generate thumbnail. Spool the source to disk past 16 MB
+            # instead of holding it all in memory.
             file_stream = minio_storage_provider.download_file_stream(
                 object_name=object_name, bucket_name=bucket_name
             )
-            img = PILImage.open(io.BytesIO(file_stream.read()))
-            # JPEG: decode at 1/2–1/8 scale instead of full resolution.
-            img.draft("RGB", (size, size))
-            img.thumbnail((size, size), PILImage.LANCZOS)
+            source = tempfile.SpooledTemporaryFile(max_size=16 * 1024 * 1024)
+            try:
+                shutil.copyfileobj(file_stream, source, 1024 * 1024)
+            finally:
+                file_stream.close()
+                file_stream.release_conn()
+            source.seek(0)
+            try:
+                img = PILImage.open(source)
+                # JPEGs can be decoded straight at a reduced scale.
+                img.draft("RGB", (size, size))
+                # thumbnail() loads the pixels, so the spool can go after.
+                img.thumbnail((size, size), PILImage.LANCZOS)
+            except PILImage.DecompressionBombError as e:
+                return _thumbnail_too_large(str(e))
+            finally:
+                source.close()
 
             # Convert to WebP
             thumb_buffer = io.BytesIO()

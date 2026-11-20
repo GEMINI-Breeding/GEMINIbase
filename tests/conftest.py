@@ -94,9 +94,10 @@ _test_env = {
 for key, value in _test_env.items():
     os.environ[key] = value
 
-# JWT guard is a no-op when GEMINI_JWT_SECRET is empty (see
-# gemini/rest_api/guards.py). Tests don't authenticate, so disable it.
+# Tests don't authenticate, so opt out of per-user auth explicitly (an empty
+# secret alone makes the guard answer 503; see gemini/rest_api/guards.py).
 os.environ["GEMINI_JWT_SECRET"] = ""
+os.environ["GEMINI_AUTH_DISABLED"] = "true"
 
 # ============================================================
 # PHASE 3: Patch MinIO client before api/base.py is imported

@@ -311,7 +311,7 @@ def _plot_accessions(plot_ids: set[str]) -> dict[str, str]:
     accession, else the label its field design gave it (kept in the plot's
     saved properties). Trait extraction records are linked to the plot only,
     and a design's labels need not exist as accessions, so without this the
-    table's Accession column stayed empty (Interspecific Kearney 2022)."""
+    table's Accession column stayed empty."""
     if not plot_ids:
         return {}
     from sqlalchemy import select as _select

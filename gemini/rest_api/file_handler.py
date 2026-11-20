@@ -1,7 +1,12 @@
 import os
-import re
+import shutil
 import uuid
+from contextlib import contextmanager, suppress
+from typing import Iterator, Optional
+
 from litestar.datastructures import UploadFile
+
+UPLOAD_COPY_CHUNK_SIZE = 1024 * 1024
 
 class RESTAPIFileHandler:
 
@@ -16,23 +21,36 @@ class RESTAPIFileHandler:
         if not os.path.exists(self.downloads_folder):
             os.makedirs(self.downloads_folder)
 
-    async def create_file(self, uploaded_file: UploadFile) -> str:
-        """Save an upload under a fresh name in the uploads folder.
+    def save_upload(self, uploaded_file: UploadFile) -> str:
+        """Copy an upload to a new file in the uploads folder and return its path.
 
-        The client's filename is never part of the path: it used to be
-        joined in as-is, so ``../../app/x.py`` or an absolute path wrote
-        anywhere the API could, and two uploads with the same name
-        overwrote each other. Only its extension is kept — the record
-        code derives the storage key's extension from it.
+        The file gets a random name so concurrent uploads of the same filename
+        can't overwrite each other, and a client-supplied name like
+        ``../../x`` can't write outside the folder. Only the extension is
+        kept: record processing builds the MinIO object key from it.
         """
-        ext = os.path.splitext(os.path.basename(uploaded_file.filename or ""))[1]
-        if not re.fullmatch(r"\.[A-Za-z0-9]{1,16}", ext):
-            ext = ""
-        file_content = await uploaded_file.read()
-        local_file_path = os.path.join(self.uploads_folder, f"{uuid.uuid4().hex}{ext}")
+        extension = os.path.splitext(os.path.basename(uploaded_file.filename or ""))[1]
+        local_file_path = os.path.join(self.uploads_folder, f"{uuid.uuid4().hex}{extension}")
+        uploaded_file.file.seek(0)
         with open(local_file_path, "wb") as f:
-            f.write(file_content)
+            shutil.copyfileobj(uploaded_file.file, f, UPLOAD_COPY_CHUNK_SIZE)
         return os.path.abspath(local_file_path)
+
+    @contextmanager
+    def saved_upload(self, uploaded_file: Optional[UploadFile]) -> Iterator[Optional[str]]:
+        """Save ``uploaded_file`` for the duration of the block, then delete it.
+
+        Yields None when there is no upload.
+        """
+        if uploaded_file is None:
+            yield None
+            return
+        local_file_path = self.save_upload(uploaded_file)
+        try:
+            yield local_file_path
+        finally:
+            with suppress(FileNotFoundError):
+                os.remove(local_file_path)
 
 # Create a File Handler for uploads and downloads
 home_dir = os.path.expanduser("~")

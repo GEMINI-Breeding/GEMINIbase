@@ -313,3 +313,50 @@ class TestRecordPagination:
                 site_name="Davis",
             )
         assert TraitRecordModel.count() == 5
+
+
+# ============================================================
+# Bulk insert with rows that omit different columns
+# ============================================================
+
+class TestBulkInsertMixedColumns:
+    """The *_record.insert() helpers drop None fields per row, so the rows
+    handed to insert_bulk can carry different keys. Every row's values
+    must still land, whichever row happens to come first."""
+
+    def _row(self, minute, **extra):
+        row = {
+            "timestamp": datetime(2024, 6, 15, 10, minute, 0),
+            "collection_date": date(2024, 6, 15),
+            "trait_name": "Height",
+            "dataset_name": "Mixed Keys",
+            "experiment_name": "Mixed Exp",
+            "season_name": "2024",
+            "site_name": "Davis",
+        }
+        row.update(extra)
+        return row
+
+    def test_later_rows_keep_columns_missing_from_first_row(self, setup_real_db):
+        from gemini.db.models.columnar.trait_records import TraitRecordModel
+        rows = [
+            self._row(0),
+            self._row(1, trait_value=5.2),
+            self._row(2, trait_value=6.1),
+        ]
+        ids = TraitRecordModel.insert_bulk(constraint="trait_records_unique", data=rows)
+        assert len(ids) == 3
+        # Row 0 left trait_value out, so it takes the column default (0.0).
+        values = sorted(
+            r.trait_value for r in TraitRecordModel.search(dataset_name="Mixed Keys")
+        )
+        assert values == pytest.approx([0.0, 5.2, 6.1])
+
+    def test_later_rows_may_omit_columns_the_first_row_has(self, setup_real_db):
+        from gemini.db.models.columnar.trait_records import TraitRecordModel
+        rows = [
+            self._row(0, trait_value=5.2),
+            self._row(1),
+        ]
+        ids = TraitRecordModel.insert_bulk(constraint="trait_records_unique", data=rows)
+        assert len(ids) == 2

@@ -28,16 +28,20 @@ def _jpeg_with_gps(pixels: int = 1500) -> bytes:
 
 def _provider(blobs: dict) -> MagicMock:
     p = MagicMock()
-    p.download_file_range.side_effect = (
-        lambda object_name, offset, length, bucket_name: blobs[object_name][offset : offset + length]
-    )
+
+    def get_object(bucket_name, object_name, offset, length):
+        resp = MagicMock()
+        resp.read.return_value = blobs[object_name][offset : offset + length]
+        return resp
+
+    p.client.get_object.side_effect = get_object
     p.get_file_metadata.side_effect = lambda object_name, bucket_name: {"size": len(blobs[object_name])}
     return p
 
 
 def test_gps_comes_from_the_header_of_a_large_jpeg():
     blob = _jpeg_with_gps()
-    assert len(blob) > files._EXIF_HEADER_BYTES * 2
+    assert len(blob) > files.EXIF_HEAD_BYTES * 2
     p = _provider({"a.jpg": blob})
     with patch(PROVIDER, p):
         gps = files._read_image_gps("b", "a.jpg")
@@ -46,10 +50,10 @@ def test_gps_comes_from_the_header_of_a_large_jpeg():
 
 
 def test_large_tiff_without_gps_in_the_header_is_not_downloaded():
-    p = _provider({"ortho.tif": b"\0" * files._EXIF_HEADER_BYTES})
+    p = _provider({"ortho.tif": b"\0" * files.EXIF_HEAD_BYTES})
     p.get_file_metadata.side_effect = lambda **kw: {"size": 3 * 1024**3}
     with patch(PROVIDER, p):
-        assert files._read_image_gps("b", "ortho.tif") is None
+        assert files._read_image_gps("b", "ortho.tif") == {}
     p.download_file_stream.assert_not_called()
 
 
@@ -78,12 +82,12 @@ def test_no_gps_is_cached_and_cached_misses_are_not_reread():
     plain = io.BytesIO()
     Image.new("RGB", (10, 10)).save(plain, format="JPEG")
     p = _provider({"Raw/x/Images/nogps.jpg": plain.getvalue()})
-    rows = [SimpleNamespace(object_name="Raw/x/Images/checked.jpg", metadata_json={"gps": None})]
+    rows = [SimpleNamespace(object_name="Raw/x/Images/checked.jpg", metadata_json={"gps": {}})]
     resp, updates = _call_image_gps(p, rows)
     # Only the never-checked image was read, and its miss was cached.
-    read = [c.kwargs["object_name"] for c in p.download_file_range.call_args_list]
+    read = [c.kwargs["object_name"] for c in p.client.get_object.call_args_list]
     assert read == ["Raw/x/Images/nogps.jpg"]
     assert updates == [
-        {"bucket": "gemini", "object_name": "Raw/x/Images/nogps.jpg", "patch": {"gps": None}}
+        {"bucket": "gemini", "object_name": "Raw/x/Images/nogps.jpg", "patch": {"gps": {}}}
     ]
     assert [i.name for i in resp.images] == ["nogps.jpg", "checked.jpg"]

@@ -56,18 +56,23 @@ class GEMINISettings(BaseSettings):
     GEMINI_API_KEY : str = ""
     GEMINI_CORS_ORIGINS : str = "*"
 
-    # Orphaned-job reaper. Every GEMINI_JOB_REAPER_INTERVAL_SECONDS the REST
-    # API marks RUNNING jobs whose updated_at is older than the threshold as
-    # FAILED: running workers heartbeat every 30 s (gemini.api.job_reaper), so
-    # a stale job's worker was killed mid-process() (app quit, OOM, container
-    # crash). Set the threshold to 0 to disable.
+    # Orphaned-job reaper. On REST-API startup, and then every
+    # GEMINI_JOB_REAPER_INTERVAL_SECONDS, RUNNING jobs whose updated_at is older
+    # than the threshold are marked FAILED: running workers heartbeat (every
+    # GEMINI_WORKER_HEARTBEAT_SECONDS, default 60), so a stale job's worker was
+    # killed mid-process() (app quit, OOM, container crash). PENDING jobs are
+    # never reaped: they are waiting for a worker. Set the threshold to 0 to
+    # disable; an interval of 0 sweeps on startup only.
     GEMINI_JOB_REAPER_STALE_AFTER_SECONDS : int = 600
-    GEMINI_JOB_REAPER_INTERVAL_SECONDS : int = 60
+    GEMINI_JOB_REAPER_INTERVAL_SECONDS : float = 60
 
     # JWT Auth
-    # When GEMINI_JWT_SECRET is empty, auth is disabled (endpoints that depend
-    # on CurrentUser return 503 with a clear message). Rotate in production.
+    # `geminibase setup` generates GEMINI_JWT_SECRET when it's empty. If the
+    # REST API still starts without one, protected endpoints answer 503
+    # rather than running open, unless GEMINI_AUTH_DISABLED is set: that is
+    # the only way to turn per-user auth off. Rotate in production.
     GEMINI_JWT_SECRET : str = ""
+    GEMINI_AUTH_DISABLED : bool = False
     GEMINI_JWT_ALGORITHM : str = "HS256"
     GEMINI_JWT_ACCESS_TOKEN_EXPIRE_MINUTES : int = 60 * 24 * 8  # 8 days
 

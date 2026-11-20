@@ -61,14 +61,17 @@ jobs:
           python-version: '3.12'
           cache: pip
 
-      # MinIO runs as a step, not a service: the docker.io/minio/* repos were
-      # removed upstream, and the quay.io image needs a `server /data`
-      # command, which service containers cannot pass.
+      # MinIO runs as a step, not a service: the image needs a
+      # `server /data` command, which service containers cannot pass.
+      # docker.io/minio/* was removed and quay.io/minio now answers 401, so
+      # this is our public copy of MinIO RELEASE.2025-09-07T16-13-09Z, the
+      # same digest gemini/storage/Dockerfile builds from.
       - name: Start MinIO
         run: |
           docker run -d --name minio -p 19000:9000 \
             -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
-            quay.io/minio/minio:latest server /data
+            ghcr.io/gemini-breeding/geminibase-storage@sha256:0550d8f045ad5e2e78bc4570d7cb157ab1508c52e0c7a3edb2e53208f3e2854e \
+            server /data
           for i in $(seq 1 30); do
             curl -sf http://localhost:19000/minio/health/live && exit 0
             sleep 2

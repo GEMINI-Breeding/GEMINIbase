@@ -5,7 +5,7 @@ from litestar import Litestar, Router, get, Response
 from litestar.openapi.config import OpenAPIConfig
 from litestar.openapi.plugins import StoplightRenderPlugin
 from litestar.config.cors import CORSConfig
-from gemini.api.job_reaper import HEARTBEAT_INTERVAL_SECONDS, reap_orphaned_jobs
+from gemini.api.job_reaper import reap_orphaned_jobs
 from gemini.rest_api.controllers import controllers
 from gemini.rest_api.auth import create_api_key_middleware
 from gemini.rest_api.guards import authenticated_guard
@@ -112,7 +112,7 @@ for key, value in controllers.items():
         route_handlers=[value],
         tags=[key.replace("_", " ").title()],
         # Every controller router inherits the JWT-bearer guard. The guard
-        # is a no-op when GEMINI_JWT_SECRET is empty, and its own path
+        # is a no-op only when GEMINI_AUTH_DISABLED is set, and its own path
         # whitelist keeps /login, /signup, and health checks open so
         # unauthenticated clients can bootstrap.
         guards=[authenticated_guard],
@@ -120,42 +120,59 @@ for key, value in controllers.items():
     routers.append(router)
 
 
-def _reap_once() -> None:
-    from gemini.rest_api.controllers.jobs import _publish_job_event
+def _reap_orphaned_jobs_once() -> None:
+    """Sweep stale PENDING/RUNNING jobs.
 
-    reaped = reap_orphaned_jobs(settings.GEMINI_JOB_REAPER_STALE_AFTER_SECONDS)
-    for job_id, _job_type in reaped:
-        # Open job views (WebSocket subscribers) see the failure now instead
-        # of spinning on their last progress frame.
-        _publish_job_event(job_id, "FAILED", {"error_message": "Interrupted: the worker stopped responding."})
-
-
-async def _job_reaper_loop() -> None:
-    """Fail RUNNING jobs whose worker stopped heartbeating, every interval.
-
-    The first sweep waits a few heartbeats: after the API itself was down,
-    live workers need a moment to heartbeat again before their jobs look
-    stale. Errors are logged, never raised — a reaper failure must not take
-    the API down.
+    Wrapped so a reaper failure can never prevent the REST-API from starting
+    or stop later sweeps — a stale job left RUNNING is annoying, but a
+    REST-API that won't boot is catastrophic.
     """
-    await asyncio.sleep(HEARTBEAT_INTERVAL_SECONDS * 4)
+    try:
+        reaped = reap_orphaned_jobs(settings.GEMINI_JOB_REAPER_STALE_AFTER_SECONDS)
+    except Exception as exc:
+        logger.warning("Orphaned-job reaper failed: %s", exc)
+        return
+    if reaped:
+        from gemini.rest_api.controllers.jobs import _publish_job_event
+
+        for job_id, _job_type in reaped:
+            # Open job views (WebSocket subscribers) see the failure now
+            # instead of spinning on their last progress frame.
+            try:
+                _publish_job_event(job_id, "FAILED", {"error_message": "Interrupted: the worker stopped responding."})
+            except Exception as exc:
+                logger.warning("Could not announce reaped job %s: %s", job_id, exc)
+
+
+async def _reap_orphaned_jobs_periodically(interval: float) -> None:
     while True:
-        try:
-            await asyncio.to_thread(_reap_once)
-        except Exception as exc:
-            logger.warning("Orphaned-job reaper failed: %s", exc)
-        await asyncio.sleep(max(10, settings.GEMINI_JOB_REAPER_INTERVAL_SECONDS))
+        await asyncio.sleep(interval)
+        await asyncio.to_thread(_reap_orphaned_jobs_once)
 
 
 def _start_job_reaper(app: Litestar) -> None:
-    if settings.GEMINI_JOB_REAPER_STALE_AFTER_SECONDS > 0:
-        app.state.job_reaper = asyncio.get_running_loop().create_task(_job_reaper_loop())
+    """Sweep on boot, then keep sweeping: a worker can die at any time.
+
+    The boot sweep finishes before the app serves requests; later sweeps
+    run in the background.
+    """
+    _reap_orphaned_jobs_once()
+    interval = settings.GEMINI_JOB_REAPER_INTERVAL_SECONDS
+    if interval > 0:
+        app.state.job_reaper_task = asyncio.get_running_loop().create_task(
+            _reap_orphaned_jobs_periodically(interval)
+        )
 
 
-def _stop_job_reaper(app: Litestar) -> None:
-    task = getattr(app.state, "job_reaper", None)
-    if task is not None:
-        task.cancel()
+async def _stop_job_reaper(app: Litestar) -> None:
+    task = getattr(app.state, "job_reaper_task", None)
+    if task is None:
+        return
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
 
 
 # Entry point for the application

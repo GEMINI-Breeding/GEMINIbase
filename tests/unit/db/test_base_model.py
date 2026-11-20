@@ -239,11 +239,14 @@ class TestDelete:
         mock_session.merge.assert_called_once_with(instance)
         mock_session.delete.assert_called_once_with(mock_session.merge.return_value)
 
-    def test_delete_returns_false_on_exception(self, mock_db_engine):
+    def test_delete_raises_on_exception(self, mock_db_engine):
+        # Callers ignore the return value, so a failure must not look like
+        # a normal return: it has to reach the caller's except clause.
         _, mock_session = mock_db_engine
         mock_session.delete.side_effect = Exception("db error")
         instance = MagicMock()
-        assert FakeModel.delete(instance) is False
+        with pytest.raises(Exception, match="db error"):
+            FakeModel.delete(instance)
 
 
 class TestAll:
@@ -601,3 +604,37 @@ class TestColumnarBaseModel:
         result = FakeColumnarModel.all(limit=5)
         assert len(result) == 5
         mock_session.execute.assert_called_once()
+
+
+class TestAsyncGetOrCreateRace:
+    """async_get_or_create when a concurrent insert wins between lookup and insert."""
+
+    async def test_returns_row_created_by_other_writer(self):
+        from sqlalchemy.exc import IntegrityError
+
+        existing = MagicMock()
+        lookups = iter([None, existing])
+
+        async def lookup(**kwargs):
+            return next(lookups)
+
+        async def create(**kwargs):
+            raise IntegrityError("INSERT", {}, Exception("duplicate key"))
+
+        with patch.object(FakeModel, "async_get_by_parameters", side_effect=lookup), \
+             patch.object(FakeModel, "async_create", side_effect=create):
+            assert await FakeModel.async_get_or_create(name="a") is existing
+
+    async def test_reraises_when_row_still_missing(self):
+        from sqlalchemy.exc import IntegrityError
+
+        async def lookup(**kwargs):
+            return None
+
+        async def create(**kwargs):
+            raise IntegrityError("INSERT", {}, Exception("fk violation"))
+
+        with patch.object(FakeModel, "async_get_by_parameters", side_effect=lookup), \
+             patch.object(FakeModel, "async_create", side_effect=create):
+            with pytest.raises(IntegrityError):
+                await FakeModel.async_get_or_create(name="a")
